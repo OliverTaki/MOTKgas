@@ -35,6 +35,14 @@
   <!-- ── Table ── -->
   <div id="tableWrap">Loading…</div>
 
+  <!-- ── Status / Pagination ── -->
+  <div id="statusBar">
+    <span id="stat"></span>        <!-- 左にステータス -->
+    <select id="perPage"></select> <!-- 中央に「per page」 -->
+    <button id="prevPg">◀</button> <!-- 右端にページネーション -->
+    <button id="nextPg">▶</button>
+  </div>
+
   <!-- ダイアログ HTML とメイン JS を inline include -->
   <?!= include('sortFilter'); ?>
   <?!= include('viewer'); ?>

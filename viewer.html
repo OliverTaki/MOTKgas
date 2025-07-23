@@ -1,130 +1,102 @@
 <script>
-/* ---------- state ---------- */
-var colIDs=[], header=[], originalRows=[], viewRows=[];
-var fieldTypeMap={}, idMaps={};
-var isResizing=false;
-var DRIVE_PREFIX="https://drive.google.com/";
+/* -------- state -------- */
+const pageSizeOpts=[50,100,200,500];
+let sheet='Shots', ids=[], header=[], totalRows=0;
+let fieldType={}, idMaps={};
+let curPage=1, pageSize=100, isResizing=false;
 
-/* ---------- boot ---------- */
-function boot(){
-  var page = new URLSearchParams(location.search).get('page') || 'Shots';
+/* -------- boot -------- */
+(function(){
+  sheet = new URLSearchParams(location.search).get('page') || 'Shots';
 
-  google.script.run.withSuccessHandler(function(d){
-    colIDs=d[0];header=d[1];originalRows=d.slice(2);viewRows=originalRows.slice();
-    google.script.run.withSuccessHandler(function(meta){
-      meta.forEach(function(m){fieldTypeMap[m.id]=m.type;});
-      google.script.run.withSuccessHandler(function(maps){
-        idMaps=maps; drawTable(); bindToolbar();
+  // 1) メタ
+  google.script.run.withSuccessHandler(m=>{
+    ids=m.ids; header=m.header; totalRows=m.rows;
+    // 2) FIELD
+    google.script.run.withSuccessHandler(meta=>{
+      meta.forEach(o=>fieldType[o.id]=o.type);
+      // 3) ID マップ
+      google.script.run.withSuccessHandler(maps=>{
+        idMaps=maps; initUI(); fetchPage();
       }).getIdMaps();
     }).getFieldMeta();
-  }).getTable(page);
-}
-boot();
+  }).getMeta(sheet);
+})();
 
-/* ---------- toolbar ---------- */
-function bindToolbar(){
-  document.getElementById("btnSort").onclick=openSortDlg;
-  document.getElementById("btnFilter").onclick=openFilterDlg;
-  document.getElementById("btnReset").onclick=function(){
-    viewRows=originalRows.slice(); drawTable();
+/* -------- UI 初期化 -------- */
+function initUI(){
+  // ページサイズセレクト
+  const sel=document.getElementById('perPage');
+  pageSizeOpts.forEach(v=>{
+    const opt=document.createElement('option');
+    opt.value=v; opt.textContent=`${v}/p`; if(v===pageSize)opt.selected=true;
+    sel.appendChild(opt);
+  });
+  sel.onchange=e=>{pageSize=parseInt(e.target.value);curPage=1;fetchPage();};
+
+  // ナビボタン
+  document.getElementById('prevPg').onclick=_=>{if(curPage>1){curPage--;fetchPage();}};
+  document.getElementById('nextPg').onclick=_=>{
+    if(curPage<Math.ceil(totalRows/pageSize)){curPage++;fetchPage();}
+  };
+
+  document.getElementById('btnSort').onclick=_=>alert('Sort UI TODO');
+  document.getElementById('btnFilter').onclick=_=>alert('Filter UI TODO');
+  document.getElementById('btnReset').onclick=_=>{curPage=1;fetchPage();};
+}
+
+/* -------- データ取得 -------- */
+function fetchPage(){
+  const offset=(curPage-1)*pageSize;
+  google.script.run.withSuccessHandler(drawTable).getPage(sheet, offset, pageSize);
+}
+
+/* -------- テーブル描画 -------- */
+function drawTable(rows){
+  const tbl=document.createElement('table');
+  const thead=tbl.createTHead(),hrow=thead.insertRow();
+  header.forEach((h,i)=>{
+    const th=document.createElement('th');
+    th.textContent=h; th.draggable=(i!==0); addResizer(th); hrow.appendChild(th);
+  });
+
+  const tbody=tbl.createTBody();
+  rows.forEach(r=>{
+    const tr=tbody.insertRow();
+    r.forEach((cell,ci)=>{
+      const td=tr.insertCell();
+      td.textContent=(cell??'');
+      // TODO: ID→NAME 置換 & Drive サムネは後続で
+    });
+  });
+
+  document.getElementById('tableWrap').innerHTML=''; document.getElementById('tableWrap').appendChild(tbl);
+  updateStatus();
+  enableDnD(tbl);
+}
+
+/* -------- ステータス -------- */
+function updateStatus(){
+  document.getElementById('stat').textContent=
+    `rows ${totalRows} | page ${curPage}/${Math.ceil(totalRows/pageSize)}`;
+}
+
+/* -------- DnD & resize （前回と同じ） -------- */
+function enableDnD(t){let s=null; t.querySelectorAll('th').forEach(th=>{
+  th.ondragstart=e=>{if(isResizing){e.preventDefault();return;}s=th.cellIndex;e.dataTransfer.setData('','');};
+  th.ondragover=e=>e.preventDefault();
+  th.ondrop=e=>{e.preventDefault();const d=th.cellIndex;if(s!==null&&s!==d)moveCol(t,s,d);s=null;};
+});}
+function moveCol(t,s,d){t.querySelectorAll('tr').forEach(r=>{
+  const c=r.children;r.insertBefore(c[s],d>s?c[d].nextSibling:c[d]);
+});}
+function addResizer(th){
+  const g=document.createElement('div');g.className='resizer';th.style.position='relative';th.appendChild(g);
+  let sx,sw; g.onmousedown=e=>{
+    isResizing=true;sx=e.pageX;sw=th.offsetWidth;
+    document.onmousemove=ev=>{const w=sw+(ev.pageX-sx); if(w>40)th.style.width=w+'px';};
+    document.onmouseup=_=>{document.onmousemove=document.onmouseup=null;isResizing=false;};
+    e.stopPropagation();
   };
 }
-
-/* ---------- draw table ---------- */
-function drawTable(){
-  var tbl=document.createElement("table");
-  var thead=tbl.createTHead(),hrow=thead.insertRow();
-  header.forEach(function(h,i){
-    var th=document.createElement("th");
-    th.textContent=h;th.draggable=(i!==0);addResizer(th);hrow.appendChild(th);
-  });
-
-  var tbody=tbl.createTBody();
-  viewRows.forEach(function(r){
-    var tr=tbody.insertRow();
-    r.forEach(function(cell,ci){
-      var td=tr.insertCell();
-      if(typeof cell==="string" && cell.indexOf(DRIVE_PREFIX)===0){
-        var id=extractId(cell);
-        if(cell.includes("/folders/")){
-          td.innerHTML='<a target="_blank" href="'+cell+'">open folder ↗</a>';
-        }else{
-          td.innerHTML='<img loading="lazy" class="thumb" src="https://drive.google.com/thumbnail?id='+id+'&sz=w200">';
-          td.dataset.id=id;
-        }
-      }else{
-        td.textContent=(cell??"");
-      }
-    });
-  });
-
-  var wrap=document.getElementById("tableWrap");
-  wrap.innerHTML="";wrap.appendChild(tbl);
-  hideId(); enableDnD(tbl); observeThumbs(wrap);
-}
-
-/* ---------- thumbnail click → iframe ---------- */
-function observeThumbs(container){
-  container.addEventListener("click",function(e){
-    if(e.target.classList.contains("thumb")){
-      var id=e.target.parentElement.dataset.id;
-      var ifr=document.createElement("iframe");
-      ifr.className="preview";ifr.loading="lazy";
-      ifr.src="https://drive.google.com/file/d/"+id+"/preview";
-      e.target.replaceWith(ifr);
-    }
-  });
-}
-
-/* ---------- helpers ---------- */
-function extractId(url){
-  var m=url.match(/\/d\/([^/]+)/)||url.match(/id=([^&]+)/);
-  return m?m[1]:null;
-}
-function hideId(){
-  document.querySelectorAll("table tr").forEach(function(tr){
-    if(tr.children[0])tr.children[0].style.display="none";
-  });
-}
-
-/* ---------- DnD ---------- */
-function enableDnD(table){
-  var src=null;
-  table.querySelectorAll("th").forEach(function(th){
-    th.addEventListener("dragstart",function(e){
-      if(isResizing){e.preventDefault();return;}
-      src=th.cellIndex; e.dataTransfer.setData("text/plain","");
-    });
-    th.addEventListener("dragover",function(e){e.preventDefault();});
-    th.addEventListener("drop",function(e){
-      e.preventDefault();var tgt=th.cellIndex;
-      if(src!==null&&src!==tgt){moveCol(table,src,tgt);} src=null; hideId();
-    });
-  });
-}
-function moveCol(table,src,tgt){
-  Array.prototype.forEach.call(table.rows,function(r){
-    var c=r.children; r.insertBefore(c[src], tgt>src?c[tgt].nextSibling:c[tgt]);
-  });
-}
-
-/* ---------- resize ---------- */
-function addResizer(th){
-  var g=document.createElement("div");g.className="resizer";
-  th.style.position="relative";th.appendChild(g);
-  var sx,sw;
-  g.addEventListener("mousedown",function(e){
-    isResizing=true;sx=e.pageX;sw=th.offsetWidth;
-    document.addEventListener("mousemove",mv);
-    document.addEventListener("mouseup",up);
-    e.stopPropagation();
-  });
-  function mv(e){var w=sw+(e.pageX-sx);if(w>40)th.style.width=w+"px";}
-  function up(){document.removeEventListener("mousemove",mv);
-               document.removeEventListener("mouseup",up);isResizing=false;}
-}
-
-/* ---------- Sort / Filter ダイアログ（雛形） ---------- */
-function openSortDlg(){alert("Sort UI todo");}
-function openFilterDlg(){alert("Filter UI todo");}
 </script>
