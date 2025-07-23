@@ -50,8 +50,9 @@ function getInitData(sheetName, offset, limit){
   const sh  = ss.getSheetByName(sheetName);
   const ids = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0];
   const header = sh.getRange(2,1,1,sh.getLastColumn()).getValues()[0];
-  const total  = sh.getLastRow()-2;
-  const rows   = sh.getRange(offset+3,1,limit,total<limit?total:limit,sh.getLastColumn()).getValues();
+  const total  = sh.getLastRow() - 2;                     // ← 先に行数確定
+  const num    = Math.min(limit, total - offset);         // 実際に取る行
+  const rows   = sh.getRange(offset+3, 1, num, sh.getLastColumn()).getValues();
 
   // FIELD + ID MAP を CacheService (5 分) に載せる
   const cache = CacheService.getScriptCache();

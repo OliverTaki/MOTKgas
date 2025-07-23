@@ -41,9 +41,9 @@ function buildUI(){
 
 /* ---------- fetch ---------- */
 function fetchPage(){
-  const off=(curPage-1)*pageSize;
-  const lim=(pageSize===0)?total:pageSize;
-  google.script.run.withSuccessHandler(draw).getPage(sheet,off,lim);
+  const off = (pageSize===0) ? 0 : (curPage-1)*pageSize;
+  const lim = (pageSize===0) ? total : pageSize;
+  google.script.run.withSuccessHandler(draw).getPage(sheet, off, lim);
 }
 
 /* ---------- draw ---------- */
