@@ -1,0 +1,30 @@
+<style></style>
+/* -------- ナビ 3段 & ツールバー -------- */
+#gNav,#pNav,#toolbar{
+  position:sticky;left:0;right:0;z-index:200;
+  display:flex;align-items:center;gap:12px;padding:4px 8px;
+  background:var(--th);border-bottom:1px solid var(--bd);
+}
+#gNav{top:0;height:40px;}
+#pNav{top:40px;height:32px;}
+#toolbar{top:72px;height:32px;}
+#tableWrap{position:fixed;left:0;right:0;top:104px;bottom:0;overflow:auto}
+
+/* -------- テーブル -------- */
+table{border-collapse:collapse;width:max-content;}
+th,td{padding:6px 8px;border:1px solid var(--bd);
+      white-space:normal;word-break:break-word;vertical-align:top;}
+th{position:sticky;top:0;background:var(--th);cursor:move;user-select:none;}
+.resizer{position:absolute;right:0;top:0;width:4px;height:100%;
+         cursor:col-resize;user-select:none;}
+
+/* -------- Drive プレビュー -------- */
+.drvStub{width:320px;height:180px;border:1px dashed var(--bd);
+         display:flex;align-items:center;justify-content:center;
+         font-size:10px;color:var(--fg);}
+.preview{width:320px;height:180px;border:0;margin:0;}
+
+/* -------- ダイアログ -------- */
+.modal{border:1px solid var(--bd);border-radius:6px;padding:12px;width:480px;}
+.dlgFooter{display:flex;align-items:center;margin-top:12px;}
+</script>

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <title>MOTKsheets G-Viewer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <!-- ── Global Navigation ── -->
+  <nav id="gNav">
+    <span class="logo">MOTK</span>
+    <a href="?page=dashboard">Dashboard</a>
+    <a href="?page=alltasks">All Tasks</a>
+    <a href="?page=settings">⚙ Settings</a>
+  </nav>
+
+  <!-- ── Project Navigation ── -->
+  <nav id="pNav">
+    <select id="projSelect"></select>
+    <a href="?page=SHOTS"  class="pn">SHOTS</a>
+    <a href="?page=ASSETS" class="pn">ASSETS</a>
+    <a href="?page=TASKS"  class="pn">TASKS</a>
+    <a href="?page=PM"     class="pn">PM</a>
+    <a href="?page=USERS"  class="pn">USERS</a>
+  </nav>
+
+  <!-- ── Toolbar ── -->
+  <div id="toolbar">
+    <button id="btnSort">Sort ⬍</button>
+    <button id="btnFilter">Filter ❚❚</button>
+    <button id="btnReset">Reset</button>
+  </div>
+
+  <!-- ── Table ── -->
+  <div id="tableWrap">Loading…</div>
+
+  <!-- ダイアログ HTML とメイン JS を inline include -->
+  <?!= include('sortFilter'); ?>
+  <?!= include('viewer'); ?>
+</body>
+</html>

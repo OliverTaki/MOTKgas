@@ -1,0 +1,108 @@
+<script>
+/* ====== グローバル状態 ====== */
+var colIDs=[], header=[], originalRows=[], viewRows=[];
+var fieldTypeMap={}, idMaps={};
+var sortConfig=[], filterConfig={groups:[]};
+var isResizing=false;
+var DRIVE_PREFIX="https://drive.google.com/";
+
+/* ====== 起動 ====== */
+Promise.all([
+  google.script.run.withSuccessHandler(function(d){colIDs=d[0];header=d[1];originalRows=d.slice(2);viewRows=originalRows.slice();}).getTable(),
+  google.script.run.withSuccessHandler(function(f){f.forEach(function(m){fieldTypeMap[m.id]=m.type;});}).getFieldMeta(),
+  google.script.run.withSuccessHandler(function(m){idMaps=m;}).getIdMaps()
+]).then(function(){
+  drawTable(); bindToolbar();
+});
+
+/* ====== UI  ====== */
+function bindToolbar(){
+  document.getElementById("btnSort").onclick=openSortDlg;
+  document.getElementById("btnFilter").onclick=openFilterDlg;
+  document.getElementById("btnReset").onclick=function(){viewRows=originalRows.slice();drawTable();};
+}
+
+/* ====== テーブル描画（簡易版） ====== */
+function drawTable(){
+  var tbl=document.createElement("table");
+  var thead=tbl.createTHead(), hrow=thead.insertRow();
+  header.forEach(function(h,i){
+    var th=document.createElement("th");
+    th.textContent=h; th.draggable=(i!==0); addResizer(th); hrow.appendChild(th);
+  });
+  var tbody=tbl.createTBody();
+  viewRows.forEach(function(r){
+    var tr=tbody.insertRow();
+    r.forEach(function(cell,ci){
+      var td=tr.insertCell();
+      if(typeof cell==="string" && cell.indexOf(DRIVE_PREFIX)===0){
+        var id=extractId(cell);
+        var stub=document.createElement("div");stub.className="drvStub";stub.dataset.id=id;stub.textContent="Loading…";
+        td.appendChild(stub);
+      }else{
+        td.textContent=(cell??"");
+      }
+    });
+  });
+  var w=document.getElementById("tableWrap");w.innerHTML="";w.appendChild(tbl);
+  hideId(); enableDnD(tbl); lazyPreview(w);
+}
+
+/* ====== Sort ダイアログ雛形 ====== */
+function openSortDlg(){
+  var dlg=ensureDlg(); dlg.querySelector("#dlgTitle").textContent="Sort rows";
+  dlg.querySelector("#groupsWrap").innerHTML='<select>'+header.map(function(h){return"<option>"+h+"</option>";}).join("")+'</select>'
+                                           +' <button type="button" class="dir" data-dir="asc">▲</button>';
+  dlg.showModal();
+  dlg.querySelector(".dir").onclick=function(){var b=this; b.dataset.dir=(b.dataset.dir==="asc"?"desc":"asc");b.textContent=(b.dataset.dir==="asc"?"▲":"▼");};
+  dlg.querySelector("#dlgOk").onclick=function(){
+    var sel=dlg.querySelector("select");var dir=dlg.querySelector(".dir").dataset.dir;
+    sortConfig=[{col:sel.value,dir:dir}]; applyView(); dlg.close();
+  };
+}
+
+/* ====== Filter ダイアログ雛形 ====== */
+function openFilterDlg(){
+  var dlg=ensureDlg(); dlg.querySelector("#dlgTitle").textContent="Filter rows";
+  var ops='<option>is</option><option>is not</option><option>contains</option><option>not contains</option>';
+  dlg.querySelector("#groupsWrap").innerHTML='<select class="field">'+header.map(function(h){return"<option>"+h+"</option>";}).join("")+'</select>'
+                                            +' <select class="op">'+ops+'</select>'
+                                            +' <input class="val" placeholder="value">';
+  dlg.showModal();
+  dlg.querySelector("#dlgOk").onclick=function(){
+    var f=dlg.querySelector(".field").value,op=dlg.querySelector(".op").value,val=dlg.querySelector(".val").value;
+    filterConfig={groups:[{operator:"all",clauses:[{col:f,op:op,val:val}]}]};
+    applyView(); dlg.close();
+  };
+}
+
+/* ====== 助手 ====== */
+function ensureDlg(){var t=document.getElementById("dlgTpl");if(!t.nextElementSibling){document.body.appendChild(t.content.cloneNode(true));}return document.getElementById("dlgSF");}
+function extractId(url){var m=url.match(/\/d\/([^/]+)/)||url.match(/id=([^&]+)/);return m?m[1]:null;}
+function hideId(){document.querySelectorAll("table tr").forEach(function(tr){if(tr.children[0])tr.children[0].style.display="none";});}
+
+/* ====== DnD / resize / preview 旧コード（省略してもエラーにはならないが必要なら追加） ====== */
+/* --- enableDnD / moveCol / addResizer / lazyPreview がここに入る（前メッセージ参照） --- */
+
+function applyView(){
+  /* filter (単条件) */
+  if(filterConfig.groups.length){
+    var c=filterConfig.groups[0].clauses[0],idx=header.indexOf(c.col);
+    viewRows=originalRows.filter(function(r){
+      var v=String(r[idx]).trim();
+      if(c.op==="is")return v===c.val;
+      if(c.op==="is not")return v!==c.val;
+      if(c.op==="contains")return v.indexOf(c.val)>-1;
+      if(c.op==="not contains")return v.indexOf(c.val)===-1;
+      return true;
+    });
+  }else viewRows=originalRows.slice();
+
+  /* sort (単キー) */
+  if(sortConfig.length){
+    var s=sortConfig[0],k=header.indexOf(s.col),d=(s.dir==="desc"?-1:1);
+    viewRows.sort(function(a,b){return(a[k]>b[k]?1:-1)*d;});
+  }
+  drawTable();
+}
+</script>
