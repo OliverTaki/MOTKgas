@@ -16,54 +16,42 @@ function doGet(e){
 /* ---------- Spreadsheet ID ---------- */
 const SHEET_ID = '16PYUZyI3E1CKtkeK6jokBFq7ElaVOtWIWuLMJGxxp_k';
 
-/* ---------- GAS APIs ---------- */
-
-/**
- * 指定ページのテーブルを返す  
- * @param {string=} page 例: "SHOT" / "ASSET" / … 省略時 "SHOT"
- * @return {Array<Array<any>>}
- */
+/* ---------- API: getTable ---------- */
 function getTable(page){
-  var name = page || 'SHOT';                        // デフォルト
-  var ss   = SpreadsheetApp.openById(SHEET_ID);
-  var sh   = ss.getSheetByName(name);
-  if (!sh) throw new Error('Sheet "'+name+'" not found');
+  const name = page || 'Shots';                    // ← デフォルトを Shots
+  const ss   = SpreadsheetApp.openById(SHEET_ID);
+  const sh   = ss.getSheetByName(name);
+  if(!sh) throw new Error('Sheet "'+name+'" not found');
   return sh.getDataRange().getValues();
 }
 
-/**
- * FIELD タブのメタ情報 (id, name, type) を返す
- * @return {Array<{id:string,name:string,type:string}>}
- */
+/* ---------- FIELD メタ ---------- */
 function getFieldMeta(){
-  var sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName('FIELD');
-  return sh.getDataRange().getValues().slice(1).map(function(r){
-    return {id:r[0], name:r[1], type:r[2]};
-  });
+  const sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Fields');  // ← Fields
+  return sh.getDataRange().getValues().slice(1)
+           .map(r => ({id:r[0], name:r[1], type:r[2]}));
 }
 
-/**
- * 各エンティティの id→name マップ
- * @return {Object} {shot:{}, asset:{}, task:{}, pm:{}, user:{}}
- */
+/* ---------- ID→NAME マップ ---------- */
 function getIdMaps(){
-  var maps = {shot:{}, asset:{}, task:{}, pm:{}, user:{}};
-  var ss   = SpreadsheetApp.openById(SHEET_ID);
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const maps = {shot:{},asset:{},task:{},pm:{},user:{}};
+
   [
-    ['SHOT','shot'],
-    ['ASSET','asset'],
-    ['TASK','task'],
-    ['PM','pm'],
-    ['USER','user']
-  ].forEach(function(pair){
-    var sh = ss.getSheetByName(pair[0]);
+    ['Shots','shot'],
+    ['Assets','asset'],
+    ['Tasks','task'],
+    ['ProjectMembers','pm'],
+    ['Users','user']
+  ].forEach(([tab, key])=>{
+    const sh = ss.getSheetByName(tab);
     if(!sh) return;
-    sh.getDataRange().getValues().slice(1).forEach(function(r){
-      maps[pair[1]][r[0]] = r[1];   // id -> name
-    });
+    sh.getDataRange().getValues().slice(1)
+      .forEach(r => { maps[key][r[0]] = r[1]; });
   });
   return maps;
 }
+
 
 /**
  * ビュー設定を URL キーで保存（上書き / 追加）
@@ -89,4 +77,10 @@ function getViewConfig(urlKey){
   if(!sh) return '';
   var rng = sh.createTextFinder(urlKey).findNext();
   return rng ? rng.offset(0,2).getValue() : '';
+}
+
+
+function debugSheetNames(){
+  const ss = SpreadsheetApp.openById('16PYUZyI3E1CKtkeK6jokBFq7ElaVOtWIWuLMJGxxp_k');
+  Logger.log(ss.getSheets().map(s => s.getName()));
 }

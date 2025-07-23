@@ -8,7 +8,7 @@ var DRIVE_PREFIX="https://drive.google.com/";
 
 /* ====== 起動 ====== */
 Promise.all([
-  google.script.run.withSuccessHandler(function(d){colIDs=d[0];header=d[1];originalRows=d.slice(2);viewRows=originalRows.slice();}).getTable(),
+  google.script.run.withSuccessHandler(function(d){colIDs=d[0];header=d[1];originalRows=d.slice(2);viewRows=originalRows.slice();}).getTable('Shots'),
   google.script.run.withSuccessHandler(function(f){f.forEach(function(m){fieldTypeMap[m.id]=m.type;});}).getFieldMeta(),
   google.script.run.withSuccessHandler(function(m){idMaps=m;}).getIdMaps()
 ]).then(function(){
