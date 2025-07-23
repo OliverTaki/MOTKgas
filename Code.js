@@ -44,3 +44,26 @@ function getIdMaps(){
   });
   return maps;
 }
+
+function getInitData(sheetName, offset, limit){
+  const ss  = SpreadsheetApp.openById(SID);
+  const sh  = ss.getSheetByName(sheetName);
+  const ids = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0];
+  const header = sh.getRange(2,1,1,sh.getLastColumn()).getValues()[0];
+  const total  = sh.getLastRow()-2;
+  const rows   = sh.getRange(offset+3,1,limit,total<limit?total:limit,sh.getLastColumn()).getValues();
+
+  // FIELD + ID MAP を CacheService (5 分) に載せる
+  const cache = CacheService.getScriptCache();
+  let fieldMeta = JSON.parse(cache.get('fieldMeta')||'null');
+  let idMaps    = JSON.parse(cache.get('idMaps')||'null');
+  if(!fieldMeta){
+    fieldMeta = getFieldMeta();            // 既存関数を再利用
+    cache.put('fieldMeta',JSON.stringify(fieldMeta),300);
+  }
+  if(!idMaps){
+    idMaps=getIdMaps();                    // 既存関数
+    cache.put('idMaps',JSON.stringify(idMaps),300);
+  }
+  return {ids,header,total,rows,fieldMeta,idMaps};
+}

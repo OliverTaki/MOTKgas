@@ -93,4 +93,17 @@ function addResizer(th){
    e.stopPropagation();
  };
 }
+
+(function init(){
+  sheet=new URLSearchParams(location.search).get('page')||'Shots';
+  pageSize=100;
+  google.script.run.withSuccessHandler(pkg=>{
+      ({ids,header,total}=pkg);
+      fieldType = Object.fromEntries(pkg.fieldMeta.map(o=>[o.id,o.type]));
+      idMaps    = pkg.idMaps;
+      buildUI(); drawTable(pkg.rows);      // rows は最初のページ分だけ
+  }).getInitData(sheet,0,pageSize);
+})();
+
+
 </script>
