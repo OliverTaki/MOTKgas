@@ -105,4 +105,63 @@ function applyView(){
   }
   drawTable();
 }
+
+/* ----- DnD ----- */
+function enableDnD(table){
+  var src=null;
+  table.querySelectorAll("th").forEach(function(th){
+    th.addEventListener("dragstart",function(e){
+      if(isResizing){e.preventDefault();return;}
+      src=th.cellIndex; e.dataTransfer.setData("text/plain","");
+    });
+    th.addEventListener("dragover",function(e){e.preventDefault();});
+    th.addEventListener("drop",function(e){
+      e.preventDefault();var tgt=th.cellIndex;
+      if(src!==null&&src!==tgt){moveCol(table,src,tgt);} src=null; hideId();
+    });
+  });
+}
+function moveCol(table,src,tgt){
+  Array.prototype.forEach.call(table.rows,function(r){
+    var c=r.children; r.insertBefore(c[src], tgt>src?c[tgt].nextSibling:c[tgt]);
+  });
+}
+
+/* ----- 列リサイズ ----- */
+function addResizer(th){
+  var g=document.createElement("div");g.className="resizer";
+  th.style.position="relative";th.appendChild(g);
+  var sx,sw;
+  g.addEventListener("mousedown",function(e){
+    isResizing=true;sx=e.pageX;sw=th.offsetWidth;
+    document.addEventListener("mousemove",mv);document.addEventListener("mouseup",up);
+    e.stopPropagation();
+  });
+  function mv(e){var w=sw+(e.pageX-sx);if(w>40)th.style.width=w+"px";}
+  function up(){document.removeEventListener("mousemove",mv);
+               document.removeEventListener("mouseup",up);isResizing=false;}
+}
+
+/* ----- Drive サムネ → iframe 遅延置換 ----- */
+function lazyPreview(container){
+  var io=new IntersectionObserver(function(ents){
+    ents.forEach(function(ent){
+      if(!ent.isIntersecting)return;
+      var stub=ent.target,id=stub.dataset.id;
+      var ifr=document.createElement("iframe");
+      ifr.className="preview";ifr.loading="lazy";
+      ifr.src="https://drive.google.com/file/d/"+id+"/preview";
+      ifr.onerror=function(){
+        var a=document.createElement("a");
+        a.href="https://drive.google.com/file/d/"+id+"/view";
+        a.textContent="Open";a.target="_blank";
+        stub.replaceWith(a);
+      };
+      stub.replaceWith(ifr);io.unobserve(ifr);
+    });
+  },{root:container,rootMargin:"200px"});
+  container.querySelectorAll(".drvStub").forEach(function(s){io.observe(s);});
+}
+
+
 </script>
