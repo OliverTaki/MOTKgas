@@ -1,50 +1,44 @@
 <script>
+/* ---------- state ---------- */
 var colIDs=[], header=[], originalRows=[], viewRows=[];
 var fieldTypeMap={}, idMaps={};
 var isResizing=false;
 var DRIVE_PREFIX="https://drive.google.com/";
 
-/* ====== 起動 ====== */
-function boot(page){
-  // 1) テーブル取得
+/* ---------- boot ---------- */
+function boot(){
+  var page = new URLSearchParams(location.search).get('page') || 'Shots';
+
   google.script.run.withSuccessHandler(function(d){
-    colIDs=d[0]; header=d[1]; originalRows=d.slice(2); viewRows=originalRows.slice();
-
-    // 2) FIELD メタ
+    colIDs=d[0];header=d[1];originalRows=d.slice(2);viewRows=originalRows.slice();
     google.script.run.withSuccessHandler(function(meta){
-      meta.forEach(function(m){ fieldTypeMap[m.id]=m.type; });
-
-      // 3) ID→NAME マップ
+      meta.forEach(function(m){fieldTypeMap[m.id]=m.type;});
       google.script.run.withSuccessHandler(function(maps){
-        idMaps=maps;
-
-        // 4) これで準備完了 → 描画
-        drawTable();
-        bindToolbar();
+        idMaps=maps; drawTable(); bindToolbar();
       }).getIdMaps();
-
     }).getFieldMeta();
-
-  }).getTable(page || 'Shots');   // ← デフォルトタブ
+  }).getTable(page);
 }
+boot();
 
-boot(new URLSearchParams(location.search).get('page'));
-
-/* ====== UI  ====== */
+/* ---------- toolbar ---------- */
 function bindToolbar(){
   document.getElementById("btnSort").onclick=openSortDlg;
   document.getElementById("btnFilter").onclick=openFilterDlg;
-  document.getElementById("btnReset").onclick=function(){viewRows=originalRows.slice();drawTable();};
+  document.getElementById("btnReset").onclick=function(){
+    viewRows=originalRows.slice(); drawTable();
+  };
 }
 
-/* ====== テーブル描画（簡易版） ====== */
+/* ---------- draw table ---------- */
 function drawTable(){
   var tbl=document.createElement("table");
-  var thead=tbl.createTHead(), hrow=thead.insertRow();
+  var thead=tbl.createTHead(),hrow=thead.insertRow();
   header.forEach(function(h,i){
     var th=document.createElement("th");
-    th.textContent=h; th.draggable=(i!==0); addResizer(th); hrow.appendChild(th);
+    th.textContent=h;th.draggable=(i!==0);addResizer(th);hrow.appendChild(th);
   });
+
   var tbody=tbl.createTBody();
   viewRows.forEach(function(r){
     var tr=tbody.insertRow();
@@ -52,76 +46,48 @@ function drawTable(){
       var td=tr.insertCell();
       if(typeof cell==="string" && cell.indexOf(DRIVE_PREFIX)===0){
         var id=extractId(cell);
-        var stub=document.createElement("div");stub.className="drvStub";stub.dataset.id=id;stub.textContent="Loading…";
-        td.appendChild(stub);
+        if(cell.includes("/folders/")){
+          td.innerHTML='<a target="_blank" href="'+cell+'">open folder ↗</a>';
+        }else{
+          td.innerHTML='<img loading="lazy" class="thumb" src="https://drive.google.com/thumbnail?id='+id+'&sz=w200">';
+          td.dataset.id=id;
+        }
       }else{
         td.textContent=(cell??"");
       }
     });
   });
-  var w=document.getElementById("tableWrap");w.innerHTML="";w.appendChild(tbl);
-  hideId(); enableDnD(tbl); lazyPreview(w);
+
+  var wrap=document.getElementById("tableWrap");
+  wrap.innerHTML="";wrap.appendChild(tbl);
+  hideId(); enableDnD(tbl); observeThumbs(wrap);
 }
 
-/* ====== Sort ダイアログ雛形 ====== */
-function openSortDlg(){
-  var dlg=ensureDlg(); dlg.querySelector("#dlgTitle").textContent="Sort rows";
-  dlg.querySelector("#groupsWrap").innerHTML='<select>'+header.map(function(h){return"<option>"+h+"</option>";}).join("")+'</select>'
-                                           +' <button type="button" class="dir" data-dir="asc">▲</button>';
-  dlg.showModal();
-  dlg.querySelector(".dir").onclick=function(){var b=this; b.dataset.dir=(b.dataset.dir==="asc"?"desc":"asc");b.textContent=(b.dataset.dir==="asc"?"▲":"▼");};
-  dlg.querySelector("#dlgOk").onclick=function(){
-    var sel=dlg.querySelector("select");var dir=dlg.querySelector(".dir").dataset.dir;
-    sortConfig=[{col:sel.value,dir:dir}]; applyView(); dlg.close();
-  };
+/* ---------- thumbnail click → iframe ---------- */
+function observeThumbs(container){
+  container.addEventListener("click",function(e){
+    if(e.target.classList.contains("thumb")){
+      var id=e.target.parentElement.dataset.id;
+      var ifr=document.createElement("iframe");
+      ifr.className="preview";ifr.loading="lazy";
+      ifr.src="https://drive.google.com/file/d/"+id+"/preview";
+      e.target.replaceWith(ifr);
+    }
+  });
 }
 
-/* ====== Filter ダイアログ雛形 ====== */
-function openFilterDlg(){
-  var dlg=ensureDlg(); dlg.querySelector("#dlgTitle").textContent="Filter rows";
-  var ops='<option>is</option><option>is not</option><option>contains</option><option>not contains</option>';
-  dlg.querySelector("#groupsWrap").innerHTML='<select class="field">'+header.map(function(h){return"<option>"+h+"</option>";}).join("")+'</select>'
-                                            +' <select class="op">'+ops+'</select>'
-                                            +' <input class="val" placeholder="value">';
-  dlg.showModal();
-  dlg.querySelector("#dlgOk").onclick=function(){
-    var f=dlg.querySelector(".field").value,op=dlg.querySelector(".op").value,val=dlg.querySelector(".val").value;
-    filterConfig={groups:[{operator:"all",clauses:[{col:f,op:op,val:val}]}]};
-    applyView(); dlg.close();
-  };
+/* ---------- helpers ---------- */
+function extractId(url){
+  var m=url.match(/\/d\/([^/]+)/)||url.match(/id=([^&]+)/);
+  return m?m[1]:null;
+}
+function hideId(){
+  document.querySelectorAll("table tr").forEach(function(tr){
+    if(tr.children[0])tr.children[0].style.display="none";
+  });
 }
 
-/* ====== 助手 ====== */
-function ensureDlg(){var t=document.getElementById("dlgTpl");if(!t.nextElementSibling){document.body.appendChild(t.content.cloneNode(true));}return document.getElementById("dlgSF");}
-function extractId(url){var m=url.match(/\/d\/([^/]+)/)||url.match(/id=([^&]+)/);return m?m[1]:null;}
-function hideId(){document.querySelectorAll("table tr").forEach(function(tr){if(tr.children[0])tr.children[0].style.display="none";});}
-
-/* ====== DnD / resize / preview 旧コード（省略してもエラーにはならないが必要なら追加） ====== */
-/* --- enableDnD / moveCol / addResizer / lazyPreview がここに入る（前メッセージ参照） --- */
-
-function applyView(){
-  /* filter (単条件) */
-  if(filterConfig.groups.length){
-    var c=filterConfig.groups[0].clauses[0],idx=header.indexOf(c.col);
-    viewRows=originalRows.filter(function(r){
-      var v=String(r[idx]).trim();
-      if(c.op==="is")return v===c.val;
-      if(c.op==="is not")return v!==c.val;
-      if(c.op==="contains")return v.indexOf(c.val)>-1;
-      if(c.op==="not contains")return v.indexOf(c.val)===-1;
-      return true;
-    });
-  }else viewRows=originalRows.slice();
-
-  /* sort (単キー) */
-  if(sortConfig.length){
-    var s=sortConfig[0],k=header.indexOf(s.col),d=(s.dir==="desc"?-1:1);
-    viewRows.sort(function(a,b){return(a[k]>b[k]?1:-1)*d;});
-  }
-  drawTable();
-}
-
-/* ----- DnD ----- */
+/* ---------- DnD ---------- */
 function enableDnD(table){
   var src=null;
   table.querySelectorAll("th").forEach(function(th){
@@ -142,14 +108,15 @@ function moveCol(table,src,tgt){
   });
 }
 
-/* ----- 列リサイズ ----- */
+/* ---------- resize ---------- */
 function addResizer(th){
   var g=document.createElement("div");g.className="resizer";
   th.style.position="relative";th.appendChild(g);
   var sx,sw;
   g.addEventListener("mousedown",function(e){
     isResizing=true;sx=e.pageX;sw=th.offsetWidth;
-    document.addEventListener("mousemove",mv);document.addEventListener("mouseup",up);
+    document.addEventListener("mousemove",mv);
+    document.addEventListener("mouseup",up);
     e.stopPropagation();
   });
   function mv(e){var w=sw+(e.pageX-sx);if(w>40)th.style.width=w+"px";}
@@ -157,26 +124,7 @@ function addResizer(th){
                document.removeEventListener("mouseup",up);isResizing=false;}
 }
 
-/* ----- Drive サムネ → iframe 遅延置換 ----- */
-function lazyPreview(container){
-  var io=new IntersectionObserver(function(ents){
-    ents.forEach(function(ent){
-      if(!ent.isIntersecting)return;
-      var stub=ent.target,id=stub.dataset.id;
-      var ifr=document.createElement("iframe");
-      ifr.className="preview";ifr.loading="lazy";
-      ifr.src="https://drive.google.com/file/d/"+id+"/preview";
-      ifr.onerror=function(){
-        var a=document.createElement("a");
-        a.href="https://drive.google.com/file/d/"+id+"/view";
-        a.textContent="Open";a.target="_blank";
-        stub.replaceWith(a);
-      };
-      stub.replaceWith(ifr);io.unobserve(ifr);
-    });
-  },{root:container,rootMargin:"200px"});
-  container.querySelectorAll(".drvStub").forEach(function(s){io.observe(s);});
-}
-
-
+/* ---------- Sort / Filter ダイアログ（雛形） ---------- */
+function openSortDlg(){alert("Sort UI todo");}
+function openFilterDlg(){alert("Filter UI todo");}
 </script>
