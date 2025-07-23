@@ -1,39 +1,33 @@
 <script>
-/* ---------------- state ---------------- */
-const PAGE_OPTS=[50,100,200,0];         // 0 = ALL
+const PAGE_OPTS=[50,100,200,0];
 let sheet='Shots', ids=[], header=[], total=0;
 let fieldType={}, idMaps={};
 let curPage=1, pageSize=100, isResizing=false;
 const DRIVE="https://drive.google.com/";
 
-/* ---------------- boot ---------------- */
+/* ---------- boot ---------- */
 (function(){
   sheet=new URLSearchParams(location.search).get('page')||'Shots';
-
   google.script.run.withSuccessHandler(meta=>{
     ids=meta.ids; header=meta.header; total=meta.rows;
-
     google.script.run.withSuccessHandler(fm=>{
       fm.forEach(o=>fieldType[o.id]=o.type);
-
       google.script.run.withSuccessHandler(maps=>{
         idMaps=maps; buildUI(); fetchPage();
       }).getIdMaps();
-
     }).getFieldMeta();
   }).getMeta(sheet);
 })();
 
-/* ---------------- UI once ---------------- */
+/* ---------- UI ---------- */
 function buildUI(){
   const sel=document.getElementById('perPage');
   PAGE_OPTS.forEach(v=>{
     const o=document.createElement('option');
-    o.value=v; o.textContent=(v?`${v}/p`:'ALL'); if(v===pageSize)o.selected=true;
+    o.value=v; o.textContent=v?`${v}/p`:'ALL'; if(v===pageSize)o.selected=true;
     sel.appendChild(o);
   });
   sel.onchange=e=>{pageSize=parseInt(e.target.value);curPage=1;fetchPage();};
-
   document.getElementById('prevPg').onclick=_=>{if(curPage>1){curPage--;fetchPage();}};
   document.getElementById('nextPg').onclick=_=>{
     if(pageSize===0)return;
@@ -45,84 +39,58 @@ function buildUI(){
   document.getElementById('btnReset').onclick=_=>{curPage=1;fetchPage();};
 }
 
-/* ---------------- data fetch ---------------- */
+/* ---------- fetch ---------- */
 function fetchPage(){
-  if(pageSize===0){                      // ALL
-    google.script.run.withSuccessHandler(drawTable).getPage(sheet,0,total);
-  }else{
-    const offset=(curPage-1)*pageSize;
-    google.script.run.withSuccessHandler(drawTable).getPage(sheet,offset,pageSize);
-  }
+  const off=(curPage-1)*pageSize;
+  const lim=(pageSize===0)?total:pageSize;
+  google.script.run.withSuccessHandler(draw).getPage(sheet,off,lim);
 }
 
-/* ---------------- draw ---------------- */
-function drawTable(rows){
+/* ---------- draw ---------- */
+function draw(rows){
   const tbl=document.createElement('table');
-  const thead=tbl.createTHead(),hrow=thead.insertRow();
+  const thead=tbl.createTHead(),hr=thead.insertRow();
   header.forEach((h,i)=>{
     const th=document.createElement('th');
-    th.textContent=h; th.draggable=(i!==0); addResizer(th); hrow.appendChild(th);
+    th.textContent=h; if(i)th.draggable=true; addResizer(th); hr.appendChild(th);
   });
-
   const tbody=tbl.createTBody();
   rows.forEach(r=>{
     const tr=tbody.insertRow();
-    r.forEach((cell,ci)=>{
+    r.forEach((c,ci)=>{
       const td=tr.insertCell();
-      const fieldId=ids[ci];
-      if(typeof cell==='string' && cell.startsWith(DRIVE)){
-        const id=extractId(cell);
-        td.innerHTML=`<img loading="lazy" class="thumb" src="https://drive.google.com/thumbnail?id=${id}&sz=w200">`;
+      if(typeof c==='string' && c.startsWith(DRIVE)){
+        const id=extractId(c);
+        td.innerHTML=`<img class="thumb" loading="lazy" src="https://drive.google.com/thumbnail?id=${id}&sz=w200">`;
         td.dataset.id=id;
-      }else if(idMaps.shot[cell]){       // shot_id → name link
-        td.innerHTML=`<a href="?page=Shots&id=${cell}">${idMaps.shot[cell]}</a>`;
-      }else td.textContent=(cell??'');
+      }else if(idMaps.shot[c]){ td.innerHTML=`<a href="?page=Shots&id=${c}">${idMaps.shot[c]}</a>`; }
+      else td.textContent=c??'';
     });
   });
-
-  const wrap=document.getElementById('tableWrap');
-  wrap.innerHTML=''; wrap.appendChild(tbl);
-  hideId(); enableDnD(tbl); attachPreview(wrap);
-  updateStatus();
+  const w=document.getElementById('tableWrap'); w.innerHTML=''; w.appendChild(tbl);
+  hideId(); enableDnD(tbl); previewOnClick(w); updateStat();
 }
 
-/* ---------------- status ---------------- */
-function updateStatus(){
-  const maxPg=(pageSize===0)?1:Math.ceil(total/pageSize);
-  document.getElementById('stat').textContent=`rows ${total} | page ${curPage}/${maxPg}`;
-}
-
-/* ---------------- helpers ---------------- */
+/* ---------- helpers ---------- */
 function extractId(u){const m=u.match(/\/d\/([^/]+)/)||u.match(/id=([^&]+)/);return m?m[1]:null;}
 function hideId(){document.querySelectorAll('table tr').forEach(tr=>{if(tr.children[0])tr.children[0].style.display='none';});}
+function updateStat(){const max=pageSize?Math.ceil(total/pageSize):1;document.getElementById('stat').textContent=`rows ${total} | page ${curPage}/${max}`;}
+function previewOnClick(c){c.onclick=e=>{if(e.target.classList.contains('thumb')){const id=e.target.parentElement.dataset.id;const f=document.createElement('iframe');f.className='preview';f.loading='lazy';f.src=`https://drive.google.com/file/d/${id}/preview`;e.target.replaceWith(f);}}}
 
-/* ----- img → iframe on click ----- */
-function attachPreview(c){
-  c.onclick=e=>{
-    if(e.target.classList.contains('thumb')){
-      const id=e.target.parentElement.dataset.id;
-      const ifr=document.createElement('iframe');
-      ifr.className='preview'; ifr.loading='lazy';
-      ifr.src=`https://drive.google.com/file/d/${id}/preview`;
-      e.target.replaceWith(ifr);
-    }
-  };
-}
-
-/* ----- DnD & resize (同じ) ----- */
-function enableDnD(t){let s=null; t.querySelectorAll('th').forEach(th=>{
-  th.ondragstart=e=>{if(isResizing){e.preventDefault();return;}s=th.cellIndex;e.dataTransfer.setData('','');};
-  th.ondragover=e=>e.preventDefault();
-  th.ondrop=e=>{e.preventDefault();const d=th.cellIndex;if(s!==null&&s!==d)move(t,s,d);s=null;hideId();}
+/* ---------- DnD & resize ---------- */
+function enableDnD(t){let s=null;t.querySelectorAll('th').forEach(th=>{
+ th.ondragstart=e=>{if(isResizing){e.preventDefault();return;}s=th.cellIndex;e.dataTransfer.setData('','');};
+ th.ondragover=e=>e.preventDefault();
+ th.ondrop=e=>{e.preventDefault();const d=th.cellIndex;if(s!==null&&s!==d)move(t,s,d);s=null;hideId();}
 });}
 function move(t,s,d){t.querySelectorAll('tr').forEach(r=>{const c=r.children;r.insertBefore(c[s],d>s?c[d].nextSibling:c[d]);});}
 function addResizer(th){
-  const g=document.createElement('div');g.className='resizer';th.style.position='relative';th.appendChild(g);
-  let sx,sw; g.onmousedown=e=>{
-    isResizing=true;sx=e.pageX;sw=th.offsetWidth;
-    document.onmousemove=ev=>{const w=sw+(ev.pageX-sx);if(w>40)th.style.width=w+'px';};
-    document.onmouseup=_=>{document.onmousemove=document.onmouseup=null;isResizing=false;};
-    e.stopPropagation();
-  };
+ const g=document.createElement('div');g.className='resizer';th.style.position='relative';th.appendChild(g);
+ let sx,sw;g.onmousedown=e=>{
+   isResizing=true;sx=e.pageX;sw=th.offsetWidth;
+   document.onmousemove=ev=>{const w=sw+(ev.pageX-sx);if(w>40)th.style.width=w+'px';};
+   document.onmouseup=_=>{document.onmousemove=document.onmouseup=null;isResizing=false;};
+   e.stopPropagation();
+ };
 }
 </script>
