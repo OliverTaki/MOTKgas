@@ -101,7 +101,7 @@ function addResizer(th){
       ({ids,header,total}=pkg);
       fieldType = Object.fromEntries(pkg.fieldMeta.map(o=>[o.id,o.type]));
       idMaps    = pkg.idMaps;
-      buildUI(); drawTable(pkg.rows);      // rows は最初のページ分だけ
+      buildUI(); draw(pkg.rows);      // rows は最初のページ分だけ
   }).getInitData(sheet,0,pageSize);
 })();
 
