@@ -1,19 +1,34 @@
 <script>
-/* ====== グローバル状態 ====== */
 var colIDs=[], header=[], originalRows=[], viewRows=[];
 var fieldTypeMap={}, idMaps={};
-var sortConfig=[], filterConfig={groups:[]};
 var isResizing=false;
 var DRIVE_PREFIX="https://drive.google.com/";
 
 /* ====== 起動 ====== */
-Promise.all([
-  google.script.run.withSuccessHandler(function(d){colIDs=d[0];header=d[1];originalRows=d.slice(2);viewRows=originalRows.slice();}).getTable('Shots'),
-  google.script.run.withSuccessHandler(function(f){f.forEach(function(m){fieldTypeMap[m.id]=m.type;});}).getFieldMeta(),
-  google.script.run.withSuccessHandler(function(m){idMaps=m;}).getIdMaps()
-]).then(function(){
-  drawTable(); bindToolbar();
-});
+function boot(page){
+  // 1) テーブル取得
+  google.script.run.withSuccessHandler(function(d){
+    colIDs=d[0]; header=d[1]; originalRows=d.slice(2); viewRows=originalRows.slice();
+
+    // 2) FIELD メタ
+    google.script.run.withSuccessHandler(function(meta){
+      meta.forEach(function(m){ fieldTypeMap[m.id]=m.type; });
+
+      // 3) ID→NAME マップ
+      google.script.run.withSuccessHandler(function(maps){
+        idMaps=maps;
+
+        // 4) これで準備完了 → 描画
+        drawTable();
+        bindToolbar();
+      }).getIdMaps();
+
+    }).getFieldMeta();
+
+  }).getTable(page || 'Shots');   // ← デフォルトタブ
+}
+
+boot(new URLSearchParams(location.search).get('page'));
 
 /* ====== UI  ====== */
 function bindToolbar(){
