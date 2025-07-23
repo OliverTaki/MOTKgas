@@ -1,41 +1,28 @@
 <style>
-/* テーマ */
 :root{--bg:#fff;--fg:#111;--th:#f0f0f0;--bd:#ccc;--link:#4ea3ff}
 @media(prefers-color-scheme:dark){
  :root{--bg:#1e1e1e;--fg:#e0e0e0;--th:#333;--bd:#555;--link:#71c1ff}
 }
 html,body{margin:0;padding:0;font-family:sans-serif;background:var(--bg);color:var(--fg);}
 
-/* ナビ 3 段＋ツールバー */
-#gNav,#pNav,#toolbar{
-  position:sticky;left:0;right:0;z-index:200;
-  display:flex;align-items:center;gap:12px;padding:4px 8px;
-  background:var(--th);border-bottom:1px solid var(--bd);
-}
+/* 3段ナビ + ツール */
+#gNav,#pNav,#toolbar{position:sticky;left:0;right:0;z-index:200;display:flex;align-items:center;gap:12px;padding:4px 8px;background:var(--th);border-bottom:1px solid var(--bd);}
 #gNav{top:0;height:40px;} #pNav{top:40px;height:32px;} #toolbar{top:72px;height:32px;}
 
 /* ステータスバー */
-#statusBar{
-  position:fixed;left:0;right:0;bottom:0;height:28px;z-index:190;
-  background:var(--th);border-top:1px solid var(--bd);
-  display:flex;align-items:center;gap:12px;padding:0 8px;
-  justify-content:flex-end;
-}
+#statusBar{position:fixed;left:0;right:0;bottom:0;height:28px;z-index:190;background:var(--th);border-top:1px solid var(--bd);display:flex;align-items:center;gap:12px;padding:0 8px;justify-content:flex-end;}
+#perPage{width:auto}
 
-
-/* 表領域 */
-#tableWrap{
-  position:fixed;left:0;right:0;top:136px;bottom:28px; /* 40+32+32+28 */
-  overflow:auto;
-}
+/* 表ラッパー */
+#tableWrap{position:fixed;left:0;right:0;top:136px;bottom:28px;overflow:auto;} /* 40+32+32+28 */
 
 /* テーブル */
 table{border-collapse:collapse;width:max-content;}
-th,td{padding:6px 8px;border:1px solid var(--bd);white-space:normal;word-break:break-word;vertical-align:top;}
-th{position:sticky;top:0;background:var(--th);cursor:move;user-select:none;z-index:100;}
+th,td{padding:6px 8px;border:1px solid var(--bd);vertical-align:top;white-space:normal;word-break:break-word;}
+th{position:sticky;top:0;background:var(--th);user-select:none;cursor:move;z-index:100;}
 .resizer{position:absolute;right:0;top:0;width:4px;height:100%;cursor:col-resize;user-select:none;}
 
-/* サムネイル */
+/* サムネ／プレビュー */
 .thumb,.preview{width:320px;height:180px}
 .preview{border:0;margin:0}
 
