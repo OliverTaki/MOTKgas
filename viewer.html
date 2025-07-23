@@ -1,22 +1,21 @@
 <script>
-const PAGE_OPTS=[50,100,200,0];
+/* ---------- state ---------- */
+const PAGE_OPTS=[50,100,200,0]; /* 0=ALL */
 let sheet='Shots', ids=[], header=[], total=0;
 let fieldType={}, idMaps={};
 let curPage=1, pageSize=100, isResizing=false;
 const DRIVE="https://drive.google.com/";
+let floatTbl=null;               /* ← クローンヘッダー参照 */
 
 /* ---------- boot ---------- */
 (function(){
   sheet=new URLSearchParams(location.search).get('page')||'Shots';
-  google.script.run.withSuccessHandler(meta=>{
-    ids=meta.ids; header=meta.header; total=meta.rows;
-    google.script.run.withSuccessHandler(fm=>{
-      fm.forEach(o=>fieldType[o.id]=o.type);
-      google.script.run.withSuccessHandler(maps=>{
-        idMaps=maps; buildUI(); fetchPage();
-      }).getIdMaps();
-    }).getFieldMeta();
-  }).getMeta(sheet);
+  google.script.run.withSuccessHandler(pkg=>{
+    ({ids,header,total}=pkg);
+    fieldType=Object.fromEntries(pkg.fieldMeta.map(o=>[o.id,o.type]));
+    idMaps=pkg.idMaps;
+    buildUI(); draw(pkg.rows);          /* rows は 1ページ分 */
+  }).getInitData(sheet,0,pageSize);
 })();
 
 /* ---------- UI ---------- */
@@ -27,33 +26,35 @@ function buildUI(){
     o.value=v; o.textContent=v?`${v}/p`:'ALL'; if(v===pageSize)o.selected=true;
     sel.appendChild(o);
   });
-  sel.onchange=e=>{pageSize=parseInt(e.target.value);curPage=1;fetchPage();};
-  document.getElementById('prevPg').onclick=_=>{if(curPage>1){curPage--;fetchPage();}};
+  sel.onchange=e=>{pageSize=parseInt(e.target.value);curPage=1;fetch();};
+
+  document.getElementById('prevPg').onclick=_=>{if(curPage>1){curPage--;fetch();}};
   document.getElementById('nextPg').onclick=_=>{
     if(pageSize===0)return;
-    const max=Math.ceil(total/pageSize);
-    if(curPage<max){curPage++;fetchPage();}
+    const max=Math.ceil(total/pageSize); if(curPage<max){curPage++;fetch();}
   };
   document.getElementById('btnSort').onclick=_=>alert('Sort UI TODO');
   document.getElementById('btnFilter').onclick=_=>alert('Filter UI TODO');
-  document.getElementById('btnReset').onclick=_=>{curPage=1;fetchPage();};
+  document.getElementById('btnReset').onclick=_=>{curPage=1;fetch();};
 }
 
-/* ---------- fetch ---------- */
-function fetchPage(){
-  const off = (pageSize===0) ? 0 : (curPage-1)*pageSize;
-  const lim = (pageSize===0) ? total : pageSize;
-  google.script.run.withSuccessHandler(draw).getPage(sheet, off, lim);
+/* ---------- data ---------- */
+function fetch(){
+  const off=(pageSize===0)?0:(curPage-1)*pageSize;
+  const lim=(pageSize===0)?total:pageSize;
+  google.script.run.withSuccessHandler(draw).getPage(sheet,off,lim);
 }
 
-/* ---------- draw ---------- */
+/* ---------- draw table ---------- */
 function draw(rows){
   const tbl=document.createElement('table');
   const thead=tbl.createTHead(),hr=thead.insertRow();
   header.forEach((h,i)=>{
-    const th=document.createElement('th');
-    th.textContent=h; if(i)th.draggable=true; addResizer(th); hr.appendChild(th);
+    const th=document.createElement('th'); th.textContent=h;
+    if(i)th.draggable=true;              /* ID列はドラッグ禁止 */
+    addResizer(th); hr.appendChild(th);
   });
+
   const tbody=tbl.createTBody();
   rows.forEach(r=>{
     const tr=tbody.insertRow();
@@ -61,49 +62,105 @@ function draw(rows){
       const td=tr.insertCell();
       if(typeof c==='string' && c.startsWith(DRIVE)){
         const id=extractId(c);
-        td.innerHTML=`<img class="thumb" loading="lazy" src="https://drive.google.com/thumbnail?id=${id}&sz=w200">`;
+        td.innerHTML=`<img loading="lazy" class="thumb" src="https://drive.google.com/thumbnail?id=${id}&sz=w200">`;
         td.dataset.id=id;
-      }else if(idMaps.shot[c]){ td.innerHTML=`<a href="?page=Shots&id=${c}">${idMaps.shot[c]}</a>`; }
+      }else if(idMaps.shot[c]) td.innerHTML=`<a href="?page=Shots&id=${c}">${idMaps.shot[c]}</a>`;
       else td.textContent=c??'';
     });
   });
-  const w=document.getElementById('tableWrap'); w.innerHTML=''; w.appendChild(tbl);
-  hideId(); enableDnD(tbl); previewOnClick(w); updateStat();
+
+  const wrap=document.getElementById('tableWrap');
+  wrap.innerHTML=''; wrap.appendChild(tbl);
+  hideId(); enableDnD(tbl); previewOnClick(wrap); makeFloat(tbl); updateStat();
+}
+
+/* ---------- floating header ---------- */
+function makeFloat(src){
+  if(floatTbl) floatTbl.remove();           // 古いクローン破棄
+
+  // ① クローン生成・配置
+  floatTbl = src.cloneNode(false);
+  floatTbl.className = 'floatingHead';
+  floatTbl.appendChild(src.tHead.cloneNode(true));
+  document.body.appendChild(floatTbl);
+
+  const wrap = document.getElementById('tableWrap');
+
+  // ② 幅コピー関数
+  const copyWidths = ()=>{
+    const s = src.tHead.rows[0].cells;
+    const f = floatTbl.tHead.rows[0].cells;
+    [...s].forEach((c,i)=> f[i].style.width = c.getBoundingClientRect().width + 'px');
+    floatTbl.style.left = -wrap.scrollLeft + 'px';   // 横スクロール追従
+  };
+  copyWidths();
+
+  // ③ ResizeObserver で “幅が変わった瞬間” に同期
+  const ro = new ResizeObserver(copyWidths);
+  [...src.tHead.rows[0].cells].forEach(c=>ro.observe(c));
+
+  // ④ スクロール・ウィンドウリサイズで同期
+  wrap.addEventListener('scroll', copyWidths);
+  window.addEventListener('resize', copyWidths);
+
+  // ⑤ 列リサイズ終了直後にも同期
+  document.addEventListener('mouseup', ()=>{if(isResizing)setTimeout(copyWidths,0);});
+
+  // ⑥ クローン側にも DnD / リサイズを反映（既存ロジック）
+  enableDnD(floatTbl, src);
+  floatTbl.querySelectorAll('.resizer').forEach((g,i)=>{
+    g.onmousedown = e=>{
+      isResizing=true;
+      const sx=e.pageX, sw=src.tHead.rows[0].cells[i].offsetWidth;
+      document.onmousemove = ev=>{
+        const w = Math.max(40, sw+(ev.pageX-sx));
+        [src,floatTbl].forEach(t=> t.tHead.rows[0].cells[i].style.width = w+'px');
+      };
+      document.onmouseup = _=>{document.onmousemove=document.onmouseup=null;isResizing=false;};
+      e.stopPropagation();
+    };
+  });
 }
 
 /* ---------- helpers ---------- */
 function extractId(u){const m=u.match(/\/d\/([^/]+)/)||u.match(/id=([^&]+)/);return m?m[1]:null;}
 function hideId(){document.querySelectorAll('table tr').forEach(tr=>{if(tr.children[0])tr.children[0].style.display='none';});}
-function updateStat(){const max=pageSize?Math.ceil(total/pageSize):1;document.getElementById('stat').textContent=`rows ${total} | page ${curPage}/${max}`;}
+function updateStat(){const max=(pageSize?Math.ceil(total/pageSize):1);document.getElementById('stat').textContent=`rows ${total} | page ${curPage}/${max}`;}
 function previewOnClick(c){c.onclick=e=>{if(e.target.classList.contains('thumb')){const id=e.target.parentElement.dataset.id;const f=document.createElement('iframe');f.className='preview';f.loading='lazy';f.src=`https://drive.google.com/file/d/${id}/preview`;e.target.replaceWith(f);}}}
 
 /* ---------- DnD & resize ---------- */
-function enableDnD(t){let s=null;t.querySelectorAll('th').forEach(th=>{
- th.ondragstart=e=>{if(isResizing){e.preventDefault();return;}s=th.cellIndex;e.dataTransfer.setData('','');};
- th.ondragover=e=>e.preventDefault();
- th.ondrop=e=>{e.preventDefault();const d=th.cellIndex;if(s!==null&&s!==d)move(t,s,d);s=null;hideId();}
-});}
-function move(t,s,d){t.querySelectorAll('tr').forEach(r=>{const c=r.children;r.insertBefore(c[s],d>s?c[d].nextSibling:c[d]);});}
-function addResizer(th){
- const g=document.createElement('div');g.className='resizer';th.style.position='relative';th.appendChild(g);
- let sx,sw;g.onmousedown=e=>{
-   isResizing=true;sx=e.pageX;sw=th.offsetWidth;
-   document.onmousemove=ev=>{const w=sw+(ev.pageX-sx);if(w>40)th.style.width=w+'px';};
-   document.onmouseup=_=>{document.onmousemove=document.onmouseup=null;isResizing=false;};
-   e.stopPropagation();
- };
+function enableDnD(t, mirrorTable=null){
+  let srcIdx=null;
+  t.querySelectorAll('th').forEach(th=>{
+    th.ondragstart=e=>{if(isResizing||!th.draggable){e.preventDefault();return;}srcIdx=th.cellIndex;e.dataTransfer.setData('','');};
+    th.ondragover=e=>e.preventDefault();
+    th.ondrop=e=>{
+      e.preventDefault();const dst=th.cellIndex;
+      if(srcIdx!==null&&dst!==srcIdx){moveCols(srcIdx,dst);srcIdx=null;}
+    };
+  });
+  function moveCols(s,d){
+    [document.querySelector('#tableWrap table'),floatTbl].forEach(tbl=>{
+      tbl.querySelectorAll('tr').forEach(r=>{
+        const c=r.children;r.insertBefore(c[s],d>s?c[d].nextSibling:c[d]);
+      });
+    });
+  }
 }
-
-(function init(){
-  sheet=new URLSearchParams(location.search).get('page')||'Shots';
-  pageSize=100;
-  google.script.run.withSuccessHandler(pkg=>{
-      ({ids,header,total}=pkg);
-      fieldType = Object.fromEntries(pkg.fieldMeta.map(o=>[o.id,o.type]));
-      idMaps    = pkg.idMaps;
-      buildUI(); draw(pkg.rows);      // rows は最初のページ分だけ
-  }).getInitData(sheet,0,pageSize);
-})();
-
-
+function addResizer(th){
+  const g=document.createElement('div');g.className='resizer';th.style.position='relative';th.appendChild(g);
+  g.onmousedown=e=>{
+    isResizing=true; const sx=e.pageX, sw=th.offsetWidth;
+    document.onmousemove=ev=>{
+      const w=Math.max(40, sw+(ev.pageX-sx));
+      /* 同幅を本体とクローンへ一括適用 */
+      const idx=[...th.parentElement.children].indexOf(th);
+      [document.querySelector('#tableWrap table'),floatTbl].forEach(tbl=>{
+        tbl.tHead.rows[0].cells[idx].style.width=w+'px';
+      });
+    };
+    document.onmouseup=_=>{document.onmousemove=document.onmouseup=null;isResizing=false;};
+    e.stopPropagation();
+  };
+}
 </script>
