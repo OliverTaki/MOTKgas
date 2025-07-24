@@ -90,7 +90,7 @@ function makeFloat(src){
   const copyWidths = ()=>{
     const s = src.tHead.rows[0].cells;
     const f = floatTbl.tHead.rows[0].cells;
-    [...s].forEach((c,i)=> f[i].style.width = c.getBoundingClientRect().width + 'px');
+    [...s].forEach((c,i)=> f[i].style.width = c.offsetWidth + 'px');
     floatTbl.style.left = -wrap.scrollLeft + 'px';   // 横スクロール追従
   };
   copyWidths();

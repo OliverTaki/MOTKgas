@@ -23,7 +23,14 @@ th{user-select:none;cursor:move;}
 .resizer{position:absolute;right:0;top:0;width:4px;height:100%;cursor:col-resize;user-select:none;}
 
 /* クローンヘッダー（固定） */
-.floatingHead{position:fixed;top:136px;left:0;z-index:220;background:var(--th);} /* ナビ3段後 */
+.floatingHead{
+  position:fixed;
+  top:136px;
+  left:0;
+  right:17px;             /* ≒ スクロールバー幅 (Win/Chrome) */
+  z-index:220;
+  background:var(--th);
+}
 .floatingHead th{background:var(--th);}
 
 /* サムネイル */
