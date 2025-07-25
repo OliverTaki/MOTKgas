@@ -1,11 +1,11 @@
 <script>
 /* ---------- state ---------- */
-const PAGE_OPTS=[50,100,200,0]; /* 0=ALL */
+const PAGE_OPTS=[50,100,200,0];   // 0 = ALL
 let sheet='Shots', ids=[], header=[], total=0;
 let fieldType={}, idMaps={};
-let curPage=1, pageSize=100, isResizing=false;
+let curPage=1, pageSize=100;
+let isResizing=false, dragColId=null;
 const DRIVE="https://drive.google.com/";
-let floatTbl=null;               /* ← クローンヘッダー参照 */
 
 /* ---------- boot ---------- */
 (function(){
@@ -14,7 +14,7 @@ let floatTbl=null;               /* ← クローンヘッダー参照 */
     ({ids,header,total}=pkg);
     fieldType=Object.fromEntries(pkg.fieldMeta.map(o=>[o.id,o.type]));
     idMaps=pkg.idMaps;
-    buildUI(); draw(pkg.rows);          /* rows は 1ページ分 */
+    buildUI(); draw(pkg.rows);          // 初回 1ページ
   }).getInitData(sheet,0,pageSize);
 })();
 
@@ -40,26 +40,30 @@ function buildUI(){
 
 /* ---------- data ---------- */
 function fetch(){
-  const off=(pageSize===0)?0:(curPage-1)*pageSize;
-  const lim=(pageSize===0)?total:pageSize;
+  const off = pageSize===0 ? 0 : (curPage-1)*pageSize;
+  const lim = pageSize===0 ? total : pageSize;
   google.script.run.withSuccessHandler(draw).getPage(sheet,off,lim);
 }
 
 /* ---------- draw table ---------- */
 function draw(rows){
   const tbl=document.createElement('table');
-  const thead=tbl.createTHead(),hr=thead.insertRow();
+
+  /* thead */
+  const thead=tbl.createTHead(), hr=thead.insertRow();
   header.forEach((h,i)=>{
-    const th=document.createElement('th'); th.textContent=h;
-    if(i)th.draggable=true;              /* ID列はドラッグ禁止 */
+    const th=document.createElement('th');
+    th.textContent=h; th.dataset.colId=ids[i];
+    if(i) th.draggable=true;            // ID列以外ドラッグ可
     addResizer(th); hr.appendChild(th);
   });
 
+  /* tbody */
   const tbody=tbl.createTBody();
   rows.forEach(r=>{
     const tr=tbody.insertRow();
     r.forEach((c,ci)=>{
-      const td=tr.insertCell();
+      const td=tr.insertCell(); td.dataset.colId=ids[ci];
       if(typeof c==='string' && c.startsWith(DRIVE)){
         const id=extractId(c);
         td.innerHTML=`<img loading="lazy" class="thumb" src="https://drive.google.com/thumbnail?id=${id}&sz=w200">`;
@@ -69,95 +73,48 @@ function draw(rows){
     });
   });
 
-  const wrap=document.getElementById('tableWrap');
-  wrap.innerHTML=''; wrap.appendChild(tbl);
-  hideId(); enableDnD(tbl); previewOnClick(wrap); makeFloat(tbl); updateStat();
-}
-
-/* ---------- floating header ---------- */
-function makeFloat(src){
-  if(floatTbl) floatTbl.remove();           // 古いクローン破棄
-
-  // ① クローン生成・配置
-  floatTbl = src.cloneNode(false);
-  floatTbl.className = 'floatingHead';
-  floatTbl.appendChild(src.tHead.cloneNode(true));
-  document.body.appendChild(floatTbl);
-
-  const wrap = document.getElementById('tableWrap');
-
-  // ② 幅コピー関数
-  const copyWidths = ()=>{
-    const s = src.tHead.rows[0].cells;
-    const f = floatTbl.tHead.rows[0].cells;
-    [...s].forEach((c,i)=> f[i].style.width = c.offsetWidth + 'px');
-    floatTbl.style.left = -wrap.scrollLeft + 'px';   // 横スクロール追従
-  };
-  copyWidths();
-
-  // ③ ResizeObserver で “幅が変わった瞬間” に同期
-  const ro = new ResizeObserver(copyWidths);
-  [...src.tHead.rows[0].cells].forEach(c=>ro.observe(c));
-
-  // ④ スクロール・ウィンドウリサイズで同期
-  wrap.addEventListener('scroll', copyWidths);
-  window.addEventListener('resize', copyWidths);
-
-  // ⑤ 列リサイズ終了直後にも同期
-  document.addEventListener('mouseup', ()=>{if(isResizing)setTimeout(copyWidths,0);});
-
-  // ⑥ クローン側にも DnD / リサイズを反映（既存ロジック）
-  enableDnD(floatTbl, src);
-  floatTbl.querySelectorAll('.resizer').forEach((g,i)=>{
-    g.onmousedown = e=>{
-      isResizing=true;
-      const sx=e.pageX, sw=src.tHead.rows[0].cells[i].offsetWidth;
-      document.onmousemove = ev=>{
-        const w = Math.max(40, sw+(ev.pageX-sx));
-        [src,floatTbl].forEach(t=> t.tHead.rows[0].cells[i].style.width = w+'px');
-      };
-      document.onmouseup = _=>{document.onmousemove=document.onmouseup=null;isResizing=false;};
-      e.stopPropagation();
-    };
-  });
+  document.getElementById('tableWrap').innerHTML=''; document.getElementById('tableWrap').appendChild(tbl);
+  hideId(); enableDnD(tbl); previewClick(tbl); updateStat();
 }
 
 /* ---------- helpers ---------- */
 function extractId(u){const m=u.match(/\/d\/([^/]+)/)||u.match(/id=([^&]+)/);return m?m[1]:null;}
 function hideId(){document.querySelectorAll('table tr').forEach(tr=>{if(tr.children[0])tr.children[0].style.display='none';});}
-function updateStat(){const max=(pageSize?Math.ceil(total/pageSize):1);document.getElementById('stat').textContent=`rows ${total} | page ${curPage}/${max}`;}
-function previewOnClick(c){c.onclick=e=>{if(e.target.classList.contains('thumb')){const id=e.target.parentElement.dataset.id;const f=document.createElement('iframe');f.className='preview';f.loading='lazy';f.src=`https://drive.google.com/file/d/${id}/preview`;e.target.replaceWith(f);}}}
+function updateStat(){const max=pageSize?Math.ceil(total/pageSize):1;document.getElementById('stat').textContent=`rows ${total} | page ${curPage}/${max}`;}
+function previewClick(t){t.onclick=e=>{if(e.target.classList.contains('thumb')){const id=e.target.parentElement.dataset.id;const f=document.createElement('iframe');f.className='preview';f.loading='lazy';f.src=`https://drive.google.com/file/d/${id}/preview`;e.target.replaceWith(f);}}}
 
 /* ---------- DnD & resize ---------- */
-function enableDnD(t, mirrorTable=null){
-  let srcIdx=null;
-  t.querySelectorAll('th').forEach(th=>{
-    th.ondragstart=e=>{if(isResizing||!th.draggable){e.preventDefault();return;}srcIdx=th.cellIndex;e.dataTransfer.setData('','');};
+function enableDnD(tbl){
+  tbl.querySelectorAll('th').forEach(th=>{
+    th.ondragstart=e=>{
+      if(isResizing||!th.draggable){e.preventDefault();return;}
+      dragColId=th.dataset.colId; e.dataTransfer.setData('','');
+    };
     th.ondragover=e=>e.preventDefault();
     th.ondrop=e=>{
-      e.preventDefault();const dst=th.cellIndex;
-      if(srcIdx!==null&&dst!==srcIdx){moveCols(srcIdx,dst);srcIdx=null;}
+      e.preventDefault();
+      const dstId=e.target.dataset.colId;
+      if(dragColId&&dstId&&dragColId!==dstId) swapCols(tbl,dragColId,dstId);
+      dragColId=null; hideId();
     };
   });
-  function moveCols(s,d){
-    [document.querySelector('#tableWrap table'),floatTbl].forEach(tbl=>{
-      tbl.querySelectorAll('tr').forEach(r=>{
-        const c=r.children;r.insertBefore(c[s],d>s?c[d].nextSibling:c[d]);
-      });
-    });
-  }
+}
+function swapCols(t,colA,colB){
+  t.querySelectorAll('tr').forEach(r=>{
+    const a=[...r.cells].find(c=>c.dataset.colId===colA);
+    const b=[...r.cells].find(c=>c.dataset.colId===colB);
+    if(a&&b) r.insertBefore(a,(a.compareDocumentPosition(b)&4)?b.nextSibling:b);
+  });
 }
 function addResizer(th){
-  const g=document.createElement('div');g.className='resizer';th.style.position='relative';th.appendChild(g);
+  const g=document.createElement('div');g.className='resizer';
+  th.style.position='relative'; th.appendChild(g);
   g.onmousedown=e=>{
-    isResizing=true; const sx=e.pageX, sw=th.offsetWidth;
+    isResizing=true; const colId=th.dataset.colId;
+    const sx=e.pageX, sw=th.offsetWidth;
     document.onmousemove=ev=>{
       const w=Math.max(40, sw+(ev.pageX-sx));
-      /* 同幅を本体とクローンへ一括適用 */
-      const idx=[...th.parentElement.children].indexOf(th);
-      [document.querySelector('#tableWrap table'),floatTbl].forEach(tbl=>{
-        tbl.tHead.rows[0].cells[idx].style.width=w+'px';
-      });
+      document.querySelectorAll(`[data-col-id="${colId}"]`).forEach(c=>c.style.width=w+'px');
     };
     document.onmouseup=_=>{document.onmousemove=document.onmouseup=null;isResizing=false;};
     e.stopPropagation();

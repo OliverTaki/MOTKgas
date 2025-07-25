@@ -1,42 +1,36 @@
 <style>
+/* ── ダーク／ライト共通色 ── */
 :root{--bg:#fff;--fg:#111;--th:#f0f0f0;--bd:#ccc;--link:#4ea3ff}
 @media(prefers-color-scheme:dark){
  :root{--bg:#1e1e1e;--fg:#e0e0e0;--th:#333;--bd:#555;--link:#71c1ff}
 }
 html,body{margin:0;padding:0;font-family:sans-serif;background:var(--bg);color:var(--fg);}
-body{overflow:hidden;}                             /* ← ページ全体はスクロール禁止 */
+body{overflow:hidden;}                         /* ← body は固定。tableWrap だけスクロール */
 
-/* 3段ナビ + ツールバー */
-#gNav,#pNav,#toolbar{position:sticky;left:0;right:0;z-index:200;display:flex;align-items:center;gap:12px;padding:4px 8px;background:var(--th);border-bottom:1px solid var(--bd);}
-#gNav{top:0;height:40px;} #pNav{top:40px;height:32px;} #toolbar{top:72px;height:32px;}
+/* ── ナビ 3 段 + ツールバー ── */
+#gNav,#pNav,#toolbar{position:sticky;left:0;right:0;z-index:200;
+  display:flex;align-items:center;gap:12px;padding:4px 8px;
+  background:var(--th);border-bottom:1px solid var(--bd);}
+#gNav{top:0;height:40px;}   #pNav{top:40px;height:32px;}   #toolbar{top:72px;height:32px;}
 
-/* ステータスバー */
-#statusBar{position:fixed;left:0;right:0;bottom:0;height:28px;z-index:190;background:var(--th);border-top:1px solid var(--bd);display:flex;align-items:center;gap:12px;padding:0 8px;justify-content:flex-end;}
+/* ── ステータスバー ── */
+#statusBar{position:fixed;left:0;right:0;bottom:0;height:28px;z-index:190;
+  background:var(--th);border-top:1px solid var(--bd);
+  display:flex;align-items:center;gap:12px;padding:0 8px;justify-content:flex-end;}
 
-/* 表ラッパー */
+/* ── テーブルラッパー ── */
 #tableWrap{position:fixed;left:0;right:0;top:136px;bottom:28px;overflow:auto;}
 
-/* テーブル */
+/* ── テーブル本体 ── */
 table{border-collapse:separate;border-spacing:0;width:max-content;}
 th,td{padding:6px 8px;border:1px solid var(--bd);vertical-align:top;white-space:normal;word-break:break-word;}
-th{user-select:none;cursor:move;}
+th{position:sticky;top:0;background:var(--th);user-select:none;cursor:move;z-index:100;}
 .resizer{position:absolute;right:0;top:0;width:4px;height:100%;cursor:col-resize;user-select:none;}
 
-/* クローンヘッダー（固定） */
-.floatingHead{
-  position:fixed;
-  top:136px;
-  left:0;
-  right:17px;             /* ≒ スクロールバー幅 (Win/Chrome) */
-  z-index:220;
-  background:var(--th);
-}
-.floatingHead th{background:var(--th);}
-
-/* サムネイル */
+/* ── サムネイル / プレビュー ── */
 .thumb,.preview{width:320px;height:180px}
 .preview{border:0;margin:0}
 
-/* リンク */
+/* ── リンク色 ── */
 a{color:var(--link);text-decoration:none} a:hover{color:#ff7e39}
 </style>
