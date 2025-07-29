@@ -2,18 +2,26 @@
 <html>
 <head>
   <base target="_top">
-  <?!= include('Styles'); ?>
+  <?!= include('Theme'); ?>
 </head>
 <body>
-  <header class="banner">
-    <h1 id="title">Shot <?= id ?></h1>
-  </header>
+  <header class="banner"><h1 id="title">Shot <?= id ?></h1></header>
 
-  <main id="content">
-    <section id="overview"></section>
-    <section id="files" class="hidden"></section>
+  <!-- Gnavi -->
+  <nav class="gnavi">
+    <a href="?page=Shots"  data-page="Shots">Shots</a>
+    <a href="?page=Assets" data-page="Assets">Assets</a>
+    <a href="?page=Tasks"  data-page="Tasks">Tasks</a>
+    <a href="?page=ProjectMembers" data-page="ProjectMembers">Members</a>
+    <a href="?page=Users"  data-page="Users">Users</a>
+  </nav>
+
+  <main>
+    <section id="overview"><p>Loading...</p></section>
+    <section id="files"    class="hidden"><p>Files coming soon…</p></section>
   </main>
 
+  <!-- Pnavi -->
   <nav class="tabs">
     <button data-tab="overview" class="active">Overview</button>
     <button data-tab="files">Files</button>
@@ -21,35 +29,24 @@
 
   <?!= include('Scripts'); ?>
   <script>
-    const ENTITY = 'shot';
-    const ID     = '<?= id ?>';
+    setActiveNav('Shots');      // highlight Shots tab
+    initTabs();                 // enable bottom tabs
 
-    /* --- fetch & render -------------------------------------------------- */
-    google.script.run.withSuccessHandler(renderOverview).getEntity(ENTITY, ID);
+    google.script.run
+      .withSuccessHandler(renderOverview)
+      .getEntity('shot','<?= id ?>');
 
-    function renderOverview(obj) {
-      if (!obj) { document.getElementById('overview').textContent = 'Not found'; return;}
-      const wrap = document.getElementById('overview');
-      wrap.innerHTML = '';
+    function renderOverview(obj){
+      const wrap=document.getElementById('overview');
+      if(!obj){wrap.textContent='Not found';return;}
+      wrap.innerHTML='';
       Object.entries(obj).forEach(([k,v])=>{
-        const row = document.createElement('div');
-        row.className = 'row';
-        row.innerHTML = `<label>${k}</label><span>${v}</span>`;
+        const row=document.createElement('div');
+        row.className='row';
+        row.innerHTML=`<label>${k}</label><span>${v}</span>`;
         wrap.appendChild(row);
       });
     }
-
-    /* --- tab switch ------------------------------------------------------ */
-    document.querySelectorAll('.tabs button').forEach(btn=>{
-      btn.onclick = ()=>{
-        document.querySelector('.tabs .active').classList.remove('active');
-        btn.classList.add('active');
-        const target = btn.dataset.tab;
-        document.querySelectorAll('main section').forEach(sec=>{
-          sec.classList.toggle('hidden', sec.id !== target);
-        });
-      };
-    });
   </script>
 </body>
 </html>

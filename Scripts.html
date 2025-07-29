@@ -1,0 +1,22 @@
+<script>
+/* ---- Gnavi active link ----------------------------------------------- */
+function setActiveNav(id){
+  document.querySelectorAll('nav.gnavi a').forEach(a=>{
+    a.classList.toggle('active',a.dataset.page===id);
+  });
+}
+
+/* ---- Tab switch ------------------------------------------------------- */
+function initTabs(){
+  document.querySelectorAll('nav.tabs button').forEach(btn=>{
+    btn.onclick=()=>{
+      document.querySelector('nav.tabs .active')?.classList.remove('active');
+      btn.classList.add('active');
+      const tgt=btn.dataset.tab;
+      document.querySelectorAll('main section').forEach(sec=>{
+        sec.classList.toggle('hidden',sec.id!==tgt);
+      });
+    };
+  });
+}
+</script>

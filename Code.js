@@ -1,74 +1,96 @@
-/* === MOTK Detail-Pages — Apps Script back-end  ============================= */
-/*  シート構成（タブ名と主キー列）
-      Shots            | A: shot_id          |
-      Assets           | A: asset_id         |
-      Tasks            | A: task_id          |
-      ProjectMembers   | A: member_id        |
-      Users            | A: user_id          |
-   ※主キー列はシート 1 行目にラベルがある前提
-*/
+/* =========================================================================
+     MOTK G-Viewer  (Apps Script only)
+     - Dark-mode styling handled in Theme.html
+     - Table UI (index.html / viewer.html) は既存のまま
+     - Detail ルーティングと API を追加
+     2025-07-29
+   ========================================================================= */
 
-/* ---------- ルーティング -------------------------------------------------- */
+/* ---------- エンティティ定義 -------------------------------------------- */
+const ENTITY_CONF = {
+  shot  : { sheet: 'Shots',          key: 'shot_id',   ui: 'ShotDetail'  },
+  asset : { sheet: 'Assets',         key: 'asset_id',  ui: 'AssetDetail' },
+  task  : { sheet: 'Tasks',          key: 'task_id',   ui: 'TaskDetail'  },
+  member: { sheet: 'ProjectMembers', key: 'member_id', ui: 'MemberDetail'},
+  user  : { sheet: 'Users',          key: 'user_id',   ui: 'UserDetail'  },
+};
+
+/* ---------- ルーター ---------------------------------------------------- */
 function doGet(e) {
-  const entity  = (e.parameter.entity || '').toLowerCase();
-  const id      = e.parameter.id || '';
-  const uiFiles = {
-    'shot'  : 'ShotDetail',
-    'asset' : 'AssetDetail',
-    'task'  : 'TaskDetail',
-    'member': 'MemberDetail',
-    'user'  : 'UserDetail',
-  };
+  const p       = e ? e.parameter : {};
+  const entity  = (p.entity || '').toLowerCase();
+  const id      = p.id   || '';
+  const page    = p.page || 'Shots';
+  const selfURL = ScriptApp.getService().getUrl();      // Web App 自身の URL
 
-  if (!uiFiles[entity] || !id) {
-    return HtmlService.createHtmlOutput('Invalid URL');
+  /* --- Detail --------------------------------------------------------- */
+  if (ENTITY_CONF[entity] && id) {
+    const tpl = HtmlService.createTemplateFromFile(ENTITY_CONF[entity].ui);
+    tpl.entity    = entity;
+    tpl.id        = id;
+    tpl.scriptUrl = selfURL;                           // 既存 JS 用
+    return _wrap(tpl.evaluate(), `${entity}:${id}`);
   }
 
-  const tmpl = HtmlService.createTemplateFromFile(uiFiles[entity]);
-  tmpl.entity = entity;
-  tmpl.id     = id;
-  return tmpl
-    .evaluate()
-    .setTitle(`${entity.toUpperCase()} ${id}`)
+  /* --- Table (従来 UI) ------------------------------------------------- */
+  const listTpl = HtmlService.createTemplateFromFile('index'); // 変更不要
+  listTpl.page      = page;
+  listTpl.scriptUrl = selfURL;
+
+  const rows         = listRows(page);               // 2D Array
+  listTpl.data       = JSON.stringify(rows);         // ← ここが index.html の <?!= data ?>
+
+  return _wrap(listTpl.evaluate(), 'MOTK Sheets');
+}
+
+/* ---------- 共通ヘルパー ---------------------------------------------- */
+function _wrap(out, title) {
+  return out
+    .setTitle(title)
+    .addMetaTag('viewport', 'width=device-width,initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-/* ---------- 共通 API ------------------------------------------------------ */
-/**
- * 呼び出し例: google.script.run.getEntity('shot', 'SH0001')
- * @param {string} entity  shots|assets|tasks|member|user
- * @param {string} id     主キー値
- * @return {Object|null}  行をオブジェクト化（ヘッダー→値）して返却
- */
-function getEntity(entity, id) {
-  const config = {
-    'shot'  : {sheet: 'Shots',          key: 'shot_id'},
-    'asset' : {sheet: 'Assets',         key: 'asset_id'},
-    'task'  : {sheet: 'Tasks',          key: 'task_id'},
-    'member': {sheet: 'ProjectMembers', key: 'member_id'},
-    'user'  : {sheet: 'Users',          key: 'user_id'},
-  };
-  const {sheet, key} = config[entity] || {};
-  if (!sheet) return null;
-
-  const ss   = SpreadsheetApp.getActiveSpreadsheet();
-  const sh   = ss.getSheetByName(sheet);
-  const data = sh.getDataRange().getValues();        // 2D array
-  const header = data.shift();                       // 1 行目 = 見出し
-  const idx = header.indexOf(key);
-  if (idx === -1) return null;
-
-  for (let i = 0; i < data.length; i++) {
-    if (String(data[i][idx]) === id) {
-      const obj = {};
-      header.forEach((h, c) => (obj[h] = data[i][c]));
-      return obj;
-    }
-  }
-  return null; // not found
+function include(name) {
+  return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
 
-/* ---------- include() で HTML から呼ぶサブページ ------------------------- */
-function include(file) {
-  return HtmlService.createHtmlOutputFromFile(file).getContent();
+/* ---------- API -------------------------------------------------------- */
+/**
+ * シートから 1 行取得し、{header: value} オブジェクトで返す
+ * @param {string} entity  shot|asset|task|member|user
+ * @param {string} id      主キー値
+ */
+function getEntity(entity, id) {
+  const conf = ENTITY_CONF[entity];
+  if (!conf) return null;
+
+  const sh = SpreadsheetApp.getActive().getSheetByName(conf.sheet);
+  if (!sh) return null;
+
+  /* ▼▼▼ ここが消えていると “data is not defined” ▼▼▼ */
+  const data   = sh.getDataRange().getValues();   // ← 必須
+  const header = data.shift();                    // ← 必須
+  /* ▲▲▲ 必ず入れてください ▲▲▲ */
+
+  const idx = header.indexOf(conf.key);
+  if (idx === -1) return null;
+
+  const row = data.find(r => String(r[idx]) === String(id));
+  if (!row) return null;
+
+  const obj = {};
+  header.forEach((h, i) => (obj[h] = row[i]));
+  return obj;
+}
+
+
+/**
+ * 既存テーブル UI 用: シート全行を 2D 配列で返す
+ * @param {string} sheetName
+ * @return {Array<Array>}
+ */
+function listRows(sheetName) {
+  const sh = SpreadsheetApp.getActive().getSheetByName(sheetName);
+  return sh ? sh.getDataRange().getValues() : [];
 }
