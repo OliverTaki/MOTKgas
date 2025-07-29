@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <title>MOTKsheets G-Viewer</title>
+  <!-- Stylesheet is now included from a separate file -->
+  <?!= include('stylesheet'); ?>
+</head>
+
+<body>
+  <!-- Global Navigation -->
+  <nav id="gNav">
+    <span class="logo">MOTK</span>
+    <a href="?page=dashboard">Dashboard</a>
+    <a href="?page=alltasks">All Tasks</a>
+    <a href="?page=settings">⚙ Settings</a>
+  </nav>
+
+  <!-- Project Navigation -->
+  <nav id="pNav">
+    <a href="?page=Shots" class="pn">SHOTS</a>
+    <a href="?page=Assets" class="pn">ASSETS</a>
+    <a href="?page=Tasks" class="pn">TASKS</a>
+    <a href="?page=ProjectMembers" class="pn">PM</a>
+    <a href="?page=Users" class="pn">USERS</a>
+  </nav>
+
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <button id="btnSort">Sort ⬍</button>
+    <button id="btnFilter">Filter ❚❚</button>
+    <button id="btnReset">Reset</button>
+  </div>
+
+  <!-- Main Table Wrapper -->
+  <div id="tableWrap">
+    <div class="loader">Loading...</div>
+  </div>
+
+  <!-- Status Bar & Pagination -->
+  <div id="statusBar">
+    <span id="stat"></span>
+    <div class="pagination-controls">
+      <select id="perPage"></select>
+      <button id="prevPg" title="Previous Page">◀</button>
+      <button id="nextPg" title="Next Page">▶</button>
+    </div>
+  </div>
+
+  <!-- Dialog templates are included from a separate file -->
+  <?!= include('dialogs'); ?>
+
+  <!-- Main JavaScript logic is now included from a separate file -->
+  <?!= include('viewer'); ?>
+</body>
+</html>

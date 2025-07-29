@@ -1,0 +1,387 @@
+<script>
+/**
+ * @fileoverview This script contains the client-side logic for the data grid viewer.
+ * It handles UI interactions, data fetching, and rendering of the table.
+ */
+
+// --- State Management ---
+const STATE = {
+  sheetName: 'Shots',
+  fieldIds: [],
+  header: [],
+  totalRows: 0,
+  fieldTypes: {},
+  idMaps: {},
+  currentPage: 1,
+  pageSize: 100,
+  isResizing: false,
+  draggedColId: null,
+  columnOrder: [],
+  columnWidths: {},
+};
+
+const PAGE_OPTIONS = [50, 100, 200, 0]; // 0 represents "ALL"
+const DRIVE_BASE_URL = "https://drive.google.com/";
+
+// --- DOM Elements ---
+const DOM = {
+  tableWrap: document.getElementById('tableWrap'),
+  statusBar: document.getElementById('stat'),
+  perPageSelect: document.getElementById('perPage'),
+  prevPageBtn: document.getElementById('prevPg'),
+  nextPageBtn: document.getElementById('nextPg'),
+  sortBtn: document.getElementById('btnSort'),
+  filterBtn: document.getElementById('btnFilter'),
+  resetBtn: document.getElementById('btnReset'),
+};
+
+/**
+ * Main boot function, runs on page load.
+ */
+function boot() {
+  // Get the sheet name from URL parameters
+  STATE.sheetName = new URLSearchParams(location.search).get('page') || 'Shots';
+  
+  // Set the active navigation link
+  document.querySelectorAll('#pNav a').forEach(a => {
+    if (a.href.includes(`page=${STATE.sheetName}`)) {
+      a.style.fontWeight = 'bold'; // A simple way to show the active page
+    }
+  });
+
+  // Show loader
+  DOM.tableWrap.innerHTML = '<div class="loader">Fetching initial data...</div>';
+
+  google.script.run
+    .withSuccessHandler(onInitialDataSuccess)
+    .withFailureHandler(onFailure)
+    .getInitData(STATE.sheetName, 0, STATE.pageSize);
+}
+
+/**
+ * Handles the successful retrieval of initial data from the server.
+ * @param {object} dataPackage - The initial data from the server.
+ */
+function onInitialDataSuccess(dataPackage) {
+  const { ids, header, total, rows, fieldMeta, idMaps } = dataPackage;
+  STATE.fieldIds = ids;
+  STATE.columnOrder = [...ids]; // Initialize column order
+  STATE.header = header;
+  STATE.totalRows = total;
+  STATE.fieldTypes = Object.fromEntries(fieldMeta.map(f => [f.id, f.type]));
+  STATE.idMaps = idMaps;
+
+  buildUI();
+  renderTable(rows);
+}
+
+/**
+ * Handles failures from server-side calls.
+ * @param {Error} error - The error object.
+ */
+function onFailure(error) {
+  DOM.tableWrap.innerHTML = `<div class="loader" style="color: red;">Error: ${error.message}</div>`;
+  console.error('Server call failed:', error);
+}
+
+/**
+ * Builds the static parts of the UI like pagination controls.
+ */
+function buildUI() {
+  // Pagination dropdown
+  DOM.perPageSelect.innerHTML = '';
+  PAGE_OPTIONS.forEach(val => {
+    const option = document.createElement('option');
+    option.value = val;
+    option.textContent = val ? `${val} rows` : 'All';
+    if (val === STATE.pageSize) option.selected = true;
+    DOM.perPageSelect.appendChild(option);
+  });
+
+  // Event Listeners
+  DOM.perPageSelect.onchange = handlePageSizeChange;
+  DOM.prevPageBtn.onclick = handlePrevPage;
+  DOM.nextPageBtn.onclick = handleNextPage;
+  DOM.sortBtn.onclick = () => alert('Sort dialog is not yet implemented.');
+  DOM.filterBtn.onclick = () => alert('Filter dialog is not yet implemented.');
+  DOM.resetBtn.onclick = handleReset;
+}
+
+/**
+ * Fetches data for the current page from the server.
+ */
+function fetchData() {
+  DOM.tableWrap.innerHTML = '<div class="loader">Loading data...</div>';
+  const offset = STATE.pageSize === 0 ? 0 : (STATE.currentPage - 1) * STATE.pageSize;
+  const limit = STATE.pageSize === 0 ? STATE.totalRows : STATE.pageSize;
+
+  google.script.run
+    .withSuccessHandler(renderTable)
+    .withFailureHandler(onFailure)
+    .getPage(STATE.sheetName, offset, limit);
+}
+
+/**
+ * Renders the main data table.
+ * @param {Array<Array<any>>} rows - The 2D array of row data.
+ */
+function renderTable(rows) {
+  const table = document.createElement('table');
+  
+  // --- Render Header ---
+  const thead = table.createTHead();
+  const headerRow = thead.insertRow();
+  STATE.columnOrder.forEach(colId => {
+    const colIndex = STATE.fieldIds.indexOf(colId);
+    if (colIndex === -1) return;
+
+    const th = document.createElement('th');
+    th.textContent = STATE.header[colIndex];
+    th.dataset.colId = colId;
+    if (colId !== STATE.fieldIds[0]) { // Don't allow dragging the first (ID) column
+      th.draggable = true;
+    }
+    
+    // Apply stored width
+    if(STATE.columnWidths[colId]) {
+      th.style.width = STATE.columnWidths[colId] + 'px';
+    }
+
+    addResizer(th);
+    headerRow.appendChild(th);
+  });
+
+  // --- Render Body ---
+  const tbody = table.createTBody();
+  rows.forEach(rowData => {
+    const tr = tbody.insertRow();
+    STATE.columnOrder.forEach(colId => {
+        const colIndex = STATE.fieldIds.indexOf(colId);
+        if (colIndex === -1) return;
+
+        const cellData = rowData[colIndex];
+        const td = tr.insertCell();
+        td.dataset.colId = colId;
+        td.innerHTML = formatCell(cellData, colId);
+        
+        // Apply stored width
+        if(STATE.columnWidths[colId]) {
+          td.style.width = STATE.columnWidths[colId] + 'px';
+        }
+    });
+  });
+
+  DOM.tableWrap.innerHTML = '';
+  DOM.tableWrap.appendChild(table);
+
+  // Post-render actions
+  hideIdColumn();
+  enableDragAndDrop(table);
+  enablePreviewClick(table);
+  updateStatusBar();
+}
+
+/**
+ * Formats cell content based on field type.
+ * @param {any} content - The raw cell content.
+ * @param {string} colId - The ID of the column.
+ * @returns {string} HTML-formatted cell content.
+ */
+function formatCell(content, colId) {
+    if (content === null || content === undefined || content === '') return '';
+    
+    const type = STATE.fieldTypes[colId];
+    
+    // Basic link detection for Drive
+    if (typeof content === 'string' && content.startsWith(DRIVE_BASE_URL)) {
+        const fileId = extractDriveId(content);
+        if (fileId) {
+          // For now, just show a thumbnail. In future, use 'type' for different renderers.
+          return `<img loading="lazy" class="thumb" src="https://drive.google.com/thumbnail?id=${fileId}&sz=w200" data-drive-id="${fileId}">`;
+        }
+    }
+    
+    // Basic ID to Name mapping
+    for (const key in STATE.idMaps) {
+        if (STATE.idMaps[key][content]) {
+            const pageName = key.charAt(0).toUpperCase() + key.slice(1) + 's';
+            return `<a href="?page=${pageName}&id=${content}">${STATE.idMaps[key][content]}</a>`;
+        }
+    }
+    
+    return escapeHTML(String(content));
+}
+
+// --- Event Handlers ---
+function handlePageSizeChange(e) {
+  STATE.pageSize = parseInt(e.target.value, 10);
+  STATE.currentPage = 1;
+  fetchData();
+}
+function handlePrevPage() {
+  if (STATE.currentPage > 1) {
+    STATE.currentPage--;
+    fetchData();
+  }
+}
+function handleNextPage() {
+  if (STATE.pageSize === 0) return;
+  const maxPage = Math.ceil(STATE.totalRows / STATE.pageSize);
+  if (STATE.currentPage < maxPage) {
+    STATE.currentPage++;
+    fetchData();
+  }
+}
+function handleReset() {
+  // Could be extended to reset filters, sorts, etc.
+  STATE.currentPage = 1;
+  STATE.columnOrder = [...STATE.fieldIds];
+  STATE.columnWidths = {};
+  fetchData();
+}
+
+// --- UI Helpers ---
+function updateStatusBar() {
+  const maxPage = STATE.pageSize ? Math.ceil(STATE.totalRows / STATE.pageSize) : 1;
+  DOM.statusBar.textContent = `Total: ${STATE.totalRows} rows | Page ${STATE.currentPage} of ${maxPage}`;
+}
+
+function hideIdColumn() {
+  const firstColId = STATE.fieldIds[0];
+  if (!firstColId) return;
+  document.querySelectorAll(`[data-col-id="${firstColId}"]`).forEach(el => {
+    el.style.display = 'none';
+  });
+}
+
+function enablePreviewClick(table) {
+    table.onclick = (e) => {
+        if (e.target.classList.contains('thumb')) {
+            const id = e.target.dataset.driveId;
+            if (!id) return;
+            const iframe = document.createElement('iframe');
+            iframe.className = 'preview';
+            iframe.loading = 'lazy';
+            iframe.src = `https://drive.google.com/file/d/${id}/preview`;
+            e.target.replaceWith(iframe);
+        }
+    };
+}
+
+function extractDriveId(url) {
+    const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/id=([a-zA-Z0-9_-]+)/);
+    return match ? match[1] : null;
+}
+
+function escapeHTML(str) {
+    const p = document.createElement('p');
+    p.textContent = str;
+    return p.innerHTML;
+}
+
+// --- Drag & Drop and Resizing ---
+function enableDragAndDrop(table) {
+  table.querySelectorAll('th[draggable="true"]').forEach(th => {
+    th.ondragstart = (e) => {
+      if (STATE.isResizing) {
+        e.preventDefault();
+        return;
+      }
+      STATE.draggedColId = th.dataset.colId;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', th.dataset.colId); // Necessary for Firefox
+      setTimeout(() => th.style.opacity = '0.5', 0);
+    };
+    th.ondragend = (e) => {
+      th.style.opacity = '1';
+    };
+    th.ondragover = (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    };
+    th.ondrop = (e) => {
+      e.preventDefault();
+      const fromId = STATE.draggedColId;
+      const toId = e.currentTarget.dataset.colId;
+      if (fromId && toId && fromId !== toId) {
+        const fromIndex = STATE.columnOrder.indexOf(fromId);
+        const toIndex = STATE.columnOrder.indexOf(toId);
+        
+        // Move item in array
+        STATE.columnOrder.splice(fromIndex, 1);
+        STATE.columnOrder.splice(toIndex, 0, fromId);
+        
+        // Re-render with new column order
+        const rows = Array.from(DOM.tableWrap.querySelectorAll('tbody tr')).map(tr => {
+            return Array.from(tr.cells).map(td => {
+                const originalIndex = STATE.fieldIds.indexOf(td.dataset.colId);
+                // This is a simplification. For a full re-render without fetching, we'd need to store the row data.
+                // For now, we just re-render the DOM structure.
+                return td.innerHTML; 
+            });
+        });
+        // A full re-render is safer to ensure all state is consistent
+        renderTable(Array.from(DOM.tableWrap.querySelectorAll('tbody tr')).map(tr => {
+            const rowData = [];
+            STATE.fieldIds.forEach(id => {
+                const cell = tr.querySelector(`[data-col-id="${id}"]`);
+                // This is tricky without the original data. A full re-render from fetched data is safer.
+                // For now, let's just re-order the columns in the DOM.
+            });
+            return rowData;
+        }));
+        
+        // Simple DOM manipulation is faster but can be buggy.
+        const table = DOM.tableWrap.querySelector('table');
+        const headerRow = table.querySelector('thead tr');
+        const fromHeader = headerRow.querySelector(`[data-col-id="${fromId}"]`);
+        const toHeader = headerRow.querySelector(`[data-col-id="${toId}"]`);
+        headerRow.insertBefore(fromHeader, toHeader);
+
+        Array.from(table.querySelectorAll('tbody tr')).forEach(tr => {
+            const fromCell = tr.querySelector(`[data-col-id="${fromId}"]`);
+            const toCell = tr.querySelector(`[data-col-id="${toId}"]`);
+            tr.insertBefore(fromCell, toCell);
+        });
+
+      }
+      STATE.draggedColId = null;
+    };
+  });
+}
+
+function addResizer(th) {
+  const resizer = document.createElement('div');
+  resizer.className = 'resizer';
+  th.style.position = 'relative';
+  th.appendChild(resizer);
+
+  resizer.onmousedown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    STATE.isResizing = true;
+    const startX = e.pageX;
+    const startWidth = th.offsetWidth;
+    const colId = th.dataset.colId;
+
+    document.onmousemove = (ev) => {
+      const newWidth = Math.max(50, startWidth + (ev.pageX - startX));
+      STATE.columnWidths[colId] = newWidth;
+      document.querySelectorAll(`[data-col-id="${colId}"]`).forEach(cell => {
+        cell.style.width = newWidth + 'px';
+      });
+    };
+
+    document.onmouseup = () => {
+      document.onmousemove = null;
+      document.onmouseup = null;
+      setTimeout(() => { STATE.isResizing = false; }, 100);
+    };
+  };
+}
+
+// --- Initialize the App ---
+document.addEventListener('DOMContentLoaded', boot);
+
+</script>
