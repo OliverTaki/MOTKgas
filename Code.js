@@ -1,137 +1,111 @@
 /**
- * @fileoverview This file contains the server-side logic for the web app.
- * It handles HTTP GET requests, serves the main HTML page, and provides
- * functions to fetch data from the Google Sheet.
+ * @fileoverview Server-side logic with a definitive two-phase loading strategy
+ * to ensure fast initial rendering and robust caching, preventing timeouts.
  */
 
 // --- Global Constants ---
-const SPREADSHEET_ID = '16PYUZyI3E1CKtkeK6jokBFq7ElaVOtWIWuLMJGxxp_k'; // Use the actual ID of your spreadsheet
+var SPREADSHEET_ID = '16PYUZyI3E1CKtkeK6jokBFq7ElaVOtWIWuLMJGxxp_k';
+var METADATA_CACHE_KEY = 'project_metadata_v33';
+var CACHE_EXPIRATION_SECONDS = 300; // 5 minutes
 
 /**
- * Serves an HTML file as a template.
- * This function is a utility to include HTML content from other files.
- * @param {string} filename - The name of the HTML file to include.
- * @returns {string} The content of the HTML file.
+ * [FAST] Fetches only the data essential for the initial, fast render.
+ * It only reads the specified sheet and does not touch any others.
+ * @param {string} sheetName The name of the sheet to get data from.
+ * @return {object} An object with headers and all row data for that single sheet.
  */
-function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+function getInitialPageData(sheetName) {
+  try {
+    var sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(sheetName);
+    if (!sh) {
+      return { error: 'Sheet "' + sheetName + '" not found.' };
+    }
+
+    var allData = sh.getDataRange().getValues();
+    var headerData = allData.slice(0, 2);
+    var rowData = allData.length > 2 ? allData.slice(2) : [];
+
+    return {
+      sheetName: sheetName,
+      ids: headerData[0],
+      header: headerData[1],
+      total: rowData.length,
+      rows: rowData,
+    };
+  } catch (e) {
+    return { error: e.message };
+  }
 }
 
 /**
- * Handles HTTP GET requests to the web app.
- * It creates the main UI from the 'index.html' template.
- * @param {GoogleAppsScript.Events.DoGet} e - The event parameter.
- * @returns {GoogleAppsScript.HTML.HtmlOutput} The HTML output for the browser.
+ * [SLOWER, CACHED] Fetches heavy project metadata (field types, ID maps).
+ * This is called in the background by the client after the initial render.
+ * @return {object} An object containing fieldMeta and idMaps.
  */
+function getProjectMetadata() {
+  var cache = CacheService.getUserCache();
+  var cached = cache.get(METADATA_CACHE_KEY);
+  if (cached) {
+    return JSON.parse(cached);
+  }
+
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var metadata = {
+      fieldMeta: _getFieldMeta(ss),
+      idMaps: _getIdMaps(ss)
+    };
+    
+    cache.put(METADATA_CACHE_KEY, JSON.stringify(metadata), CACHE_EXPIRATION_SECONDS);
+    return metadata;
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+// --- Helper Functions to Read from Spreadsheet ---
+
+function _getFieldMeta(ss) {
+  var sh = ss.getSheetByName('Fields');
+  if (!sh) return [];
+  return sh.getDataRange().getValues().slice(1).map(function(r) { 
+    return { id: r[0], name: r[1], type: r[2], options: r[3] }; 
+  });
+}
+
+function _getIdMaps(ss) {
+  var maps = { shot: {}, asset: {}, task: {}, pm: {}, user: {} };
+  var sheetsToMap = [
+    ['Shots', 'shot'], ['Assets', 'asset'], ['Tasks', 'task'],
+    ['ProjectMembers', 'pm'], ['Users', 'user']
+  ];
+
+  sheetsToMap.forEach(function(pair) {
+    var sheetName = pair[0], key = pair[1];
+    var sh = ss.getSheetByName(sheetName);
+    if (!sh || sh.getLastRow() < 3) return;
+    
+    var range = sh.getRange(3, 1, sh.getLastRow() - 2, 2);
+    var data = range.getValues();
+    
+    for (var i = 0; i < data.length; i++) {
+        var r = data[i];
+        if (r[0] && r[1]) maps[key][r[0]] = r[1];
+    }
+  });
+  return maps;
+}
+
+// --- Web App Entry Point ---
 function doGet(e) {
-  const template = HtmlService.createTemplateFromFile('index');
-  // Pass the initial page parameter to the template if it exists
-  template.page = e.parameter.page || 'Shots'; 
-  
+  // This just serves the HTML shell. The client will fetch its own data.
+  var template = HtmlService.createTemplateFromFile('index');
   return template.evaluate()
     .setTitle('MOTKsheets G-Viewer')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
-/**
- * Fetches all necessary initial data for the client-side application.
- * This includes headers, row data, field metadata, and ID-to-name maps.
- * It uses CacheService to improve performance by caching repeated requests.
- * @param {string} sheetName - The name of the sheet to get data from.
- * @param {number} offset - The starting row offset for pagination.
- * @param {number} limit - The number of rows to retrieve.
- * @returns {object} An object containing all the initial data for the grid.
- */
-function getInitData(sheetName, offset, limit) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sh = ss.getSheetByName(sheetName);
-  
-  if (!sh) {
-    throw new Error(`Sheet "${sheetName}" not found.`);
-  }
-
-  const headerData = sh.getRange(1, 1, 2, sh.getLastColumn()).getValues();
-  const ids = headerData[0];
-  const header = headerData[1];
-  const total = sh.getLastRow() - 2; // Subtract header rows
-  
-  const numRowsToFetch = Math.max(0, Math.min(limit, total - offset));
-  let rows = [];
-  if (numRowsToFetch > 0) {
-      rows = sh.getRange(offset + 3, 1, numRowsToFetch, sh.getLastColumn()).getValues();
-  }
-
-  // Use CacheService for metadata to speed up initialization
-  const cache = CacheService.getScriptCache();
-  
-  let fieldMeta = JSON.parse(cache.get('fieldMeta') || 'null');
-  if (!fieldMeta) {
-    fieldMeta = getFieldMeta();
-    cache.put('fieldMeta', JSON.stringify(fieldMeta), 300); // Cache for 5 minutes
-  }
-  
-  let idMaps = JSON.parse(cache.get('idMaps') || 'null');
-  if (!idMaps) {
-    idMaps = getIdMaps();
-    cache.put('idMaps', JSON.stringify(idMaps), 300); // Cache for 5 minutes
-  }
-
-  return { ids, header, total, rows, fieldMeta, idMaps };
-}
-
-/**
- * Fetches a specific page of data from a sheet.
- * @param {string} sheetName - The name of the sheet.
- * @param {number} offset - The starting row offset.
- * @param {number} limit - The number of rows to retrieve.
- * @returns {Array<Array<any>>} A 2D array of the requested row data.
- */
-function getPage(sheetName, offset, limit) {
-  const sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(sheetName);
-  if (!sh) return [];
-  
-  const startRow = offset + 3; // Data starts from row 3
-  const numRows = Math.min(limit, sh.getLastRow() - startRow + 1);
-  if (numRows <= 0) return [];
-
-  return sh.getRange(startRow, 1, numRows, sh.getLastColumn()).getValues();
-}
-
-/**
- * Retrieves metadata for all fields from the 'Fields' sheet.
- * @returns {Array<object>} An array of field metadata objects.
- */
-function getFieldMeta() {
-  const sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('Fields');
-  if (!sh) return [];
-  // Assumes data starts at row 2, with row 1 being headers
-  return sh.getDataRange().getValues().slice(1).map(r => ({ id: r[0], name: r[1], type: r[2], options: r[3] }));
-}
-
-/**
- * Creates maps to resolve IDs to names for linked data.
- * @returns {object} An object containing maps for different entity types.
- */
-function getIdMaps() {
-  const maps = { shot: {}, asset: {}, task: {}, pm: {}, user: {} };
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const sheetsToMap = [
-    ['Shots', 'shot'],
-    ['Assets', 'asset'],
-    ['Tasks', 'task'],
-    ['ProjectMembers', 'pm'],
-    ['Users', 'user']
-  ];
-
-  sheetsToMap.forEach(([sheetName, key]) => {
-    const sh = ss.getSheetByName(sheetName);
-    if (!sh) return;
-    // Assumes ID is in column 1 and Name is in column 2
-    sh.getDataRange().getValues().slice(2).forEach(r => {
-      if (r[0] && r[1]) { // Ensure ID and Name exist
-        maps[key][r[0]] = r[1];
-      }
-    });
-  });
-  return maps;
+// --- Templating Helper ---
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }

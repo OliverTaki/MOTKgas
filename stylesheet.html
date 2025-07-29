@@ -1,164 +1,84 @@
 <style>
-  /* Global Variables for Light/Dark Theme */
   :root {
-    --bg-primary: #ffffff;
-    --fg-primary: #111111;
-    --bg-secondary: #f0f0f0;
-    --border-color: #cccccc;
-    --link-color: #4ea3ff;
-    --link-hover-color: #ff7e39;
-    --header-height: 40px;
-    --pnav-height: 32px;
-    --toolbar-height: 32px;
+    --bg-primary: #ffffff; --fg-primary: #111111; --bg-secondary: #f0f0f0;
+    --border-color: #cccccc; --link-color: #4ea3ff; --link-hover-color: #ff7e39;
+    --header-height: 40px; --pnav-height: 32px; --toolbar-height: 32px;
     --statusbar-height: 28px;
+    --total-header-height: calc(var(--header-height) + var(--pnav-height) + var(--toolbar-height));
   }
 
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg-primary: #1e1e1e;
-      --fg-primary: #e0e0e0;
-      --bg-secondary: #333333;
-      --border-color: #555555;
-      --link-color: #71c1ff;
+      --bg-primary: #1e1e1e; --fg-primary: #e0e0e0; --bg-secondary: #333333;
+      --border-color: #555555; --link-color: #71c1ff;
     }
   }
 
-  /* Basic Setup */
   html, body {
-    margin: 0;
-    padding: 0;
+    margin: 0; padding: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    background-color: var(--bg-primary);
-    color: var(--fg-primary);
-    overflow: hidden; /* Body scroll is disabled, tableWrap will scroll */
+    background-color: var(--bg-primary); color: var(--fg-primary);
+    overflow: hidden; /* Prevent the whole page from scrolling */
   }
 
-  /* Layout: Navigations, Toolbar, Status Bar */
+  /* --- Fixed Headers --- */
   #gNav, #pNav, #toolbar {
-    position: sticky;
-    left: 0;
-    right: 0;
-    z-index: 200;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 0 12px;
-    background-color: var(--bg-secondary);
-    border-bottom: 1px solid var(--border-color);
-    box-sizing: border-box;
+    position: fixed; left: 0; right: 0; z-index: 200;
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 12px; background-color: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color); box-sizing: border-box;
   }
-
   #gNav { top: 0; height: var(--header-height); }
   #pNav { top: var(--header-height); height: var(--pnav-height); }
   #toolbar { top: calc(var(--header-height) + var(--pnav-height)); height: var(--toolbar-height); }
   
+  /* --- Fixed Status Bar --- */
   #statusBar {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: var(--statusbar-height);
-    z-index: 190;
-    background-color: var(--bg-secondary);
-    border-top: 1px solid var(--border-color);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 12px;
-    box-sizing: border-box;
+    position: fixed; left: 0; right: 0; bottom: 0;
+    height: var(--statusbar-height); z-index: 190;
+    background-color: var(--bg-secondary); border-top: 1px solid var(--border-color);
+    display: flex; align-items: center; padding: 0 12px; box-sizing: border-box; gap: 12px;
   }
+  .spacer { flex-grow: 1; }
   .pagination-controls { display: flex; align-items: center; gap: 8px; }
 
-  /* Table Wrapper */
+  /* --- Scrolling Table Container --- */
   #tableWrap {
-    position: fixed;
-    left: 0;
-    right: 0;
-    top: calc(var(--header-height) + var(--pnav-height) + var(--toolbar-height));
+    position: fixed; left: 0; right: 0;
+    top: var(--total-header-height);
     bottom: var(--statusbar-height);
-    overflow: auto;
+    overflow: auto; /* This is the scrolling context for the sticky header */
   }
   
-  .loader {
-    padding: 40px;
-    text-align: center;
-    font-size: 1.2em;
-  }
+  .loader { padding: 40px; text-align: center; font-size: 1.2em; }
 
-  /* Table Styling */
-  table {
-    border-collapse: separate;
-    border-spacing: 0;
-    width: max-content; /* Allows columns to have their own width */
-  }
-
+  /* --- Table and Sticky Header --- */
+  table { border-collapse: separate; border-spacing: 0; width: max-content; }
   th, td {
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--border-color);
-    border-right: 1px solid var(--border-color);
-    vertical-align: top;
-    white-space: normal;
-    word-break: break-word;
-    font-size: 14px;
+    padding: 6px 10px; border-bottom: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-color); vertical-align: top;
+    white-space: normal; word-break: break-word; font-size: 14px;
   }
-  
   tr th:first-child, tr td:first-child { border-left: 1px solid var(--border-color); }
   thead tr:first-child th { border-top: 1px solid var(--border-color); }
 
-
+  /* CRITICAL FIX: This makes the table header row stick to the top of the #tableWrap container during vertical scroll */
   th {
     position: sticky;
-    top: 0;
-    background-color: var(--bg-secondary);
-    user-select: none;
-    cursor: move;
-    z-index: 100;
+    top: 0; /* Stick to the top of the scrolling container */
+    background-color: var(--bg-secondary); /* Ensures content scrolls under the header */
+    z-index: 100; /* Keeps header above the table body rows */
   }
 
-  .resizer {
-    position: absolute;
-    right: 0;
-    top: 0;
-    width: 5px;
-    height: 100%;
-    cursor: col-resize;
-    user-select: none;
-  }
-
-  /* Content Specific Styling */
-  .thumb {
-    width: 160px;
-    height: 90px;
-    object-fit: cover;
-    display: block;
-    cursor: pointer;
-  }
-  
-  .preview {
-    width: 320px;
-    height: 180px;
-    border: none;
-    margin: 0;
-  }
-
-  a {
-    color: var(--link-color);
-    text-decoration: none;
-  }
-  a:hover {
-    color: var(--link-hover-color);
-    text-decoration: underline;
-  }
-  
+  .resizer { position: absolute; right: 0; top: 0; width: 5px; height: 100%; cursor: col-resize; user-select: none; }
+  .thumb { width: 160px; height: 90px; object-fit: cover; display: block; cursor: pointer; }
+  .preview { width: 320px; height: 180px; border: none; margin: 0; }
+  a { color: var(--link-color); text-decoration: none; }
+  a:hover { color: var(--link-hover-color); text-decoration: underline; }
+  #pNav a.active { font-weight: bold; color: var(--link-hover-color); }
   button {
-    padding: 4px 10px;
-    border-radius: 4px;
-    border: 1px solid var(--border-color);
-    background-color: var(--bg-primary);
-    color: var(--fg-primary);
-    cursor: pointer;
+    padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border-color);
+    background-color: var(--bg-primary); color: var(--fg-primary); cursor: pointer;
   }
-  button:hover {
-    background-color: var(--bg-secondary);
-  }
+  button:hover { background-color: var(--bg-secondary); }
 </style>

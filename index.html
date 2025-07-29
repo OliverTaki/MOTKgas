@@ -4,20 +4,16 @@
   <base target="_top">
   <meta charset="utf-8">
   <title>MOTKsheets G-Viewer</title>
-  <!-- Stylesheet is now included from a separate file -->
   <?!= include('stylesheet'); ?>
 </head>
-
 <body>
-  <!-- Global Navigation -->
+  <!-- Navigation and Toolbar -->
   <nav id="gNav">
     <span class="logo">MOTK</span>
     <a href="?page=dashboard">Dashboard</a>
     <a href="?page=alltasks">All Tasks</a>
     <a href="?page=settings">⚙ Settings</a>
   </nav>
-
-  <!-- Project Navigation -->
   <nav id="pNav">
     <a href="?page=Shots" class="pn">SHOTS</a>
     <a href="?page=Assets" class="pn">ASSETS</a>
@@ -25,21 +21,19 @@
     <a href="?page=ProjectMembers" class="pn">PM</a>
     <a href="?page=Users" class="pn">USERS</a>
   </nav>
-
-  <!-- Toolbar -->
   <div id="toolbar">
     <button id="btnSort">Sort ⬍</button>
     <button id="btnFilter">Filter ❚❚</button>
-    <button id="btnReset">Reset</button>
   </div>
 
-  <!-- Main Table Wrapper -->
+  <!-- Main Content Area -->
   <div id="tableWrap">
     <div class="loader">Loading...</div>
   </div>
 
-  <!-- Status Bar & Pagination -->
+  <!-- Status Bar -->
   <div id="statusBar">
+    <span class="spacer"></span>
     <span id="stat"></span>
     <div class="pagination-controls">
       <select id="perPage"></select>
@@ -48,10 +42,10 @@
     </div>
   </div>
 
-  <!-- Dialog templates are included from a separate file -->
   <?!= include('dialogs'); ?>
 
-  <!-- Main JavaScript logic is now included from a separate file -->
+  <!-- CRITICAL CHANGE: Removed the script that tried to embed data. -->
+  <!-- The viewer script will now fetch data itself. -->
   <?!= include('viewer'); ?>
 </body>
 </html>
