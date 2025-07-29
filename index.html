@@ -1,50 +1,36 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <base target="_top">
-  <meta charset="utf-8">
-  <title>MOTKsheets G-Viewer</title>
-  <?!= include('style'); ?>  
-</head>
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <title>MOTKsheets G-Viewer</title>
+    <?!= include('stylesheet'); ?>
+  </head>
+  <body>
+    <!-- Navigation Bars -->
+    <nav id="gNav">
+      <span class="logo">MOTK</span>
+      <a href="<?= scriptUrl ?>?page=dashboard">Dashboard</a>
+    </nav>
+    <nav id="pNav">
+      <a href="<?= scriptUrl ?>?page=Shots">SHOTS</a>
+      <a href="<?= scriptUrl ?>?page=Assets">ASSETS</a>
+      <a href="<?= scriptUrl ?>?page=Tasks">TASKS</a>
+      <a href="<?= scriptUrl ?>?page=ProjectMembers">PM</a>
+      <a href="<?= scriptUrl ?>?page=Users">USERS</a>
+    </nav>
 
-<body>
-  <!-- ── Global Navigation ── -->
-  <nav id="gNav">
-    <span class="logo">MOTK</span>
-    <a href="?page=dashboard">Dashboard</a>
-    <a href="?page=alltasks">All Tasks</a>
-    <a href="?page=settings">⚙ Settings</a>
-  </nav>
+    <!-- Main Content Area -->
+    <main id="main-content">
+      <div class="loader">Loading...</div>
+    </main>
 
-  <!-- ── Project Navigation ── -->
-  <nav id="pNav">
-    <a href="?page=Shots"  class="pn">SHOTS</a>
-    <a href="?page=Assets" class="pn">ASSETS</a>
-    <a href="?page=Tasks"  class="pn">TASKS</a>
-    <a href="?page=ProjectMembers" class="pn">PM</a>
-    <a href="?page=Users"  class="pn">USERS</a>
-  </nav>
-
-  <!-- ── Toolbar ── -->
-  <div id="toolbar">
-    <button id="btnSort">Sort ⬍</button>
-    <button id="btnFilter">Filter ❚❚</button>
-    <button id="btnReset">Reset</button>
-  </div>
-
-  <!-- ── Table ── -->
-  <div id="tableWrap">Loading…</div>
-
-  <!-- ── Status / Pagination ── -->
-  <div id="statusBar">
-    <span id="stat"></span>
-    <select id="perPage"></select>
-    <button id="prevPg">◀</button>
-    <button id="nextPg">▶</button>
-  </div>
-
-  <!-- ダイアログ HTML とメイン JS を inline include -->
-  <?!= include('sortFilter'); ?>
-  <?!= include('viewer'); ?>
-</body>
+    <!-- Scripts -->
+    <script>
+      var ALL_DATA = <?!= data ?>;
+      // ★★★ ここでサーバーのURLを変数に格納します ★★★
+      var SCRIPT_URL = "<?= scriptUrl ?>";
+    </script>
+    <?!= include('viewer'); ?>
+  </body>
 </html>

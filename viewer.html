@@ -1,123 +1,248 @@
 <script>
-/* ---------- state ---------- */
-const PAGE_OPTS=[50,100,200,0];   // 0 = ALL
-let sheet='Shots', ids=[], header=[], total=0;
-let fieldType={}, idMaps={};
-let curPage=1, pageSize=100;
-let isResizing=false, dragColId=null;
-const DRIVE="https://drive.google.com/";
+// --- State Management ---
+var STATE = {
+  pageType: 'dashboard', sheetName: '', allRows: [], fieldIds: [], header: [],
+  totalRows: 0, fieldTypes: {}, idMaps: {}, currentPage: 1, pageSize: 100,
+  isResizing: false, draggedColId: null, columnOrder: [], columnWidths: {},
+};
+var PAGE_OPTIONS = [50, 100, 200, 0];
+var DRIVE_BASE_URL = "https://drive.google.com/";
+var DOM = { mainContent: document.getElementById('main-content') };
 
-/* ---------- boot ---------- */
-(function(){
-  sheet=new URLSearchParams(location.search).get('page')||'Shots';
-  google.script.run.withSuccessHandler(pkg=>{
-    ({ids,header,total}=pkg);
-    fieldType=Object.fromEntries(pkg.fieldMeta.map(o=>[o.id,o.type]));
-    idMaps=pkg.idMaps;
-    buildUI(); draw(pkg.rows);          // 初回 1ページ
-  }).getInitData(sheet,0,pageSize);
-})();
+document.addEventListener('DOMContentLoaded', boot);
 
-/* ---------- UI ---------- */
-function buildUI(){
-  const sel=document.getElementById('perPage');
-  PAGE_OPTS.forEach(v=>{
-    const o=document.createElement('option');
-    o.value=v; o.textContent=v?`${v}/p`:'ALL'; if(v===pageSize)o.selected=true;
-    sel.appendChild(o);
-  });
-  sel.onchange=e=>{pageSize=parseInt(e.target.value);curPage=1;fetch();};
+function boot() {
+  if (typeof ALL_DATA === 'undefined' || (ALL_DATA && ALL_DATA.error)) {
+    onFailure(ALL_DATA || { message: 'Initial data not found.' });
+    return;
+  }
+  STATE.pageType = ALL_DATA.pageType;
+  var pageName = ALL_DATA.sheetName || 'Dashboard';
 
-  document.getElementById('prevPg').onclick=_=>{if(curPage>1){curPage--;fetch();}};
-  document.getElementById('nextPg').onclick=_=>{
-    if(pageSize===0)return;
-    const max=Math.ceil(total/pageSize); if(curPage<max){curPage++;fetch();}
-  };
-  document.getElementById('btnSort').onclick=_=>alert('Sort UI TODO');
-  document.getElementById('btnFilter').onclick=_=>alert('Filter UI TODO');
-  document.getElementById('btnReset').onclick=_=>{curPage=1;fetch();};
+  if (STATE.pageType === 'dashboard') {
+    renderDashboard(ALL_DATA);
+  } else {
+    initializeTableState(ALL_DATA);
+    renderTableView();
+  }
 }
 
-/* ---------- data ---------- */
-function fetch(){
-  const off = pageSize===0 ? 0 : (curPage-1)*pageSize;
-  const lim = pageSize===0 ? total : pageSize;
-  google.script.run.withSuccessHandler(draw).getPage(sheet,off,lim);
+function onFailure(error) {
+  DOM.mainContent.innerHTML = '<div class="loader" style="color: red;">Error: ' + (error.message || error.error) + '</div>';
+  console.error('Render failed:', error);
 }
 
-/* ---------- draw table ---------- */
-function draw(rows){
-  const tbl=document.createElement('table');
+// --- DASHBOARD RENDERING ---
+function renderDashboard(data) {
+  DOM.mainContent.innerHTML = `<div id="dashboard-container"><h1>Project Overview</h1><div class="card-grid"><div class="card"><h2>Total Shots</h2><p class="card-number">${data.counts.shots}</p></div><div class="card"><h2>Total Assets</h2><p class="card-number">${data.counts.assets}</p></div><div class="card"><h2>Total Tasks</h2><p class="card-number">${data.counts.tasks}</p></div></div></div>`;
+}
 
-  /* thead */
-  const thead=tbl.createTHead(), hr=thead.insertRow();
-  header.forEach((h,i)=>{
-    const th=document.createElement('th');
-    th.textContent=h; th.dataset.colId=ids[i];
-    if(i) th.draggable=true;            // ID列以外ドラッグ可
-    addResizer(th); hr.appendChild(th);
+// --- TABLE VIEW RENDERING ---
+function initializeTableState(dataPackage) {
+  STATE.sheetName = dataPackage.sheetName;
+  STATE.fieldIds = dataPackage.ids;
+  STATE.columnOrder = [].slice.call(dataPackage.ids);
+  STATE.header = dataPackage.header;
+  STATE.totalRows = dataPackage.total;
+  STATE.allRows = dataPackage.rows;
+  STATE.fieldTypes = Object.fromEntries(dataPackage.fieldMeta.map(f => [f.id, f.type]));
+  STATE.idMaps = dataPackage.idMaps;
+}
+
+function renderTableView() {
+  DOM.mainContent.innerHTML = `<div id="table-view-container"><div id="toolbar"><button id="btnSort">Sort ⬍</button><button id="btnFilter">Filter ❚❚</button></div><div id="tableWrap"></div><div id="statusBar"><span class="spacer"></span><span id="stat"></span><div class="pagination-controls"><select id="perPage"></select><button id="prevPg" title="Previous Page">◀</button><button id="nextPg" title="Next Page">▶</button></div></div></div>`;
+  setupPagination();
+  renderCurrentPage();
+}
+
+function renderCurrentPage() {
+  var offset = STATE.pageSize === 0 ? 0 : (STATE.currentPage - 1) * STATE.pageSize;
+  var limit = STATE.pageSize === 0 ? STATE.allRows.length : STATE.pageSize;
+  var rowsToRender = STATE.allRows.slice(offset, offset + limit);
+  renderTable(rowsToRender);
+}
+
+function renderTable(rows) {
+  var table = document.createElement('table');
+  var thead = table.createTHead();
+  var tbody = table.createTBody();
+  var headerRow = thead.insertRow();
+  
+  STATE.columnOrder.forEach(colId => {
+    var colIndex = STATE.fieldIds.indexOf(colId);
+    if (colIndex === -1) return;
+    var th = document.createElement('th');
+    th.textContent = STATE.header[colIndex];
+    th.dataset.colId = colId;
+    headerRow.appendChild(th);
   });
 
-  /* tbody */
-  const tbody=tbl.createTBody();
-  rows.forEach(r=>{
-    const tr=tbody.insertRow();
-    r.forEach((c,ci)=>{
-      const td=tr.insertCell(); td.dataset.colId=ids[ci];
-      if(typeof c==='string' && c.startsWith(DRIVE)){
-        const id=extractId(c);
-        td.innerHTML=`<img loading="lazy" class="thumb" src="https://drive.google.com/thumbnail?id=${id}&sz=w200">`;
-        td.dataset.id=id;
-      }else if(idMaps.shot[c]) td.innerHTML=`<a href="?page=Shots&id=${c}">${idMaps.shot[c]}</a>`;
-      else td.textContent=c??'';
+  rows.forEach(rowData => {
+    var tr = tbody.insertRow();
+    STATE.columnOrder.forEach(colId => {
+      var colIndex = STATE.fieldIds.indexOf(colId);
+      if (colIndex === -1) return;
+      var td = tr.insertCell();
+      td.dataset.colId = colId;
+      td.innerHTML = formatCell(rowData[colIndex], colId, rowData[0]);
     });
   });
 
-  document.getElementById('tableWrap').innerHTML=''; document.getElementById('tableWrap').appendChild(tbl);
-  hideId(); enableDnD(tbl); previewClick(tbl); updateStat();
+  document.getElementById('tableWrap').innerHTML = '';
+  document.getElementById('tableWrap').appendChild(table);
+
+  hideIdColumn();
+  updateStatusBar();
+  setupFixedHeader(table);
 }
 
-/* ---------- helpers ---------- */
-function extractId(u){const m=u.match(/\/d\/([^/]+)/)||u.match(/id=([^&]+)/);return m?m[1]:null;}
-function hideId(){document.querySelectorAll('table tr').forEach(tr=>{if(tr.children[0])tr.children[0].style.display='none';});}
-function updateStat(){const max=pageSize?Math.ceil(total/pageSize):1;document.getElementById('stat').textContent=`rows ${total} | page ${curPage}/${max}`;}
-function previewClick(t){t.onclick=e=>{if(e.target.classList.contains('thumb')){const id=e.target.parentElement.dataset.id;const f=document.createElement('iframe');f.className='preview';f.loading='lazy';f.src=`https://drive.google.com/file/d/${id}/preview`;e.target.replaceWith(f);}}}
+// ★★★ ここがエラーの修正箇所です ★★★
+function formatCell(content, colId, rowId) {
+    if (content === null || content === undefined || content === '') return '';
+    if (typeof content === 'string' && content.startsWith(DRIVE_BASE_URL)) {
+        var fileId = content.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || content.match(/id=([a-zA-Z0-9_-]+)/)?.[1];
+        if (fileId) return `<img loading="lazy" class="thumb" src="https://drive.google.com/thumbnail?id=${fileId}&sz=w200" data-drive-id="${fileId}">`;
+    }
+    for (var key in STATE.idMaps) {
+        if (STATE.idMaps[key][content]) {
+            var pageName = (key === 'pm') ? 'ProjectMembers' : key.charAt(0).toUpperCase() + key.slice(1) + 's';
+            // ScriptAppの代わりにSCRIPT_URLを使用
+            return `<a href="${SCRIPT_URL}?page=${pageName}&detail=${content}">${escapeHTML(STATE.idMaps[key][content])}</a>`;
+        }
+    }
+    if (colId === STATE.fieldIds[1]) {
+        // ScriptAppの代わりにSCRIPT_URLを使用
+        return `<a href="${SCRIPT_URL}?page=${STATE.sheetName}&detail=${rowId}">${escapeHTML(String(content))}</a>`;
+    }
+    return escapeHTML(String(content));
+}
 
-/* ---------- DnD & resize ---------- */
-function enableDnD(tbl){
-  tbl.querySelectorAll('th').forEach(th=>{
-    th.ondragstart=e=>{
-      if(isResizing||!th.draggable){e.preventDefault();return;}
-      dragColId=th.dataset.colId; e.dataTransfer.setData('','');
+// --- FIXED HEADER LOGIC ---
+function setupFixedHeader(originalTable) {
+    var tableWrap = document.getElementById('tableWrap');
+    if (!tableWrap) return;
+    
+    var oldClone = document.getElementById('floating-header-wrapper');
+    if (oldClone) oldClone.remove();
+
+    var originalThead = originalTable.tHead;
+    if (!originalThead) return;
+
+    var cloneWrapper = document.createElement('div');
+    cloneWrapper.id = 'floating-header-wrapper';
+    cloneWrapper.className = 'floating-header-wrapper';
+    var cloneTable = originalTable.cloneNode(false);
+    cloneTable.appendChild(originalThead.cloneNode(true));
+    cloneWrapper.appendChild(cloneTable);
+    document.body.appendChild(cloneWrapper);
+    
+    var syncWidths = () => {
+        var rect = document.getElementById('toolbar').getBoundingClientRect();
+        var tableRect = tableWrap.getBoundingClientRect();
+        var scrollbarWidth = tableWrap.offsetWidth - tableWrap.clientWidth;
+        
+        cloneWrapper.style.top = `${rect.bottom}px`;
+        cloneWrapper.style.left = `${tableRect.left}px`;
+        cloneWrapper.style.width = `${tableRect.width - scrollbarWidth}px`;
+
+        var originalHeaders = originalThead.querySelectorAll('th');
+        var cloneHeaders = cloneTable.tHead.querySelectorAll('th');
+        originalHeaders.forEach((th, i) => {
+            if (cloneHeaders[i]) {
+                var w = th.getBoundingClientRect().width;
+                cloneHeaders[i].style.minWidth = `${w}px`;
+                cloneHeaders[i].style.maxWidth = `${w}px`;
+                cloneHeaders[i].style.width = `${w}px`;
+            }
+        });
     };
-    th.ondragover=e=>e.preventDefault();
-    th.ondrop=e=>{
-      e.preventDefault();
-      const dstId=e.target.dataset.colId;
-      if(dragColId&&dstId&&dragColId!==dstId) swapCols(tbl,dragColId,dstId);
-      dragColId=null; hideId();
-    };
-  });
+
+    syncWidths();
+    tableWrap.addEventListener('scroll', () => { cloneTable.style.transform = `translateX(-${tableWrap.scrollLeft}px)`; });
+    window.addEventListener('resize', syncWidths);
+
+    addResizerAndDnD(cloneTable.tHead, originalTable.tHead, syncWidths);
 }
-function swapCols(t,colA,colB){
-  t.querySelectorAll('tr').forEach(r=>{
-    const a=[...r.cells].find(c=>c.dataset.colId===colA);
-    const b=[...r.cells].find(c=>c.dataset.colId===colB);
-    if(a&&b) r.insertBefore(a,(a.compareDocumentPosition(b)&4)?b.nextSibling:b);
-  });
+
+// --- INTERACTIVITY LOGIC ---
+function addResizerAndDnD(sourceThead, targetThead, onComplete) {
+    sourceThead.querySelectorAll('th').forEach((th, i) => {
+        th.style.cursor = 'move';
+        var resizer = document.createElement('div');
+        resizer.className = 'resizer';
+        th.style.position = 'relative';
+        th.appendChild(resizer);
+        
+        resizer.onmousedown = (e) => {
+            e.stopPropagation();
+            STATE.isResizing = true;
+            var startX = e.pageX;
+            var startWidth = th.getBoundingClientRect().width;
+            document.onmousemove = (ev) => {
+                var newWidth = Math.max(50, startWidth + (ev.pageX - startX));
+                var targetTh = targetThead.querySelectorAll('th')[i];
+                th.style.width = `${newWidth}px`;
+                targetTh.style.width = `${newWidth}px`;
+                onComplete();
+            };
+            document.onmouseup = () => {
+                document.onmousemove = document.onmouseup = null;
+                STATE.isResizing = false;
+            };
+        };
+        
+        if(i > 0) {
+            th.draggable = true;
+            th.ondragstart = (e) => {
+                if(STATE.isResizing) { e.preventDefault(); return; }
+                e.dataTransfer.effectAllowed = 'move';
+                STATE.draggedColId = th.dataset.colId;
+            };
+            th.ondragover = (e) => { e.preventDefault(); };
+            th.ondrop = (e) => {
+                e.preventDefault();
+                var fromId = STATE.draggedColId;
+                var toId = th.dataset.colId;
+                if(fromId && fromId !== toId) {
+                    var fromIndex = STATE.columnOrder.indexOf(fromId);
+                    var toIndex = STATE.columnOrder.indexOf(toId);
+                    STATE.columnOrder.splice(fromIndex, 1);
+                    STATE.columnOrder.splice(toIndex, 0, fromId);
+                    renderCurrentPage();
+                }
+            };
+        }
+    });
 }
-function addResizer(th){
-  const g=document.createElement('div');g.className='resizer';
-  th.style.position='relative'; th.appendChild(g);
-  g.onmousedown=e=>{
-    isResizing=true; const colId=th.dataset.colId;
-    const sx=e.pageX, sw=th.offsetWidth;
-    document.onmousemove=ev=>{
-      const w=Math.max(40, sw+(ev.pageX-sx));
-      document.querySelectorAll(`[data-col-id="${colId}"]`).forEach(c=>c.style.width=w+'px');
-    };
-    document.onmouseup=_=>{document.onmousemove=document.onmouseup=null;isResizing=false;};
-    e.stopPropagation();
-  };
+
+// --- HELPER FUNCTIONS ---
+function setupPagination() {
+  var perPageSelect = document.getElementById('perPage');
+  perPageSelect.innerHTML = '';
+  PAGE_OPTIONS.forEach(val => {
+    var option = document.createElement('option');
+    option.value = val;
+    option.textContent = val ? `${val} rows` : 'All';
+    if (val === STATE.pageSize) option.selected = true;
+    perPageSelect.appendChild(option);
+  });
+  perPageSelect.onchange = (e) => { STATE.pageSize = parseInt(e.target.value, 10); STATE.currentPage = 1; renderCurrentPage(); };
+  document.getElementById('prevPg').onclick = () => { if (STATE.currentPage > 1) { STATE.currentPage--; renderCurrentPage(); } };
+  var maxPage = STATE.pageSize ? Math.ceil(STATE.totalRows / STATE.pageSize) : 1;
+  document.getElementById('nextPg').onclick = () => { if (STATE.currentPage < maxPage) { STATE.currentPage++; renderCurrentPage(); } };
+}
+function updateStatusBar() {
+  var maxPage = STATE.pageSize ? Math.ceil(STATE.totalRows / STATE.pageSize) : 1;
+  document.getElementById('stat').textContent = `Total: ${STATE.totalRows} rows | Page ${STATE.currentPage} of ${maxPage}`;
+}
+function hideIdColumn() {
+  var firstColId = STATE.fieldIds[0];
+  if (!firstColId) return;
+  document.querySelectorAll(`[data-col-id="${firstColId}"]`).forEach(el => { el.style.display = 'none'; });
+}
+function escapeHTML(str) {
+    var p = document.createElement('p');
+    p.textContent = str;
+    return p.innerHTML;
 }
 </script>
