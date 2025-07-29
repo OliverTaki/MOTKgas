@@ -1,51 +1,36 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <base target="_top">
-  <meta charset="utf-8">
-  <title>MOTKsheets G-Viewer</title>
-  <?!= include('stylesheet'); ?>
-</head>
-<body>
-  <!-- Navigation and Toolbar -->
-  <nav id="gNav">
-    <span class="logo">MOTK</span>
-    <a href="?page=dashboard">Dashboard</a>
-    <a href="?page=alltasks">All Tasks</a>
-    <a href="?page=settings">⚙ Settings</a>
-  </nav>
-  <nav id="pNav">
-    <a href="?page=Shots" class="pn">SHOTS</a>
-    <a href="?page=Assets" class="pn">ASSETS</a>
-    <a href="?page=Tasks" class="pn">TASKS</a>
-    <a href="?page=ProjectMembers" class="pn">PM</a>
-    <a href="?page=Users" class="pn">USERS</a>
-  </nav>
-  <div id="toolbar">
-    <button id="btnSort">Sort ⬍</button>
-    <button id="btnFilter">Filter ❚❚</button>
-  </div>
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <title>MOTKsheets G-Viewer</title>
+    <?!= include('stylesheet'); ?>
+  </head>
+  <body>
+    <!-- Navigation Bars -->
+    <nav id="gNav">
+      <span class="logo">MOTK</span>
+      <a href="<?= scriptUrl ?>?page=dashboard">Dashboard</a>
+    </nav>
+    <nav id="pNav">
+      <a href="<?= scriptUrl ?>?page=Shots">SHOTS</a>
+      <a href="<?= scriptUrl ?>?page=Assets">ASSETS</a>
+      <a href="<?= scriptUrl ?>?page=Tasks">TASKS</a>
+      <a href="<?= scriptUrl ?>?page=ProjectMembers">PM</a>
+      <a href="<?= scriptUrl ?>?page=Users">USERS</a>
+    </nav>
 
-  <!-- Main Content Area -->
-  <div id="tableWrap">
-    <div class="loader">Loading...</div>
-  </div>
+    <!-- Main Content Area -->
+    <main id="main-content">
+      <div class="loader">Loading...</div>
+    </main>
 
-  <!-- Status Bar -->
-  <div id="statusBar">
-    <span class="spacer"></span>
-    <span id="stat"></span>
-    <div class="pagination-controls">
-      <select id="perPage"></select>
-      <button id="prevPg" title="Previous Page">◀</button>
-      <button id="nextPg" title="Next Page">▶</button>
-    </div>
-  </div>
-
-  <?!= include('dialogs'); ?>
-
-  <!-- CRITICAL CHANGE: Removed the script that tried to embed data. -->
-  <!-- The viewer script will now fetch data itself. -->
-  <?!= include('viewer'); ?>
-</body>
+    <!-- Scripts -->
+    <script>
+      var ALL_DATA = <?!= data ?>;
+      // ★★★ ここでサーバーのURLを変数に格納します ★★★
+      var SCRIPT_URL = "<?= scriptUrl ?>";
+    </script>
+    <?!= include('viewer'); ?>
+  </body>
 </html>

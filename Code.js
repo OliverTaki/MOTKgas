@@ -1,70 +1,91 @@
 /**
- * @fileoverview Server-side logic with a definitive two-phase loading strategy
- * to ensure fast initial rendering and robust caching, preventing timeouts.
+ * @fileoverview A simplified and robust server-side script.
+ * It uses a single function to fetch all necessary data and embed it
+ * directly into the HTML to ensure pages always load correctly.
+ * This approach follows the "server-prepares-all" model.
  */
 
 // --- Global Constants ---
 var SPREADSHEET_ID = '16PYUZyI3E1CKtkeK6jokBFq7ElaVOtWIWuLMJGxxp_k';
-var METADATA_CACHE_KEY = 'project_metadata_v33';
-var CACHE_EXPIRATION_SECONDS = 300; // 5 minutes
+
+// --- Web App Entry Point ---
+function doGet(e) {
+  var pageName = e.parameter.page || 'dashboard';
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var dataToEmbed;
+
+  if (pageName.toLowerCase() === 'dashboard') {
+    dataToEmbed = getDashboardDataPackage(ss);
+  } else {
+    dataToEmbed = getTableDataPackage(ss, pageName);
+  }
+
+  var template = HtmlService.createTemplateFromFile('index');
+  template.data = JSON.stringify(dataToEmbed);
+  
+  // ★★★ この行で、サーバーのURLをクライアントに渡します ★★★
+  template.scriptUrl = ScriptApp.getService().getUrl();
+
+  return template.evaluate()
+    .setTitle('MOTKsheets G-Viewer')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
 
 /**
- * [FAST] Fetches only the data essential for the initial, fast render.
- * It only reads the specified sheet and does not touch any others.
- * @param {string} sheetName The name of the sheet to get data from.
- * @return {object} An object with headers and all row data for that single sheet.
+ * Fetches data for the main table view (Shots, Assets, etc.).
  */
-function getInitialPageData(sheetName) {
-  try {
-    var sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(sheetName);
-    if (!sh) {
-      return { error: 'Sheet "' + sheetName + '" not found.' };
-    }
+function getTableDataPackage(ss, sheetName) {
+  var sh = ss.getSheetByName(sheetName);
+  if (!sh) {
+    return { 
+      pageType: 'table',
+      error: 'Sheet "' + sheetName + '" not found.' 
+    };
+  }
 
-    var allData = sh.getDataRange().getValues();
-    var headerData = allData.slice(0, 2);
-    var rowData = allData.length > 2 ? allData.slice(2) : [];
+  var allData = sh.getDataRange().getValues();
+  var headerData = allData.slice(0, 2);
+  var rowData = allData.length > 2 ? allData.slice(2) : [];
+  
+  var fieldMeta = _getFieldMeta(ss);
+  var idMaps = _getIdMaps(ss);
+
+  return {
+    pageType: 'table',
+    sheetName: sheetName,
+    ids: headerData[0],
+    header: headerData[1],
+    total: rowData.length,
+    rows: rowData,
+    fieldMeta: fieldMeta,
+    idMaps: idMaps
+  };
+}
+
+/**
+ * Fetches summary data for the Dashboard view.
+ */
+function getDashboardDataPackage(ss) {
+    var shotSheet = ss.getSheetByName('Shots');
+    var assetSheet = ss.getSheetByName('Assets');
+    var taskSheet = ss.getSheetByName('Tasks');
+
+    var shotCount = shotSheet ? Math.max(0, shotSheet.getLastRow() - 2) : 0;
+    var assetCount = assetSheet ? Math.max(0, assetSheet.getLastRow() - 2) : 0;
+    var taskCount = taskSheet ? Math.max(0, taskSheet.getLastRow() - 2) : 0;
 
     return {
-      sheetName: sheetName,
-      ids: headerData[0],
-      header: headerData[1],
-      total: rowData.length,
-      rows: rowData,
+        pageType: 'dashboard',
+        counts: {
+            shots: shotCount,
+            assets: assetCount,
+            tasks: taskCount
+        }
     };
-  } catch (e) {
-    return { error: e.message };
-  }
 }
 
-/**
- * [SLOWER, CACHED] Fetches heavy project metadata (field types, ID maps).
- * This is called in the background by the client after the initial render.
- * @return {object} An object containing fieldMeta and idMaps.
- */
-function getProjectMetadata() {
-  var cache = CacheService.getUserCache();
-  var cached = cache.get(METADATA_CACHE_KEY);
-  if (cached) {
-    return JSON.parse(cached);
-  }
 
-  try {
-    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    var metadata = {
-      fieldMeta: _getFieldMeta(ss),
-      idMaps: _getIdMaps(ss)
-    };
-    
-    cache.put(METADATA_CACHE_KEY, JSON.stringify(metadata), CACHE_EXPIRATION_SECONDS);
-    return metadata;
-  } catch (e) {
-    return { error: e.message };
-  }
-}
-
-// --- Helper Functions to Read from Spreadsheet ---
-
+// --- Helper Functions ---
 function _getFieldMeta(ss) {
   var sh = ss.getSheetByName('Fields');
   if (!sh) return [];
@@ -79,30 +100,20 @@ function _getIdMaps(ss) {
     ['Shots', 'shot'], ['Assets', 'asset'], ['Tasks', 'task'],
     ['ProjectMembers', 'pm'], ['Users', 'user']
   ];
-
   sheetsToMap.forEach(function(pair) {
     var sheetName = pair[0], key = pair[1];
     var sh = ss.getSheetByName(sheetName);
     if (!sh || sh.getLastRow() < 3) return;
-    
     var range = sh.getRange(3, 1, sh.getLastRow() - 2, 2);
     var data = range.getValues();
-    
     for (var i = 0; i < data.length; i++) {
         var r = data[i];
-        if (r[0] && r[1]) maps[key][r[0]] = r[1];
+        if (r[0] && r[1]) {
+          maps[key][r[0]] = r[1];
+        }
     }
   });
   return maps;
-}
-
-// --- Web App Entry Point ---
-function doGet(e) {
-  // This just serves the HTML shell. The client will fetch its own data.
-  var template = HtmlService.createTemplateFromFile('index');
-  return template.evaluate()
-    .setTitle('MOTKsheets G-Viewer')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
 // --- Templating Helper ---

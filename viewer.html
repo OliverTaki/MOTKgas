@@ -1,106 +1,58 @@
 <script>
-/**
- * @fileoverview Client-side logic with a two-phase loading strategy for performance.
- */
-
 // --- State Management ---
 var STATE = {
-  sheetName: 'Shots',
-  allRows: [], // Holds all rows for the current sheet
-  fieldIds: [],
-  header: [],
-  totalRows: 0,
-  fieldTypes: {},
-  idMaps: {},
-  metadataLoaded: false, // Flag to check if metadata is available
-  currentPage: 1,
-  pageSize: 100,
-  isResizing: false,
-  draggedColId: null,
-  columnOrder: [],
-  columnWidths: {},
+  pageType: 'dashboard', sheetName: '', allRows: [], fieldIds: [], header: [],
+  totalRows: 0, fieldTypes: {}, idMaps: {}, currentPage: 1, pageSize: 100,
+  isResizing: false, draggedColId: null, columnOrder: [], columnWidths: {},
 };
-
-var PAGE_OPTIONS = [50, 100, 200, 0]; // 0 = ALL
+var PAGE_OPTIONS = [50, 100, 200, 0];
 var DRIVE_BASE_URL = "https://drive.google.com/";
+var DOM = { mainContent: document.getElementById('main-content') };
 
-// --- DOM Elements ---
-var DOM = {
-  tableWrap: document.getElementById('tableWrap'),
-  statusBar: document.getElementById('stat'),
-  perPageSelect: document.getElementById('perPage'),
-  prevPageBtn: document.getElementById('prevPg'),
-  nextPageBtn: document.getElementById('nextPg'),
-};
+document.addEventListener('DOMContentLoaded', boot);
 
 function boot() {
-  console.log("Booting application...");
-  STATE.sheetName = new URLSearchParams(location.search).get('page') || 'Shots';
-  console.log("Target sheet:", STATE.sheetName);
-  loadPage(STATE.sheetName);
-}
-
-function loadPage(sheetName) {
-  console.log("Loading page for:", sheetName);
-  updateActiveNavLink(sheetName);
-  DOM.tableWrap.innerHTML = '<div class="loader">Loading ' + sheetName + '...</div>';
-
-  // Phase 1: Get essential data for a fast initial render
-  console.log("Requesting initial page data...");
-  google.script.run
-    .withSuccessHandler(onInitialDataSuccess)
-    .withFailureHandler(onFailure)
-    .getInitialPageData(sheetName);
-}
-
-function onInitialDataSuccess(dataPackage) {
-  console.log("Received initial data package:", dataPackage);
-  if (dataPackage.error) {
-    onFailure(dataPackage);
+  if (typeof ALL_DATA === 'undefined' || (ALL_DATA && ALL_DATA.error)) {
+    onFailure(ALL_DATA || { message: 'Initial data not found.' });
     return;
   }
-  
+  STATE.pageType = ALL_DATA.pageType;
+  var pageName = ALL_DATA.sheetName || 'Dashboard';
+
+  if (STATE.pageType === 'dashboard') {
+    renderDashboard(ALL_DATA);
+  } else {
+    initializeTableState(ALL_DATA);
+    renderTableView();
+  }
+}
+
+function onFailure(error) {
+  DOM.mainContent.innerHTML = '<div class="loader" style="color: red;">Error: ' + (error.message || error.error) + '</div>';
+  console.error('Render failed:', error);
+}
+
+// --- DASHBOARD RENDERING ---
+function renderDashboard(data) {
+  DOM.mainContent.innerHTML = `<div id="dashboard-container"><h1>Project Overview</h1><div class="card-grid"><div class="card"><h2>Total Shots</h2><p class="card-number">${data.counts.shots}</p></div><div class="card"><h2>Total Assets</h2><p class="card-number">${data.counts.assets}</p></div><div class="card"><h2>Total Tasks</h2><p class="card-number">${data.counts.tasks}</p></div></div></div>`;
+}
+
+// --- TABLE VIEW RENDERING ---
+function initializeTableState(dataPackage) {
+  STATE.sheetName = dataPackage.sheetName;
   STATE.fieldIds = dataPackage.ids;
   STATE.columnOrder = [].slice.call(dataPackage.ids);
   STATE.header = dataPackage.header;
   STATE.totalRows = dataPackage.total;
   STATE.allRows = dataPackage.rows;
-  
+  STATE.fieldTypes = Object.fromEntries(dataPackage.fieldMeta.map(f => [f.id, f.type]));
+  STATE.idMaps = dataPackage.idMaps;
+}
+
+function renderTableView() {
+  DOM.mainContent.innerHTML = `<div id="table-view-container"><div id="toolbar"><button id="btnSort">Sort ⬍</button><button id="btnFilter">Filter ❚❚</button></div><div id="tableWrap"></div><div id="statusBar"><span class="spacer"></span><span id="stat"></span><div class="pagination-controls"><select id="perPage"></select><button id="prevPg" title="Previous Page">◀</button><button id="nextPg" title="Next Page">▶</button></div></div></div>`;
   setupPagination();
-  renderCurrentPage(); // First render with raw data
-  console.log("Initial render complete.");
-
-  // Phase 2: Fetch heavy metadata in the background
-  console.log("Requesting project metadata...");
-  google.script.run
-    .withSuccessHandler(onMetadataSuccess)
-    .withFailureHandler(onMetadataFailure)
-    .getProjectMetadata();
-}
-
-function onMetadataSuccess(metadata) {
-  console.log("Received metadata:", metadata);
-  if (metadata.error) {
-      onMetadataFailure(metadata);
-      return;
-  }
-  STATE.metadataLoaded = true;
-  STATE.fieldTypes = Object.fromEntries(metadata.fieldMeta.map(function(f) { return [f.id, f.type]; }));
-  STATE.idMaps = metadata.idMaps;
-  
-  // Re-render the table, which will now use the metadata to format cells
-  console.log("Re-rendering table with rich metadata.");
-  renderCurrentPage(); 
-}
-
-function onFailure(error) {
-  console.error('Server call failed:', error);
-  DOM.tableWrap.innerHTML = '<div class="loader" style="color: red;"><strong>Error:</strong> ' + escapeHTML(error.message || error.error) + '</div>';
-}
-
-function onMetadataFailure(error) {
-    console.warn('Could not load metadata:', error.message || error.error);
-    // We don't show a fatal error, the table is still usable without metadata.
+  renderCurrentPage();
 }
 
 function renderCurrentPage() {
@@ -113,183 +65,184 @@ function renderCurrentPage() {
 function renderTable(rows) {
   var table = document.createElement('table');
   var thead = table.createTHead();
+  var tbody = table.createTBody();
   var headerRow = thead.insertRow();
-  STATE.columnOrder.forEach(function(colId) {
+  
+  STATE.columnOrder.forEach(colId => {
     var colIndex = STATE.fieldIds.indexOf(colId);
     if (colIndex === -1) return;
     var th = document.createElement('th');
     th.textContent = STATE.header[colIndex];
     th.dataset.colId = colId;
-    if (colId !== STATE.fieldIds[0]) th.draggable = true;
-    if(STATE.columnWidths[colId]) th.style.width = STATE.columnWidths[colId] + 'px';
-    addResizer(th);
     headerRow.appendChild(th);
   });
 
-  var tbody = table.createTBody();
-  rows.forEach(function(rowData) {
+  rows.forEach(rowData => {
     var tr = tbody.insertRow();
-    STATE.columnOrder.forEach(function(colId) {
-        var colIndex = STATE.fieldIds.indexOf(colId);
-        if (colIndex === -1) return;
-        var td = tr.insertCell();
-        td.dataset.colId = colId;
-        td.innerHTML = formatCell(rowData[colIndex], colId, rowData[0]);
-        if(STATE.columnWidths[colId]) td.style.width = STATE.columnWidths[colId] + 'px';
+    STATE.columnOrder.forEach(colId => {
+      var colIndex = STATE.fieldIds.indexOf(colId);
+      if (colIndex === -1) return;
+      var td = tr.insertCell();
+      td.dataset.colId = colId;
+      td.innerHTML = formatCell(rowData[colIndex], colId, rowData[0]);
     });
   });
 
-  DOM.tableWrap.innerHTML = '';
-  DOM.tableWrap.appendChild(table);
+  document.getElementById('tableWrap').innerHTML = '';
+  document.getElementById('tableWrap').appendChild(table);
 
   hideIdColumn();
-  enableDragAndDrop(table);
-  setupTableInteractions(table);
   updateStatusBar();
+  setupFixedHeader(table);
 }
 
+// ★★★ ここがエラーの修正箇所です ★★★
 function formatCell(content, colId, rowId) {
     if (content === null || content === undefined || content === '') return '';
-    
-    var detailPageUrl = '?page=' + STATE.sheetName + '&detail=' + rowId;
-
-    // If metadata is not yet loaded, just return plain text.
-    if (!STATE.metadataLoaded) {
-        return escapeHTML(String(content));
-    }
-
-    // Metadata is loaded, so we can format richly.
     if (typeof content === 'string' && content.startsWith(DRIVE_BASE_URL)) {
-        var fileId = extractDriveId(content);
-        if (fileId) return '<img loading="lazy" class="thumb" src="https://drive.google.com/thumbnail?id=' + fileId + '&sz=w200" data-drive-id="' + fileId + '">';
+        var fileId = content.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || content.match(/id=([a-zA-Z0-9_-]+)/)?.[1];
+        if (fileId) return `<img loading="lazy" class="thumb" src="https://drive.google.com/thumbnail?id=${fileId}&sz=w200" data-drive-id="${fileId}">`;
     }
-
     for (var key in STATE.idMaps) {
         if (STATE.idMaps[key][content]) {
             var pageName = (key === 'pm') ? 'ProjectMembers' : key.charAt(0).toUpperCase() + key.slice(1) + 's';
-            var linkedDetailPageUrl = '?page=' + pageName + '&detail=' + content;
-            return '<a href="' + linkedDetailPageUrl + '">' + escapeHTML(STATE.idMaps[key][content]) + '</a>';
+            // ScriptAppの代わりにSCRIPT_URLを使用
+            return `<a href="${SCRIPT_URL}?page=${pageName}&detail=${content}">${escapeHTML(STATE.idMaps[key][content])}</a>`;
         }
     }
     if (colId === STATE.fieldIds[1]) {
-        return '<a href="' + detailPageUrl + '">' + escapeHTML(String(content)) + '</a>';
+        // ScriptAppの代わりにSCRIPT_URLを使用
+        return `<a href="${SCRIPT_URL}?page=${STATE.sheetName}&detail=${rowId}">${escapeHTML(String(content))}</a>`;
     }
     return escapeHTML(String(content));
 }
 
-function setupPagination() {
-  DOM.perPageSelect.innerHTML = '';
-  PAGE_OPTIONS.forEach(function(val) {
-    var option = document.createElement('option');
-    option.value = val;
-    option.textContent = val ? val + ' rows' : 'All';
-    if (val === STATE.pageSize) option.selected = true;
-    DOM.perPageSelect.appendChild(option);
-  });
-  DOM.perPageSelect.onchange = handlePageSizeChange;
-  DOM.prevPageBtn.onclick = handlePrevPage;
-  DOM.nextPageBtn.onclick = handleNextPage;
+// --- FIXED HEADER LOGIC ---
+function setupFixedHeader(originalTable) {
+    var tableWrap = document.getElementById('tableWrap');
+    if (!tableWrap) return;
+    
+    var oldClone = document.getElementById('floating-header-wrapper');
+    if (oldClone) oldClone.remove();
+
+    var originalThead = originalTable.tHead;
+    if (!originalThead) return;
+
+    var cloneWrapper = document.createElement('div');
+    cloneWrapper.id = 'floating-header-wrapper';
+    cloneWrapper.className = 'floating-header-wrapper';
+    var cloneTable = originalTable.cloneNode(false);
+    cloneTable.appendChild(originalThead.cloneNode(true));
+    cloneWrapper.appendChild(cloneTable);
+    document.body.appendChild(cloneWrapper);
+    
+    var syncWidths = () => {
+        var rect = document.getElementById('toolbar').getBoundingClientRect();
+        var tableRect = tableWrap.getBoundingClientRect();
+        var scrollbarWidth = tableWrap.offsetWidth - tableWrap.clientWidth;
+        
+        cloneWrapper.style.top = `${rect.bottom}px`;
+        cloneWrapper.style.left = `${tableRect.left}px`;
+        cloneWrapper.style.width = `${tableRect.width - scrollbarWidth}px`;
+
+        var originalHeaders = originalThead.querySelectorAll('th');
+        var cloneHeaders = cloneTable.tHead.querySelectorAll('th');
+        originalHeaders.forEach((th, i) => {
+            if (cloneHeaders[i]) {
+                var w = th.getBoundingClientRect().width;
+                cloneHeaders[i].style.minWidth = `${w}px`;
+                cloneHeaders[i].style.maxWidth = `${w}px`;
+                cloneHeaders[i].style.width = `${w}px`;
+            }
+        });
+    };
+
+    syncWidths();
+    tableWrap.addEventListener('scroll', () => { cloneTable.style.transform = `translateX(-${tableWrap.scrollLeft}px)`; });
+    window.addEventListener('resize', syncWidths);
+
+    addResizerAndDnD(cloneTable.tHead, originalTable.tHead, syncWidths);
 }
 
-function handlePageSizeChange(e) {
-  STATE.pageSize = parseInt(e.target.value, 10);
-  STATE.currentPage = 1;
-  renderCurrentPage();
+// --- INTERACTIVITY LOGIC ---
+function addResizerAndDnD(sourceThead, targetThead, onComplete) {
+    sourceThead.querySelectorAll('th').forEach((th, i) => {
+        th.style.cursor = 'move';
+        var resizer = document.createElement('div');
+        resizer.className = 'resizer';
+        th.style.position = 'relative';
+        th.appendChild(resizer);
+        
+        resizer.onmousedown = (e) => {
+            e.stopPropagation();
+            STATE.isResizing = true;
+            var startX = e.pageX;
+            var startWidth = th.getBoundingClientRect().width;
+            document.onmousemove = (ev) => {
+                var newWidth = Math.max(50, startWidth + (ev.pageX - startX));
+                var targetTh = targetThead.querySelectorAll('th')[i];
+                th.style.width = `${newWidth}px`;
+                targetTh.style.width = `${newWidth}px`;
+                onComplete();
+            };
+            document.onmouseup = () => {
+                document.onmousemove = document.onmouseup = null;
+                STATE.isResizing = false;
+            };
+        };
+        
+        if(i > 0) {
+            th.draggable = true;
+            th.ondragstart = (e) => {
+                if(STATE.isResizing) { e.preventDefault(); return; }
+                e.dataTransfer.effectAllowed = 'move';
+                STATE.draggedColId = th.dataset.colId;
+            };
+            th.ondragover = (e) => { e.preventDefault(); };
+            th.ondrop = (e) => {
+                e.preventDefault();
+                var fromId = STATE.draggedColId;
+                var toId = th.dataset.colId;
+                if(fromId && fromId !== toId) {
+                    var fromIndex = STATE.columnOrder.indexOf(fromId);
+                    var toIndex = STATE.columnOrder.indexOf(toId);
+                    STATE.columnOrder.splice(fromIndex, 1);
+                    STATE.columnOrder.splice(toIndex, 0, fromId);
+                    renderCurrentPage();
+                }
+            };
+        }
+    });
 }
-function handlePrevPage() { if (STATE.currentPage > 1) { STATE.currentPage--; renderCurrentPage(); } }
-function handleNextPage() {
-  if (STATE.pageSize === 0) return;
-  var maxPage = Math.ceil(STATE.totalRows / STATE.pageSize);
-  if (STATE.currentPage < maxPage) { STATE.currentPage++; renderCurrentPage(); }
-}
-function updateActiveNavLink(sheetName) {
-  document.querySelectorAll('#pNav a').forEach(function(a) {
-    a.classList.remove('active');
-    if (a.href.includes('page=' + sheetName)) {
-      a.classList.add('active');
-    }
+
+// --- HELPER FUNCTIONS ---
+function setupPagination() {
+  var perPageSelect = document.getElementById('perPage');
+  perPageSelect.innerHTML = '';
+  PAGE_OPTIONS.forEach(val => {
+    var option = document.createElement('option');
+    option.value = val;
+    option.textContent = val ? `${val} rows` : 'All';
+    if (val === STATE.pageSize) option.selected = true;
+    perPageSelect.appendChild(option);
   });
+  perPageSelect.onchange = (e) => { STATE.pageSize = parseInt(e.target.value, 10); STATE.currentPage = 1; renderCurrentPage(); };
+  document.getElementById('prevPg').onclick = () => { if (STATE.currentPage > 1) { STATE.currentPage--; renderCurrentPage(); } };
+  var maxPage = STATE.pageSize ? Math.ceil(STATE.totalRows / STATE.pageSize) : 1;
+  document.getElementById('nextPg').onclick = () => { if (STATE.currentPage < maxPage) { STATE.currentPage++; renderCurrentPage(); } };
 }
 function updateStatusBar() {
   var maxPage = STATE.pageSize ? Math.ceil(STATE.totalRows / STATE.pageSize) : 1;
-  DOM.statusBar.textContent = 'Total: ' + STATE.totalRows + ' rows | Page ' + STATE.currentPage + ' of ' + maxPage;
+  document.getElementById('stat').textContent = `Total: ${STATE.totalRows} rows | Page ${STATE.currentPage} of ${maxPage}`;
 }
 function hideIdColumn() {
   var firstColId = STATE.fieldIds[0];
   if (!firstColId) return;
-  document.querySelectorAll('[data-col-id="' + firstColId + '"]').forEach(function(el) { el.style.display = 'none'; });
-}
-function setupTableInteractions(table) {
-    table.addEventListener('click', function(e) {
-        if (e.target.classList.contains('thumb')) {
-            var id = e.target.dataset.driveId;
-            if (!id) return;
-            var iframe = document.createElement('iframe');
-            iframe.className = 'preview';
-            iframe.src = 'https://drive.google.com/file/d/' + id + '/preview';
-            e.target.replaceWith(iframe);
-        }
-    });
-}
-function extractDriveId(url) {
-    var match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/id=([a-zA-Z0-9_-]+)/);
-    return match ? match[1] : null;
+  document.querySelectorAll(`[data-col-id="${firstColId}"]`).forEach(el => { el.style.display = 'none'; });
 }
 function escapeHTML(str) {
     var p = document.createElement('p');
     p.textContent = str;
     return p.innerHTML;
 }
-function enableDragAndDrop(table) {
-  table.querySelectorAll('th[draggable="true"]').forEach(function(th) {
-    th.ondragstart = function(e) {
-      if (STATE.isResizing) { e.preventDefault(); return; }
-      STATE.draggedColId = this.dataset.colId;
-      var self = this;
-      setTimeout(function() { self.style.opacity = '0.5'; }, 0);
-    };
-    th.ondragend = function() { this.style.opacity = '1'; };
-    th.ondragover = function(e) { e.preventDefault(); };
-    th.ondrop = function(e) {
-      e.preventDefault();
-      var fromId = STATE.draggedColId;
-      var toId = this.dataset.colId;
-      if (fromId && toId && fromId !== toId) {
-        var fromIndex = STATE.columnOrder.indexOf(fromId);
-        var toIndex = STATE.columnOrder.indexOf(toId);
-        STATE.columnOrder.splice(fromIndex, 1);
-        STATE.columnOrder.splice(toIndex, 0, fromId);
-        renderCurrentPage();
-      }
-      STATE.draggedColId = null;
-    };
-  });
-}
-function addResizer(th) {
-  var resizer = document.createElement('div');
-  resizer.className = 'resizer';
-  th.style.position = 'relative';
-  th.appendChild(resizer);
-  resizer.onmousedown = function(e) {
-    e.preventDefault(); e.stopPropagation();
-    STATE.isResizing = true;
-    var startX = e.pageX;
-    var startWidth = th.offsetWidth;
-    var colId = th.dataset.colId;
-    document.onmousemove = function(ev) {
-      var newWidth = Math.max(50, startWidth + (ev.pageX - startX));
-      STATE.columnWidths[colId] = newWidth;
-      document.querySelectorAll('[data-col-id="' + colId + '"]').forEach(function(cell) {
-        cell.style.width = newWidth + 'px';
-      });
-    };
-    document.onmouseup = function() {
-      document.onmousemove = null;
-      document.onmouseup = null;
-      setTimeout(function() { STATE.isResizing = false; }, 100);
-    };
-  };
-}
-
-document.addEventListener('DOMContentLoaded', boot);
 </script>
