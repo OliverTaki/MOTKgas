@@ -1,9 +1,8 @@
 /* =========================================================================
-     MOTK G-Viewer  (Apps Script only)
-     - Dark-mode styling handled in Theme.html
-     - Table UI (index.html / viewer.html) は既存のまま
-     - Detail ルーティングと API を追加
-     2025-07-29
+     MOTK G-Viewer  (Apps Script only)           2025-07-29   v0.2
+     * Table UI (index.html / viewer.html) は既存のまま残す
+     * Detail ルーティングと API だけ追加
+     * scriptUrl / data をテンプレートへ渡す
    ========================================================================= */
 
 /* ---------- エンティティ定義 -------------------------------------------- */
@@ -20,27 +19,29 @@ function doGet(e) {
   const p       = e ? e.parameter : {};
   const entity  = (p.entity || '').toLowerCase();
   const id      = p.id   || '';
-  const page    = p.page || 'Shots';
-  const selfURL = ScriptApp.getService().getUrl();      // Web App 自身の URL
+  const page    = p.page || 'Shots';          // 既存 Table のデフォルト
+  const selfURL = ScriptApp.getService().getUrl();
 
   /* --- Detail --------------------------------------------------------- */
   if (ENTITY_CONF[entity] && id) {
     const tpl = HtmlService.createTemplateFromFile(ENTITY_CONF[entity].ui);
     tpl.entity    = entity;
     tpl.id        = id;
-    tpl.scriptUrl = selfURL;                           // 既存 JS 用
+    tpl.scriptUrl = selfURL;                  // index.html 側で参照
     return _wrap(tpl.evaluate(), `${entity}:${id}`);
   }
 
-  /* --- Table (従来 UI) ------------------------------------------------- */
-  const listTpl = HtmlService.createTemplateFromFile('index'); // 変更不要
-  listTpl.page      = page;
-  listTpl.scriptUrl = selfURL;
+  /* --- Table (既存 UI) ------------------------------------------------- */
+  const listTpl = HtmlService.createTemplateFromFile('index');
+  listTpl.page       = page;
+  listTpl.scriptUrl  = selfURL;
 
-  const rows         = listRows(page);               // 2D Array
-  listTpl.data       = JSON.stringify(rows);         // ← ここが index.html の <?!= data ?>
+  /* rows を JSON 文字列化して渡す */
+  const rows           = listRows(page);          // 2D Array
+  listTpl.dataJson     = JSON.stringify(rows);    // ★ ここだけ
 
   return _wrap(listTpl.evaluate(), 'MOTK Sheets');
+
 }
 
 /* ---------- 共通ヘルパー ---------------------------------------------- */
@@ -56,11 +57,6 @@ function include(name) {
 }
 
 /* ---------- API -------------------------------------------------------- */
-/**
- * シートから 1 行取得し、{header: value} オブジェクトで返す
- * @param {string} entity  shot|asset|task|member|user
- * @param {string} id      主キー値
- */
 function getEntity(entity, id) {
   const conf = ENTITY_CONF[entity];
   if (!conf) return null;
@@ -68,12 +64,9 @@ function getEntity(entity, id) {
   const sh = SpreadsheetApp.getActive().getSheetByName(conf.sheet);
   if (!sh) return null;
 
-  /* ▼▼▼ ここが消えていると “data is not defined” ▼▼▼ */
-  const data   = sh.getDataRange().getValues();   // ← 必須
-  const header = data.shift();                    // ← 必須
-  /* ▲▲▲ 必ず入れてください ▲▲▲ */
-
-  const idx = header.indexOf(conf.key);
+  const data   = sh.getDataRange().getValues();
+  const header = data.shift();
+  const idx    = header.indexOf(conf.key);
   if (idx === -1) return null;
 
   const row = data.find(r => String(r[idx]) === String(id));
@@ -84,12 +77,7 @@ function getEntity(entity, id) {
   return obj;
 }
 
-
-/**
- * 既存テーブル UI 用: シート全行を 2D 配列で返す
- * @param {string} sheetName
- * @return {Array<Array>}
- */
+/* 既存 Table UI 用：シート全行を 2D 配列で返す */
 function listRows(sheetName) {
   const sh = SpreadsheetApp.getActive().getSheetByName(sheetName);
   return sh ? sh.getDataRange().getValues() : [];
