@@ -27,6 +27,7 @@ function doGet(e) {
     const tpl = HtmlService.createTemplateFromFile(ENTITY_CONF[entity].ui);
     tpl.entity    = entity;
     tpl.id        = id;
+    tpl.scriptUrl = ScriptApp.getService().getUrl();
     tpl.scriptUrl = selfURL;                  // index.html 側で参照
     return _wrap(tpl.evaluate(), `${entity}:${id}`);
   }
@@ -51,6 +52,7 @@ function _wrap(out, title) {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
+// テンプレートとして評価してから HTML を返す
 function include(name) {
   return HtmlService.createHtmlOutputFromFile(name).getContent();
 }

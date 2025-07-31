@@ -1,3 +1,5 @@
+<script>const SCRIPT_URL='<?= scriptUrl ?>';</script>
+
 <script>
 /* ---- Gnavi active link ----------------------------------------------- */
 function setActiveNav(id){
@@ -19,4 +21,40 @@ function initTabs(){
     };
   });
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  /* gNav / pNav のリンクを SCRIPT_URL で補完 */
+  document.querySelectorAll('#gNav a[data-page], #pNav a[data-page]').forEach(a => {
+    a.href = `${SCRIPT_URL}?page=${a.dataset.page}`;
+  });
+});
+
+</script>
+<script>
+/* ナビ挿入直後に実行されるのでクリック可能になるまでのラグ無し */
+(function () {
+  if (!window.SCRIPT_URL) return;            // 念のため
+  document.querySelectorAll('#gNav a[data-page], #pNav a[data-page]')
+    .forEach(a => a.href = `${SCRIPT_URL}?page=${a.dataset.page}`);
+})();
+</script>
+<script>
+(function () {
+  /** SCRIPT_URL は Code.gs で渡す **/
+  window.SCRIPT_URL = window.SCRIPT_URL || '<?= scriptUrl ?>';
+
+  function wireNav() {
+    if (!SCRIPT_URL) return;                  // まだ空なら後でまた呼ぶ
+    document.querySelectorAll('a[data-page]').forEach(a => {
+      a.href = `${SCRIPT_URL}?page=${a.dataset.page}`;
+    });
+  }
+
+  /* 1) DOM が組み上がった瞬間 */
+  document.addEventListener('DOMContentLoaded', wireNav);
+
+  /* 2) その後に Nav が動的追加されても捕捉 */
+  new MutationObserver(wireNav)
+    .observe(document.body, { childList: true, subtree: true });
+})();
 </script>
