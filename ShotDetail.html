@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('Theme'); ?>
+</head>
+<body>
+  <header class="banner"><h1 id="title">Shot <?= id ?></h1></header>
+
+  <!-- Gnavi -->
+  <nav class="gnavi">
+    <a href="?page=Shots"  data-page="Shots">Shots</a>
+    <a href="?page=Assets" data-page="Assets">Assets</a>
+    <a href="?page=Tasks"  data-page="Tasks">Tasks</a>
+    <a href="?page=ProjectMembers" data-page="ProjectMembers">Members</a>
+    <a href="?page=Users"  data-page="Users">Users</a>
+  </nav>
+
+  <main>
+    <section id="overview"><p>Loading...</p></section>
+    <section id="files"    class="hidden"><p>Files coming soon…</p></section>
+  </main>
+
+  <!-- Pnavi -->
+  <nav class="tabs">
+    <button data-tab="overview" class="active">Overview</button>
+    <button data-tab="files">Files</button>
+  </nav>
+
+  <?!= include('Scripts'); ?>
+  <script>
+    setActiveNav('Shots');      // highlight Shots tab
+    initTabs();                 // enable bottom tabs
+
+    google.script.run
+      .withSuccessHandler(renderOverview)
+      .getEntity('shot','<?= id ?>');
+
+    function renderOverview(obj){
+      const wrap=document.getElementById('overview');
+      if(!obj){wrap.textContent='Not found';return;}
+      wrap.innerHTML='';
+      Object.entries(obj).forEach(([k,v])=>{
+        const row=document.createElement('div');
+        row.className='row';
+        row.innerHTML=`<label>${k}</label><span>${v}</span>`;
+        wrap.appendChild(row);
+      });
+    }
+  </script>
+</body>
+</html>

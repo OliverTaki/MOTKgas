@@ -1,122 +1,84 @@
-/**
- * @fileoverview A simplified and robust server-side script.
- * It uses a single function to fetch all necessary data and embed it
- * directly into the HTML to ensure pages always load correctly.
- * This approach follows the "server-prepares-all" model.
- */
+/* =========================================================================
+     MOTK G-Viewer  (Apps Script only)           2025-07-29   v0.2
+     * Table UI (index.html / viewer.html) は既存のまま残す
+     * Detail ルーティングと API だけ追加
+     * scriptUrl / data をテンプレートへ渡す
+   ========================================================================= */
 
-// --- Global Constants ---
-var SPREADSHEET_ID = '16PYUZyI3E1CKtkeK6jokBFq7ElaVOtWIWuLMJGxxp_k';
+/* ---------- エンティティ定義 -------------------------------------------- */
+const ENTITY_CONF = {
+  shot  : { sheet: 'Shots',          key: 'shot_id',   ui: 'ShotDetail'  },
+  asset : { sheet: 'Assets',         key: 'asset_id',  ui: 'AssetDetail' },
+  task  : { sheet: 'Tasks',          key: 'task_id',   ui: 'TaskDetail'  },
+  member: { sheet: 'ProjectMembers', key: 'member_id', ui: 'MemberDetail'},
+  user  : { sheet: 'Users',          key: 'user_id',   ui: 'UserDetail'  },
+};
 
-// --- Web App Entry Point ---
+/* ---------- ルーター ---------------------------------------------------- */
 function doGet(e) {
-  var pageName = e.parameter.page || 'dashboard';
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var dataToEmbed;
+  const p       = e ? e.parameter : {};
+  const entity  = (p.entity || '').toLowerCase();
+  const id      = p.id   || '';
+  const page    = p.page || 'Shots';          // 既存 Table のデフォルト
+  const selfURL = ScriptApp.getService().getUrl();
 
-  if (pageName.toLowerCase() === 'dashboard') {
-    dataToEmbed = getDashboardDataPackage(ss);
-  } else {
-    dataToEmbed = getTableDataPackage(ss, pageName);
+  /* --- Detail --------------------------------------------------------- */
+  if (ENTITY_CONF[entity] && id) {
+    const tpl = HtmlService.createTemplateFromFile(ENTITY_CONF[entity].ui);
+    tpl.entity    = entity;
+    tpl.id        = id;
+    tpl.scriptUrl = selfURL;                  // index.html 側で参照
+    return _wrap(tpl.evaluate(), `${entity}:${id}`);
   }
 
-  var template = HtmlService.createTemplateFromFile('index');
-  template.data = JSON.stringify(dataToEmbed);
-  
-  // ★★★ この行で、サーバーのURLをクライアントに渡します ★★★
-  template.scriptUrl = ScriptApp.getService().getUrl();
+  /* --- Table (既存 UI) ------------------------------------------------- */
+  const listTpl = HtmlService.createTemplateFromFile('index');
+  listTpl.page       = page;
+  listTpl.scriptUrl  = selfURL;
 
-  return template.evaluate()
-    .setTitle('MOTKsheets G-Viewer')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  /* rows を JSON 文字列化して渡す */
+  const rows           = listRows(page);          // 2D Array
+  listTpl.dataJson     = JSON.stringify(rows);    // ★ ここだけ
+
+  return _wrap(listTpl.evaluate(), 'MOTK Sheets');
+
 }
 
-/**
- * Fetches data for the main table view (Shots, Assets, etc.).
- */
-function getTableDataPackage(ss, sheetName) {
-  var sh = ss.getSheetByName(sheetName);
-  if (!sh) {
-    return { 
-      pageType: 'table',
-      error: 'Sheet "' + sheetName + '" not found.' 
-    };
-  }
-
-  var allData = sh.getDataRange().getValues();
-  var headerData = allData.slice(0, 2);
-  var rowData = allData.length > 2 ? allData.slice(2) : [];
-  
-  var fieldMeta = _getFieldMeta(ss);
-  var idMaps = _getIdMaps(ss);
-
-  return {
-    pageType: 'table',
-    sheetName: sheetName,
-    ids: headerData[0],
-    header: headerData[1],
-    total: rowData.length,
-    rows: rowData,
-    fieldMeta: fieldMeta,
-    idMaps: idMaps
-  };
+/* ---------- 共通ヘルパー ---------------------------------------------- */
+function _wrap(out, title) {
+  return out
+    .setTitle(title)
+    .addMetaTag('viewport', 'width=device-width,initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-/**
- * Fetches summary data for the Dashboard view.
- */
-function getDashboardDataPackage(ss) {
-    var shotSheet = ss.getSheetByName('Shots');
-    var assetSheet = ss.getSheetByName('Assets');
-    var taskSheet = ss.getSheetByName('Tasks');
-
-    var shotCount = shotSheet ? Math.max(0, shotSheet.getLastRow() - 2) : 0;
-    var assetCount = assetSheet ? Math.max(0, assetSheet.getLastRow() - 2) : 0;
-    var taskCount = taskSheet ? Math.max(0, taskSheet.getLastRow() - 2) : 0;
-
-    return {
-        pageType: 'dashboard',
-        counts: {
-            shots: shotCount,
-            assets: assetCount,
-            tasks: taskCount
-        }
-    };
+function include(name) {
+  return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
 
+/* ---------- API -------------------------------------------------------- */
+function getEntity(entity, id) {
+  const conf = ENTITY_CONF[entity];
+  if (!conf) return null;
 
-// --- Helper Functions ---
-function _getFieldMeta(ss) {
-  var sh = ss.getSheetByName('Fields');
-  if (!sh) return [];
-  return sh.getDataRange().getValues().slice(1).map(function(r) { 
-    return { id: r[0], name: r[1], type: r[2], options: r[3] }; 
-  });
+  const sh = SpreadsheetApp.getActive().getSheetByName(conf.sheet);
+  if (!sh) return null;
+
+  const data   = sh.getDataRange().getValues();
+  const header = data.shift();
+  const idx    = header.indexOf(conf.key);
+  if (idx === -1) return null;
+
+  const row = data.find(r => String(r[idx]) === String(id));
+  if (!row) return null;
+
+  const obj = {};
+  header.forEach((h, i) => (obj[h] = row[i]));
+  return obj;
 }
 
-function _getIdMaps(ss) {
-  var maps = { shot: {}, asset: {}, task: {}, pm: {}, user: {} };
-  var sheetsToMap = [
-    ['Shots', 'shot'], ['Assets', 'asset'], ['Tasks', 'task'],
-    ['ProjectMembers', 'pm'], ['Users', 'user']
-  ];
-  sheetsToMap.forEach(function(pair) {
-    var sheetName = pair[0], key = pair[1];
-    var sh = ss.getSheetByName(sheetName);
-    if (!sh || sh.getLastRow() < 3) return;
-    var range = sh.getRange(3, 1, sh.getLastRow() - 2, 2);
-    var data = range.getValues();
-    for (var i = 0; i < data.length; i++) {
-        var r = data[i];
-        if (r[0] && r[1]) {
-          maps[key][r[0]] = r[1];
-        }
-    }
-  });
-  return maps;
-}
-
-// --- Templating Helper ---
-function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+/* 既存 Table UI 用：シート全行を 2D 配列で返す */
+function listRows(sheetName) {
+  const sh = SpreadsheetApp.getActive().getSheetByName(sheetName);
+  return sh ? sh.getDataRange().getValues() : [];
 }
