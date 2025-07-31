@@ -7,11 +7,11 @@
 
 /* ---------- エンティティ定義 -------------------------------------------- */
 const ENTITY_CONF = {
-  shot  : { sheet: 'Shots',          key: 'shot_id',   ui: 'ShotDetail'  },
-  asset : { sheet: 'Assets',         key: 'asset_id',  ui: 'AssetDetail' },
-  task  : { sheet: 'Tasks',          key: 'task_id',   ui: 'TaskDetail'  },
-  member: { sheet: 'ProjectMembers', key: 'member_id', ui: 'MemberDetail'},
-  user  : { sheet: 'Users',          key: 'user_id',   ui: 'UserDetail'  },
+  shot  : { sheet: 'Shots',          key: 'shot_id',   ui: 'DetailShot'  },
+  asset : { sheet: 'Assets',         key: 'asset_id',  ui: 'DetailAsset' },
+  task  : { sheet: 'Tasks',          key: 'task_id',   ui: 'DetailTask'  },
+  member: { sheet: 'ProjectMembers', key: 'member_id', ui: 'DetailMember'},
+  user  : { sheet: 'Users',          key: 'user_id',   ui: 'DetailUser'  },
 };
 
 /* ---------- ルーター ---------------------------------------------------- */
@@ -41,7 +41,6 @@ function doGet(e) {
   listTpl.dataJson     = JSON.stringify(rows);    // ★ ここだけ
 
   return _wrap(listTpl.evaluate(), 'MOTK Sheets');
-
 }
 
 /* ---------- 共通ヘルパー ---------------------------------------------- */
@@ -61,10 +60,8 @@ function getEntity(entity, id) {
   const conf = ENTITY_CONF[entity];
   if (!conf) return null;
 
-  const sh = SpreadsheetApp.getActive().getSheetByName(conf.sheet);
-  if (!sh) return null;
-
-  const data   = sh.getDataRange().getValues();
+  const sh     = SpreadsheetApp.getActive().getSheetByName(conf.sheet);
+  const data   = sh.getDataRange().getValues();   // 1行目:ID, 2行目:ラベル
   const header = data.shift();
   const idx    = header.indexOf(conf.key);
   if (idx === -1) return null;
