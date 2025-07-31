@@ -28,7 +28,6 @@ function doGet(e) {
     tpl.entity    = entity;
     tpl.id        = id;
     tpl.scriptUrl = ScriptApp.getService().getUrl();
-    tpl.scriptUrl = selfURL;                  // index.html 側で参照
     return _wrap(tpl.evaluate(), `${entity}:${id}`);
   }
 
