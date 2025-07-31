@@ -24,7 +24,7 @@
   　<?!= include('BarGnavi'); ?>
   　<?!= include('BarPnavi'); ?>
     <?!= include('Scripts'); ?>
-    
+
     <!-- ===== Main ===== -->
     <main id="main-content">
       <div class="loader">Loading...</div>
@@ -33,7 +33,7 @@
     <!-- ===== Embedded Params & Data  (viewer.js より前に置く) ===== -->
     <script>
       const PAGE       = '<?= page ?>';
-      const SCRIPT_URL = '<?= scriptUrl ?>';
+      window.SCRIPT_URL = '<?= scriptUrl ?>';
 
       const raw        = JSON.parse('<?= dataJson ?>');
 

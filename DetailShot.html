@@ -17,10 +17,11 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gridstack.js/5.1.1/gridstack-h5.min.js"></script>
   <script>
     /* ----- URL パラメータと共通変数 ----- */
-    const params   = new URLSearchParams(location.search);
-    const entity   = 'shot';
-    const recordId = params.get('id');                // doGet で ?id=xxx を付与
-    document.getElementById('shotCode').textContent = recordId || '(no id)';
+const entity   = 'shot';
+const recordId = '<?= id ?>';
+
+if (!recordId) {const p = new URLSearchParams(location.search);window.recordId = p.get('id') || '';}
+
 
     /* ----- Grid 初期化 ----- */
     const grid = GridStack.init({

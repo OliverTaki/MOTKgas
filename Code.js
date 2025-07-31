@@ -7,11 +7,11 @@
 
 /* ---------- エンティティ定義 -------------------------------------------- */
 const ENTITY_CONF = {
-  shot  : { sheet: 'Shots',          key: 'shot_id',   ui: 'DetailShot'  },
-  asset : { sheet: 'Assets',         key: 'asset_id',  ui: 'DetailAsset' },
-  task  : { sheet: 'Tasks',          key: 'task_id',   ui: 'DetailTask'  },
-  member: { sheet: 'ProjectMembers', key: 'member_id', ui: 'DetailMember'},
-  user  : { sheet: 'Users',          key: 'user_id',   ui: 'DetailUser'  },
+  shot  : { sheet: 'Shots',          key: 'fi_0001',   ui: 'DetailShot'  },
+  asset : { sheet: 'Assets',         key: 'fi_0015',  ui: 'DetailAsset' },
+  task  : { sheet: 'Tasks',          key: 'fi_0025',   ui: 'DetailTask'  },
+  member: { sheet: 'ProjectMembers', key: 'fi_0034', ui: 'DetailMember'},
+  user  : { sheet: 'Users',          key: 'fi_0044',   ui: 'DetailUser'  },
 };
 
 /* ---------- ルーター ---------------------------------------------------- */
@@ -27,7 +27,7 @@ function doGet(e) {
     const tpl = HtmlService.createTemplateFromFile(ENTITY_CONF[entity].ui);
     tpl.entity    = entity;
     tpl.id        = id;
-    tpl.scriptUrl = ScriptApp.getService().getUrl();
+    tpl.scriptUrl = selfURL;
     return _wrap(tpl.evaluate(), `${entity}:${id}`);
   }
 
@@ -37,7 +37,9 @@ function doGet(e) {
   listTpl.scriptUrl  = selfURL;
 
   /* rows を JSON 文字列化して渡す */
-  const rows           = listRows(page);          // 2D Array
+  const ROW_LIMIT      = 300;
+  const rowsAll        = listRows(page);
+  const rows          = rowsAll.slice(0, ROW_LIMIT); // ★ ここだけ
   listTpl.dataJson     = JSON.stringify(rows);    // ★ ここだけ
 
   return _wrap(listTpl.evaluate(), 'MOTK Sheets');
