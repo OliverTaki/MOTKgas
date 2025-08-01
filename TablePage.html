@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+  <head>
+    <base target="_top" />
+    <?!= include('Theme'); ?>
+  </head>
+  <body onload="setActiveNav('<?= page ?>')">
+    <header class="banner"><h1>MOTK – <?= page ?></h1></header>
+
+    <!-- Gnavi -->
+    <nav class="gnavi">
+      <a href="?page=Shots" data-page="Shots">Shots</a>
+      <a href="?page=Assets" data-page="Assets">Assets</a>
+      <a href="?page=Tasks" data-page="Tasks">Tasks</a>
+      <a href="?page=ProjectMembers" data-page="ProjectMembers">Members</a>
+      <a href="?page=Users" data-page="Users">Users</a>
+    </nav>
+
+    <main>
+      <div id="tableWrap">Loading...</div>
+    </main>
+
+    <?!= include('Scripts'); ?>
+    <script>
+      const PAGE = "<?= page ?>";
+
+      google.script.run.withSuccessHandler(renderTable).listRows(PAGE);
+
+      function renderTable(data) {
+        if (!data.length) {
+          document.getElementById("tableWrap").textContent = "No data";
+          return;
+        }
+
+        const [header, ...rows] = data;
+        const tbl = document.createElement("table");
+        tbl.className = "data";
+        const thead = tbl.createTHead();
+        const htr = thead.insertRow();
+        header.forEach((h) => {
+          const th = document.createElement("th");
+          th.textContent = h;
+          htr.appendChild(th);
+        });
+        const tbody = tbl.createTBody();
+        rows.forEach((r) => {
+          const tr = tbody.insertRow();
+          r.forEach((c) => {
+            const td = tr.insertCell();
+            td.textContent = c;
+          });
+          tr.onclick = () => openDetail(r[0]); // 主キーは 1列目
+        });
+        document.getElementById("tableWrap").innerHTML = "";
+        document.getElementById("tableWrap").appendChild(tbl);
+      }
+
+      function openDetail(id) {
+        const entity = PAGE.toLowerCase()
+          .replace("projectmembers", "member")
+          .slice(0, -1); // plural→singular
+        const url = `?entity=${entity}&id=${encodeURIComponent(id)}`;
+        location.href = url;
+      }
+    </script>
+  </body>
+</html>
