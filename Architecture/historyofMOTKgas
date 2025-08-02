@@ -1,0 +1,81 @@
+
+
+A. 画面表示
+gNav
+
+バー自体は表示される
+
+ボタンはポインタ形状になる
+
+各 href：
+https://n-kh7sc73zn63kbwnn33piu4xx55ok6e4yr2xlumq-0lu-script.googleusercontent.com/exec?page=<PageName>
+
+クリックしても画面遷移しない
+
+pNav
+
+バー自体は表示される
+
+ボタンの href は gNav と同形式
+
+クリックしても遷移しない
+
+Detail ページ本体
+
+gNav／pNav 以外の UI 要素はレイアウト崩れ
+
+Toolbar には縦方向に下記だけ表示
+
+bash
+Copy
+Edit
+-
+-_-
+-_-_-
+fi_0002: <?= typeof id !== "undefined" ? id : "" ?>
+GridStack 領域は空（何も表示されない）
+
+Table（一覧）ページ本体
+
+テーブルヘッダーは表示
+
+「Shots / Assets …」ボタンは表示されるが遷移しない
+
+行データ・列データは表示されない
+
+B. コンソールログ
+現在はエラー・警告ともに表示されていない
+
+C. パフォーマンス体感
+画面	体感速度
+gNav / pNav	表示は瞬時
+Table ページ	高速（要素が少ない）
+Detail ページ	高速（要素が少ない）
+
+D. ライブラリ・機能状態
+項目	状態
+GridStack.js	未読み込み
+ドラッグ編集モード	非表示
+Fallback カード描画	表示されていない
+
+現在把握できている事象は以上です。
+
+
+
+変更履歴（時系列メモ）
+※ 会話内で行われたコード差替え・調整内容だけを列挙しています。
+（評価・考察は一切入れていません）
+
+#	日時＊	対象ファイル	変更内容・目的	結果 / 状態
+1	7-31	DetailShot.html / Scripts.html
+CoreStyles	Toolbar 追加、GridStack 導入、gNav/pNav を include 化	GridStack が t is not iterable で失敗。Toolbar が被り・縦並び。
+2	8-01	同上	Toolbar 高さ 32 px 固定・GNAVI/Pnavi の下へ配置	Toolbar 見た目改善。GridStack 依然エラー。
+3	8-01	Scripts.html	parseLayout() 追加、旧 JSON 正規化	GridStack エラー継続。
+4	8-01	CoreStyles / Scripts	GridStack CDN 動的ロード (fetch → script.text)	Chrome sandbox で document.write エラー発生。
+5	8-01	Scripts	CDN 動的ロードを <script src> へ変更	GridStack is not defined→ ロード失敗時に Fallback へフォールバック。
+6	8-02	CoreStyles	gNav/pNav ボタン cursor:pointer 追加	リンクは表示だが遷移しない。
+7	8-02	Scripts	GridStack を一旦無効化、Fallback カード常時描画・編集トグル非表示	Detail ページ表示は _ 列のみ、カード出ず。
+8	8-02	Scripts	scriptUrl を location.origin + pathname.replace(.../userCodeAppPanel) で決定	gNav/pNav href が …googleusercontent.com/exec?page=Shots に統一。
+9	8-02	Scripts	google.script.url.getLocation で親 URL 取得（fallback 付き）	リンク先 URL は前項と同じまま（遷移不可）。
+10	8-02	Scripts	Null-safe ガード強化 (?. / replaceChildren)、テンプレ変数未展開用フォールバック	Console エラー消失。UI は gNav/pNav 以外崩れたまま。
+11	8-02	なし (現状)	GridStack 未読み込み、Fallback カード非表示、Toolbar 縦並び、リンク遷移不可
