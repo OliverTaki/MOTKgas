@@ -1,22 +1,106 @@
 <script>
-/* ---- Gnavi active link ----------------------------------------------- */
-function setActiveNav(id){
-  document.querySelectorAll('nav.gnavi a').forEach(a=>{
-    a.classList.toggle('active',a.dataset.page===id);
+(async () => {
+
+/* ───────── 0. scriptUrl を必ず取得 ───────── */
+function detectScriptUrl() {
+  // ❶ 実運用: top ウインドウの URL (…/exec?xxx)
+  try {
+    if (window.top && window.top.location.href) {
+      const topUrl = window.top.location.href;
+      if (/\/exec(\?|$)/.test(topUrl)) return topUrl.split('?')[0];
+    }
+  } catch (_) { /* クロスオリジン NG →無視 */ }
+
+  // ❷ sandbox iframe: /userCodeAppPanel → /exec 置換
+  const base = location.origin + location.pathname.replace(/\/userCodeAppPanel$/, '/exec');
+  return base;
+}
+const scriptUrl = detectScriptUrl();
+
+/* ───────── 1. gNav / pNav ─ href 補正 ───────── */
+(function fixNav() {
+  function apply() {
+    document.querySelectorAll('#gNav a, #pNav a').forEach(a => {
+      // data-page があれば優先、無ければ既存 href の page パラメータを継承
+      const page = a.dataset.page || (a.href.match(/[?&]page=([^&]+)/)?.[1]) || '';
+      a.href = `${scriptUrl}?page=${page}`;
+    });
+  }
+  apply();
+  new MutationObserver(apply).observe(document.body, { childList: true, subtree: true });
+})();
+
+/* ───────── 2. Detail ページ判定 ───────── */
+const detailBar = document.getElementById('detailBar');
+if (!detailBar) return;   // Table ページはここで終了
+
+/* ───────── 3. GAS wrapper & context ───────── */
+const gas = (fn, ...a) => new Promise((ok, ng) => {
+  if (window.google?.script?.run)
+    google.script.run.withSuccessHandler(ok).withFailureHandler(ng)[fn](...a);
+  else ng('GAS unavailable');
+});
+const entity   = '<?= entity ?>';
+const recordId = '<?= id ?>';
+
+/* ───────── 4. データ取得 (null-safe) ───────── */
+let dataObj;
+try { dataObj = await gas('getEntity', entity, recordId); } catch {}
+if (!dataObj || typeof dataObj !== 'object') dataObj = { fi_0002: recordId };
+
+let hier = [];
+try { hier = await gas('getHierarchyFields'); } catch {}
+
+/* ───────── 5. ツールバー描画 ───────── */
+document.getElementById('shotName')?.replaceChildren(document.createTextNode(dataObj.fi_0002 || recordId));
+
+const vals = hier.map(h => dataObj[h.fieldId] ?? '-');
+const path = vals.every(v => v === '-') ? (dataObj.fi_0002 || recordId) : vals.join('_');
+document.getElementById('pathLabel')?.replaceChildren(document.createTextNode(path));
+
+/* –― ドロップダウン –― */
+const btn  = document.getElementById('pathBtn');
+const menu = document.getElementById('hierMenu');
+if (btn && menu) {
+  menu.innerHTML = '<ul>' + vals.map((_, i) =>
+    `<li style="padding:2px 12px;cursor:pointer">${vals.slice(0, i + 1).join('_')}</li>`).join('') + '</ul>';
+  btn.onclick = e => {
+    menu.classList.toggle('hidden');
+    menu.style.left = e.target.getBoundingClientRect().left + 'px';
+  };
+  document.addEventListener('click', e => {
+    if (!menu.contains(e.target) && !btn.contains(e.target))
+      menu.classList.add('hidden');
   });
 }
 
-/* ---- Tab switch ------------------------------------------------------- */
-function initTabs(){
-  document.querySelectorAll('nav.tabs button').forEach(btn=>{
-    btn.onclick=()=>{
-      document.querySelector('nav.tabs .active')?.classList.remove('active');
-      btn.classList.add('active');
-      const tgt=btn.dataset.tab;
-      document.querySelectorAll('main section').forEach(sec=>{
-        sec.classList.toggle('hidden',sec.id!==tgt);
-      });
-    };
-  });
+/* –― Prev / Next –― */
+document.getElementById('prevBtn')?.addEventListener('click', ()=>nav(-1));
+document.getElementById('nextBtn')?.addEventListener('click', ()=>nav(1));
+async function nav(offset){
+  try{
+    const rows = await gas('listRows','Shots');
+    const idx  = rows.findIndex(r => String(r[0]) === String(recordId));
+    if (idx > -1 && rows[idx + offset])
+      location.href = `${scriptUrl}?entity=shot&id=${rows[idx + offset][0]}`;
+  }catch{}
 }
+
+/* ───────── 6. Fallback カード描画 ───────── */
+const listBox = document.getElementById('fallbackList');
+if (listBox) {
+  listBox.classList.remove('hidden');
+  listBox.innerHTML = Object.entries(dataObj).map(
+    ([k,v]) => `<div style="margin:4px 0;"><b>${k}</b>: ${escapeHTML(String(v))}</div>`
+  ).join('');
+}
+document.getElementById('grid')?.classList.add('hidden');       // GridStack は当面無効
+document.getElementById('modeToggle')?.style.setProperty('display','none');
+
+/* ───────── util ───────── */
+function escapeHTML(s){
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+})();
 </script>

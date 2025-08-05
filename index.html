@@ -1,56 +1,60 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
-    <base target="_top">
-    <meta charset="utf-8">
+    <base target="_top" />
+    <meta charset="utf-8" />
     <title>MOTKsheets G-Viewer</title>
-    <?!= include('stylesheet'); ?>
+    <?!= include('CoreStyles.html'); ?>
   </head>
 
   <body>
     <!-- ===== Navigation ===== -->
-    <nav id="gNav">
-      <span class="logo">MOTK</span>
-      <a href="<?= scriptUrl ?>?page=Dashboard">Dashboard</a>
-    </nav>
-    <nav id="pNav">
-      <a href="<?= scriptUrl ?>?page=Shots">SHOTS</a>
-      <a href="<?= scriptUrl ?>?page=Assets">ASSETS</a>
-      <a href="<?= scriptUrl ?>?page=Tasks">TASKS</a>
-      <a href="<?= scriptUrl ?>?page=ProjectMembers">PM</a>
-      <a href="<?= scriptUrl ?>?page=Users">USERS</a>
-    </nav>
+    <!--
+      <nav id="gNav">
+        <span class="logo">MOTK</span>
+        <a href="<?= scriptUrl ?>?page=Dashboard">Dashboard</a>
+      </nav>
+      <nav id="pNav">
+        <a href="<?= scriptUrl ?>?page=Shots">SHOTS</a>
+        <a href="<?= scriptUrl ?>?page=Assets">ASSETS</a>
+        <a href="<?= scriptUrl ?>?page=Tasks">TASKS</a>
+        <a href="<?= scriptUrl ?>?page=ProjectMembers">PM</a>
+        <a href="<?= scriptUrl ?>?page=Users">USERS</a>
+      </nav>
+    -->
+    <?!= include('BarGnavi'); ?>  
+    <?!= include('BarPnavi'); ?>  
+    <?!= include('Scripts'); ?>
 
     <!-- ===== Main ===== -->
     <main id="main-content">
       <div class="loader">Loading...</div>
     </main>
 
-    <!-- ===== Embedded Params & Data  (viewer.js より前に置く) ===== -->
+    <!-- ===== Embedded Params & Data (viewer.js より前に置く) ===== -->
     <script>
-      const PAGE       = '<?= page ?>';
-      const SCRIPT_URL = '<?= scriptUrl ?>';
+      const PAGE = "<?= page ?>";
+      window.SCRIPT_URL = "<?= scriptUrl ?>";
 
-      const raw        = JSON.parse('<?= dataJson ?>');
+      // listRows() の結果を JSON 化した文字列
+      const raw = JSON.parse("<?= dataJson ?>");
 
-      /* ▼▼ 変更ここから ▼▼ */
-      const ids        = raw[0];          // fi_0001, fi_0002, …
-      const header     = raw[1];          // Shot ID, Shot Name, …
-      const dataRows   = raw.slice(2);    // 実データ
-      /* ▲▲ 変更ここまで ▲▲ */
+      // raw[0]=fieldIds, raw[1]=header, raw[2...]=dataRows
+      const ids = raw[0];
+      const header = raw[1];
+      const dataRows = raw.slice(2);
 
       const ALL_DATA = {
-        pageType : 'table',
+        pageType: "table",
         sheetName: PAGE,
-        ids      : ids,
-        header   : header,
-        total    : dataRows.length,
-        rows     : dataRows,
+        ids: ids,
+        header: header,
+        total: dataRows.length,
+        rows: dataRows,
         fieldMeta: [],
-        idMaps   : {},
+        idMaps: {},
       };
     </script>
-
 
     <!-- ===== Core Bundle (列幅リサイズ等) ===== -->
     <script src="<?= scriptUrl ?>?action=app-bundle"></script>
