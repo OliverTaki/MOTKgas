@@ -6,41 +6,26 @@
     <title>MOTKsheets G-Viewer</title>
     <?!= include('CoreStyles'); ?>
   </head>
-
   <body>
-    <!-- ===== Navigation ===== -->
-    <!--      <nav id="gNav">
-      <span class="logo">MOTK</span>
-      <a href="<?= scriptUrl ?>?page=Dashboard">Dashboard</a>
-    </nav>
-    <nav id="pNav">
-      <a href="<?= scriptUrl ?>?page=Shots">SHOTS</a>
-      <a href="<?= scriptUrl ?>?page=Assets">ASSETS</a>
-      <a href="<?= scriptUrl ?>?page=Tasks">TASKS</a>
-      <a href="<?= scriptUrl ?>?page=ProjectMembers">PM</a>
-      <a href="<?= scriptUrl ?>?page=Users">USERS</a>
-    </nav>
--->
-    　<?!= include('BarGnavi'); ?> 　<?!= include('BarPnavi'); ?> <?!=
-    include('Scripts'); ?>
+    <?!= include('BarGnavi'); ?>  
+    <?!= include('BarPnavi'); ?>  
+    <?!= include('Scripts'); ?>
 
-    <!-- ===== Main ===== -->
     <main id="main-content">
       <div class="loader">Loading...</div>
     </main>
 
-    <!-- ===== Embedded Params & Data  (viewer.js より前に置く) ===== -->
     <script>
       const PAGE = "<?= page ?>";
       window.SCRIPT_URL = "<?= scriptUrl ?>";
 
-      const raw = JSON.parse("<?= dataJson ?>");
+      // ★★★★★★★ お客様の元のデータ形式 ★★★★★★★
+      const raw = JSON.parse(<?= dataJson ?>);
 
-      /* ▼▼ 変更ここから ▼▼ */
-      const ids = raw[0]; // fi_0001, fi_0002, …
-      const header = raw[1]; // Shot ID, Shot Name, …
-      const dataRows = raw.slice(2); // 実データ
-      /* ▲▲ 変更ここまで ▲▲ */
+      // 元のコードの通り、rawからデータを分離
+      const ids = raw.length > 0 ? raw[0] : [];
+      const header = raw.length > 1 ? raw[1] : [];
+      const dataRows = raw.length > 2 ? raw.slice(2) : [];
 
       const ALL_DATA = {
         pageType: "table",
@@ -52,12 +37,24 @@
         fieldMeta: [],
         idMaps: {},
       };
+      
+      // 私が追加したhydrate関数は不要なため削除
     </script>
 
-    <!-- ===== Core Bundle (列幅リサイズ等) ===== -->
     <script src="<?= scriptUrl ?>?action=app-bundle"></script>
-
-    <!-- ===== viewer.js (initializeTableState / boot) ===== -->
     <?!= include('viewer'); ?>
+
+    <script>
+      // DOMロード後にboot()が一度だけ実行される、元のシンプルなフロー
+      document.addEventListener('DOMContentLoaded', () => {
+        if (typeof boot === 'function') {
+          boot();
+        }
+        const loader = document.querySelector('.loader');
+        if (loader) {
+          loader.style.display = 'none';
+        }
+      });
+    </script>
   </body>
 </html>

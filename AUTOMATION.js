@@ -24,7 +24,7 @@ const SHOT_FIELD_NAME = "shot"; // 連番機能の対象となるフィールド
 /**
  * スプレッドシートを開いた時にカスタムメニューを追加します。
  */
-function onOpen() {
+function AutomationMenu() {
   SpreadsheetApp.getUi()
     .createMenu("自動化ツール")
     .addItem("アルファベット連番を生成", "runAlphabetFillFromMenu")
@@ -124,7 +124,7 @@ function runAlphabetFillFromMenu() {
   const val1 = sh.getRange(range.getRow() - 2, shotColumn).getValue();
   const val2 = sh.getRange(range.getRow() - 1, shotColumn).getValue();
 
-  if (!val1 || !val2 || val2 !== nextA(val1)) {
+  if (!val1 || !val2 || val2 !== autoNextA(val1)) {
     ui.alert(
       "エラー",
       "選択範囲の上2つのセルが「A」「B」のような連番になっていません。",
@@ -136,7 +136,7 @@ function runAlphabetFillFromMenu() {
   let cur = val2;
   const newValues = [];
   for (let i = 0; i < range.getNumRows(); i++) {
-    cur = nextA(cur);
+    cur = autoNextA(cur);
     newValues.push([cur]);
   }
   range.setValues(newValues);
@@ -326,7 +326,7 @@ function recalcCodes(sh) {
 }
 
 // --- アルファベットフィル関連 ---
-const nextA = (p) =>
+const autoNextA = (p) =>
   !p
     ? "A"
     : p === "Z"
