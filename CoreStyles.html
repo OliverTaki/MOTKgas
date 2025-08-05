@@ -71,14 +71,22 @@
     flex-direction: column;
     height: 100%;
   }
-  #toolbar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 4px 8px;
-    border-bottom: 1px solid var(--border-color);
-    background-color: var(--bg-secondary);
-  }
+/* Toolbar Styles */
+.toolbar {
+  background-color: #f8f9fa; /* 明るい背景色 */
+  border-bottom: 1px solid #dee2e6; /* 下線 */
+  padding: 8px 16px;
+  display: flex; /* 横並びにする */
+  align-items: center; /* 垂直方向中央揃え */
+  gap: 16px; /* ボタン間の隙間 */
+
+  /* ▼▼ フローティング（画面上部固定）のための設定 ▼▼ */
+  position: sticky;
+  top: 64px; /* gNav と pNav の高さに合わせて調整してください */
+  left: 0;
+  right: 0;
+  z-index: 900; /* 他の要素より手前に表示 */
+}
   #tableWrap {
     flex-grow: 1;
     overflow: auto;
@@ -176,4 +184,14 @@
   button:hover {
     background-color: var(--bg-secondary);
   }
+
+  #hierMenu ul { padding:0.25rem 0; }
+  #hierMenu li { list-style:none; cursor:pointer; white-space:nowrap; padding:0.25rem 0.75rem; }
+  #hierMenu li:hover { background:#eef; }
+  .ship-table th { text-align:left; font-weight:600; padding-right:0.5rem; }
+  .ship-table td { padding-left:0.5rem; }
+
+  /* ナビリンクを常にポインタ表示 & 幅確保 */
+  #gNav a,#pNav a{cursor:pointer;display:inline-block;padding:0 6px}
 </style>
+

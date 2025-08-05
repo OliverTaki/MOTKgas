@@ -1,0 +1,33 @@
+<span id="shotCode" class="code-label"></span>
+<nav class="pnav">
+  <?
+    // --- 現在地を特定するロジック ---
+    // この変数が、現在表示しているべきページの名前（例: 'Shots'）になります。
+    let currentPageName = '';
+
+    // 1. まず、詳細ページ（entityに変数が存在する）かどうかを判断します。
+    if (entity) {
+      // entityの名前（例: 'shot'）から、対応する一覧ページの名前（例: 'Shots'）を決定します。
+      if (entity === 'shot') {
+        currentPageName = 'Shots';
+      } else if (entity === 'asset') {
+        currentPageName = 'Assets';
+      } else if (entity === 'task') {
+        currentPageName = 'Tasks';
+      } else if (entity === 'member') {
+        currentPageName = 'ProjectMembers';
+      } else if (entity === 'user') {
+        currentPageName = 'Users';
+      }
+    } else {
+      // 2. 詳細ページでなければ、一覧ページなので、直接 page 変数を使います。
+      currentPageName = page;
+    }
+  ?>
+
+  <a href="<?= scriptUrl ?>?page=Shots" class="<?= currentPageName === 'Shots' ? 'active' : '' ?>">Shots</a>
+  <a href="<?= scriptUrl ?>?page=Assets" class="<?= currentPageName === 'Assets' ? 'active' : '' ?>">Assets</a>
+  <a href="<?= scriptUrl ?>?page=Tasks" class="<?= currentPageName === 'Tasks' ? 'active' : '' ?>">Tasks</a>
+  <a href="<?= scriptUrl ?>?page=ProjectMembers" class="<?= currentPageName === 'ProjectMembers' ? 'active' : '' ?>">Members</a>
+  <a href="<?= scriptUrl ?>?page=Users" class="<?= currentPageName === 'Users' ? 'active' : '' ?>">Users</a>
+</nav>
