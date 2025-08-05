@@ -2,26 +2,16 @@
 (async () => {
 
 /* ───────── 0. scriptUrl を必ず取得 ───────── */
-function detectScriptUrl() {
-  // ❶ 実運用: top ウインドウの URL (…/exec?xxx)
-  try {
-    if (window.top && window.top.location.href) {
-      const topUrl = window.top.location.href;
-      if (/\/exec(\?|$)/.test(topUrl)) return topUrl.split('?')[0];
-    }
-  } catch (_) { /* クロスオリジン NG →無視 */ }
-
-  // ❷ sandbox iframe: /userCodeAppPanel → /exec 置換
-  const base = location.origin + location.pathname.replace(/\/userCodeAppPanel$/, '/exec');
-  return base;
-}
-const scriptUrl = detectScriptUrl();
+// クライアントサイドでのURL検出は不安定なため廃止します。
+// 代わりに、サーバーからテンプレート経由で渡される scriptUrl を直接使用します。
+// これで、全てのリンクが正しいベースURLを持つようになります。
+const scriptUrl = "<?= scriptUrl ?>";
 
 /* ───────── 1. gNav / pNav ─ href 補正 ───────── */
 (function fixNav() {
   function apply() {
     document.querySelectorAll('#gNav a, #pNav a').forEach(a => {
-      // data-page があれば優先、無ければ既存 href の page パラメータを継承
+      // data-page 属性があれば優先、無ければ既存 href の page パラメータを継承
       const page = a.dataset.page || (a.href.match(/[?&]page=([^&]+)/)?.[1]) || '';
       a.href = `${scriptUrl}?page=${page}`;
     });
@@ -29,6 +19,7 @@ const scriptUrl = detectScriptUrl();
   apply();
   new MutationObserver(apply).observe(document.body, { childList: true, subtree: true });
 })();
+
 
 /* ───────── 2. Detail ページ判定 ───────── */
 const detailBar = document.getElementById('detailBar');
