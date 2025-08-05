@@ -162,7 +162,8 @@ function doGet(e) {
   const ent  = (p.entity || '').toLowerCase();
   const id   = p.id || '';
   const pg   = p.page || 'Shots';
-  const base = ScriptApp.getService().getUrl();
+  const scriptId = ScriptApp.getScriptId();
+  const base = `https://script.google.com/macros/s/${scriptId}/exec`;
 
   TEMPLATE_CONTEXT = { entity: ent, id: id, page: pg, scriptUrl: base };
 

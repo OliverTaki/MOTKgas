@@ -24,7 +24,7 @@ const SHOT_FIELD_NAME = "shot"; // 連番機能の対象となるフィールド
 /**
  * スプレッドシートを開いた時にカスタムメニューを追加します。
  */
-function onOpen() {
+function AutomationMenu() {
   SpreadsheetApp.getUi()
     .createMenu("自動化ツール")
     .addItem("アルファベット連番を生成", "runAlphabetFillFromMenu")

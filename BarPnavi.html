@@ -1,4 +1,6 @@
-  <nav id="pNav">
+<div id="pNav">
+  <span id="shotCode" class="code-label"></span>
+  <nav>
     <?
       // --- 現在地を特定するロジック ---
       let currentPageName = '';
@@ -25,3 +27,4 @@
     <a href="<?= scriptUrl ?>?page=ProjectMembers" class="<?= currentPageName === 'ProjectMembers' ? 'active' : '' ?>">Members</a>
     <a href="<?= scriptUrl ?>?page=Users" class="<?= currentPageName === 'Users' ? 'active' : '' ?>">Users</a>
   </nav>
+</div>
