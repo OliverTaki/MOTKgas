@@ -4,112 +4,53 @@
     <base target="_top" />
     <meta charset="utf-8" />
     <title>MOTKsheets G-Viewer</title>
-    <?!= include('CoreStyles.html'); ?>
+    <?!= include('CoreStyles'); ?>
   </head>
-
   <body>
     <?!= include('BarGnavi'); ?>  
     <?!= include('BarPnavi'); ?>  
     <?!= include('Scripts'); ?>
 
     <main id="main-content">
-      <div class="loader">Loading Core Data...</div>
+      <div class="loader">Loading...</div>
     </main>
 
+    <!-- ★ テンプレ側でテーブルデータを埋め込む：viewer.html が boot 時に参照します -->
     <script>
       const PAGE = "<?= page ?>";
       window.SCRIPT_URL = "<?= scriptUrl ?>";
 
-      const headerIds = JSON.parse('<?= headerIdsJson || "[]" ?>');
-      const headerNames = JSON.parse('<?= headerNamesJson || "[]" ?>');
-      const coreDataRaw = JSON.parse('<?= coreDataJson || "{}" ?>');
-      
-      const coreData = {};
-      for (const fieldId in coreDataRaw) {
-        const parts = coreDataRaw[fieldId].split('|');
-        coreData[fieldId] = parts.slice(1);
-      }
-      
-      const initialRows = [];
-      const numRows = Math.max(0, ...Object.values(coreData).map(v => v.length));
+      // DataHub/シートからサーバ側で作った JSON を復元
+      // raw[0]=id列IDs, raw[1]=ヘッダ, raw[2..]=データ
+      const raw = JSON.parse(<?= dataJson ?>);
+      const ids      = raw.length > 0 ? raw[0] : [];
+      const header   = raw.length > 1 ? raw[1] : [];
+      const dataRows = raw.length > 2 ? raw.slice(2) : [];
 
-      for (let i = 0; i < numRows; i++) {
-        const row = [];
-        headerIds.forEach(id => {
-          if (coreData[id] && coreData[id][i] !== undefined) {
-            row.push(coreData[id][i]);
-          } else {
-            row.push('');
-          }
-        });
-        initialRows.push(row);
-      }
-
+      // viewer.html が読むパッケージ
       const ALL_DATA = {
         pageType: "table",
         sheetName: PAGE,
-        ids: headerIds,
-        header: headerNames,
-        total: initialRows.length,
-        rows: initialRows,
+        ids: ids,
+        header: header,
+        total: dataRows.length,
+        rows: dataRows,
         fieldMeta: [],
         idMaps: {},
       };
-
-      const pageToEntityMap = {
-        'Shots': 'shot', 'Assets': 'asset', 'Tasks': 'task', 
-        'ProjectMembers': 'member', 'Users': 'user', 'Pages': 'page'
-      };
-      // ★修正: viewer.jsから呼び出せるよう、リンク生成関数をグローバルに定義
-      function createDetailLink(row) {
-        const entity = pageToEntityMap[PAGE];
-        if (!entity) return '#';
-        const recordId = row[0]; // 最初の列がIDであると仮定
-        return `${window.SCRIPT_URL}?entity=${entity}&id=${recordId}`;
-      }
-
-      function hydrateNonCoreData() {
-        const loader = document.querySelector('.loader');
-        if (loader) {
-            loader.style.display = 'block';
-            loader.innerText = 'Loading Full Data...';
-        }
-        google.script.run
-          .withSuccessHandler(fullDataRows => {
-            console.log(`Received ${fullDataRows.length} rows for hydration.`);
-            ALL_DATA.rows = fullDataRows;
-            ALL_DATA.total = fullDataRows.length;
-            const mainContent = document.getElementById('main-content');
-            if (mainContent && typeof boot === 'function') {
-              mainContent.innerHTML = ''; 
-              boot(); 
-            }
-            if(loader) loader.style.display = 'none';
-          })
-          .withFailureHandler(err => {
-            console.error('Hydration failed:', err);
-            if(loader) loader.innerText = 'Error loading full data.';
-          })
-          .listRows(PAGE);
-      }
     </script>
 
+    <!-- 旧来のバンドル呼び出し対策：JSとして空応答を返すよう doGet を調整済み -->
     <script src="<?= scriptUrl ?>?action=app-bundle"></script>
+
+    <!-- テーブル描画本体。内部で DOMContentLoaded → boot() を一度だけ登録 -->
     <?!= include('viewer'); ?>
 
+    <!-- ローダー消しだけ。boot() は呼ばない（viewer側が起動する） -->
     <script>
       document.addEventListener('DOMContentLoaded', () => {
         const loader = document.querySelector('.loader');
-        // boot()関数が存在し、初期データがある場合のみ実行
-        if (typeof boot === 'function' && initialRows.length > 0) {
-            boot(); // ★修正: 初期描画を明示的に実行
-            console.log("Initial table render with core data is complete.");
-            if(loader) loader.style.display = 'none';
-        } else if (loader) {
-            loader.innerText = "No core data to display.";
-        }
-
-        setTimeout(hydrateNonCoreData, 50);
+        if (loader) loader.style.display = 'none';
       });
     </script>
   </body>
