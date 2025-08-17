@@ -1,27 +1,14 @@
 // =============================================================
-// DriveBuilder.gs   (stand‑alone helper for MOTK)
+// DriveBuilder.gs   (stand-alone helper for MOTK)
 // =============================================================
 // PURPOSE
-//   • Guarantee and audit the canonical Google‑Drive folder tree for a MOTK project.
+//   • MOTKプロジェクト用のGoogle Driveフォルダ構造を保証・監査
 //   • ORIGINALS :  <ROOT>/<PROJECT>-ORIGINALS/<##entityRoot>/<id>__<code>/<sub>
-//       - entityRoot is numbered for human sort → 01shots, 02assets …
-//   • PROXIES   :  <ROOT>/<PROJECT>-PROXIES  (flat storage)
-//   • DataHub G 列 Core_values から ID / Code を取り込み、階層フォルダを同期
-//   • ★ NEW ★  diff / audit helpers:  list IDs in DataHub vs Drive and create missing
-// ---------------------------------------------------------------------------
-// PUBLIC API (google.script.run friendly → plain objects)
-//   getOrCreateProjectRoots(meta?)                 → { originalsId, proxiesId }
-//   ensureEntityFolder(meta?, entity, id, code)    → Folder (ORIGINALS)
-//   listEntityFiles({entity,id,kind,projectMeta})  → [ {id,name,mimeType,…} ]
-//   listEntityFolderNames(entity, meta?)           → [ {id,name} ]
-//   softDeleteEntity(meta?, entity, id)            → move to 05deleted/
-//   buildAll(limit?)                               → sync folders from DataHub (paged)
-//   resetSyncCursor(entity)                        → clear stored cursor for entity
-//   diffEntityFolders(entity)                      → {missing:[ids], existing:[ids]}
-//   fixMissingEntityFolders(entity, limit?)        → create only missing folders
+//   • PROXIES   :  <ROOT>/<PROJECT>-PROXIES
+//   • DataHub G列 から ID / Code を取得してフォルダ同期
+//   • diff / audit / 生成・リネーム（※ファイル列挙は FilesAPI に分離）
 // ---------------------------------------------------------------------------
 
-/***************************  CONSTANTS  ***********************************/
 const ENTITY_ROOTS = {
   shot:    '01shots',   shots:   '01shots',
   asset:   '02assets',  assets:  '02assets',
@@ -32,7 +19,21 @@ const ALL_ROOT_NAMES = ['01shots','02assets','03tasks','04misc','05deleted'];
 const ID_LABEL   = { shot:'Shot ID', asset:'Asset ID', task:'Task ID' };
 const CODE_LABEL = { shot:'ShotCode', asset:'AssetName', task:'' };
 
-/***************************  UTILITIES  ************************************/
+function getHostSpreadsheet_(){
+  var id = PropertiesService.getScriptProperties().getProperty('HOST_SS_ID');
+  if (id) return SpreadsheetApp.openById(id);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('No bound Spreadsheet. Run installHostSpreadsheet() once.');
+  PropertiesService.getScriptProperties().setProperty('HOST_SS_ID', ss.getId());
+  return ss;
+}
+function installHostSpreadsheet(){
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('Open the master Spreadsheet and run this.');
+  PropertiesService.getScriptProperties().setProperty('HOST_SS_ID', ss.getId());
+  Logger.log('HOST_SS_ID set to: '+ss.getId());
+}
+
 function extractId_(url){
   var m = (url||'').match(/folders\/([a-zA-Z0-9_-]+)/);
   if(!m) throw new Error('DriveBuilder: Invalid folder URL → '+url);
@@ -45,9 +46,8 @@ function getOrCreateSub_(parent,name){
 function timeLeft_(){ return 290000 - (Date.now() - SCRIPT_START_TIME); }
 var SCRIPT_START_TIME = Date.now();
 
-/***************************  ROOTS  ***************************************/
 function getOrCreateProjectRoots(meta){
-  meta = meta || (typeof getProjectMeta==='function'?getProjectMeta():null);
+  meta = meta || getProjectMeta();
   if(!meta||!meta.originals_root_url||!meta.proxies_root_url)
     throw new Error('DriveBuilder: meta.originals_root_url / proxies_root_url are required');
   var originalsRoot = DriveApp.getFolderById(extractId_(meta.originals_root_url));
@@ -56,9 +56,9 @@ function getOrCreateProjectRoots(meta){
   return { originalsId:originalsRoot.getId(), proxiesId:proxiesRoot.getId() };
 }
 
-/***************************  ENTITY FOLDER ********************************/
+/** 必要なら originals 側の entity/id フォルダを生成・改名して整える */
 function ensureEntityFolder(meta,entity,id,code){
-  meta = meta || (typeof getProjectMeta==='function'?getProjectMeta():null);
+  meta = meta || getProjectMeta();
   var roots = getOrCreateProjectRoots(meta);
   var originalsRoot = DriveApp.getFolderById(roots.originalsId);
   var rootName = ENTITY_ROOTS[entity];
@@ -79,29 +79,11 @@ function ensureEntityFolder(meta,entity,id,code){
   return idFolder;
 }
 
-/***************************  PROXIES (flat) *******************************/
-function getProxiesRoot_(meta){
-  meta = meta || (typeof getProjectMeta==='function'?getProjectMeta():null);
-  return DriveApp.getFolderById(extractId_(meta.proxies_root_url));
-}
-
-/***************************  FILE & FOLDER LIST ***************************/
-function listEntityFiles(req){
-  var meta   = req.projectMeta||(typeof getProjectMeta==='function'?getProjectMeta():null);
-  var kind   = req.kind||'originals', entity=req.entity||'', id=req.id||'';
-  var folder;
-  if(kind==='originals') folder = ensureEntityFolder(meta,entity,id);
-  else if(kind==='proxies') folder = getProxiesRoot_(meta);
-  else throw new Error('DriveBuilder: kind must be "originals" or "proxies"');
-  return serializeFiles_(folder,kind,id);
-}
-
-/***************************  DIFF / AUDIT *********************************/
+/** 差分確認（DataHub vs Drive） */
 function diffEntityFolders(entity, meta){
-  meta = meta || (typeof getProjectMeta==='function'?getProjectMeta():null);
-  // IDs from DataHub
-  var hubIds = getCoreArray_(SpreadsheetApp.getActive().getSheetByName('DataHub'), entity, ID_LABEL[entity]);
-  // IDs from Drive folder names
+  meta = meta || getProjectMeta();
+  var ss  = getHostSpreadsheet_();
+  var hubIds = getCoreArray_(ss.getSheetByName('DataHub'), entity, ID_LABEL[entity]);
   var driveNames = listEntityFolderNames(entity, meta).map(function(o){ return (o.name||'').split('__')[0]; });
   var missing=[], existing=[];
   hubIds.forEach(function(id){
@@ -111,96 +93,53 @@ function diffEntityFolders(entity, meta){
   return { missing:missing, existing:existing, hubTotal:hubIds.length, driveTotal:driveNames.length };
 }
 
+/** 不足フォルダの生成 */
 function fixMissingEntityFolders(entity, limit){
   var diff = diffEntityFolders(entity);
+  var ss  = getHostSpreadsheet_();
+  var codes = getCoreArray_(ss.getSheetByName('DataHub'), entity, CODE_LABEL[entity]);
+  var ids   = getCoreArray_(ss.getSheetByName('DataHub'), entity, ID_LABEL[entity]);
+
   var created=0;
   limit = limit||diff.missing.length;
   for(var i=0;i<limit && i<diff.missing.length && timeLeft_()>5000;i++){
     var id = diff.missing[i];
-    var codes = getCoreArray_(SpreadsheetApp.getActive().getSheetByName('DataHub'), entity, CODE_LABEL[entity]);
-    var code = codes[i]||'';
+    var idx = ids.indexOf(id);
+    var code = idx>-1 ? (codes[idx]||'') : '';
     ensureEntityFolder(null, entity, id, code);
     created++;
   }
   return 'fixMissingEntityFolders('+entity+'): '+created+' of '+diff.missing.length+' folders created';
 }
 
-/***************************  SOFT DELETE **********************************/
+/** ソフト削除 */
 function softDeleteEntity(meta,entity,id){
-  meta = meta || (typeof getProjectMeta==='function'?getProjectMeta():null);
+  meta = meta || getProjectMeta();
   var src = ensureEntityFolder(meta,entity,id);
   var delRoot = getOrCreateSub_(DriveApp.getFolderById(extractId_(meta.originals_root_url)),'05deleted');
   src.moveTo(delRoot);
 }
 
-/***************************  BULK SYNC via DataHub *************************/
-function scanDataHubPaged(entity, limit){
-  var sh = SpreadsheetApp.getActive().getSheetByName('DataHub');
-  if (!sh) return 0;
-
-  var key   = 'cursor_' + entity;
-  var props = PropertiesService.getScriptProperties();
-  var idx   = parseInt(props.getProperty(key) || 0, 10);   // 0-based
-  var ids   = getCoreArray_(sh, entity, ID_LABEL[entity]);
-  var codes = CODE_LABEL[entity] ? getCoreArray_(sh, entity, CODE_LABEL[entity]) : [];
-
-  if (idx >= ids.length){ props.deleteProperty(key); return 0; }
-
-  limit      = limit || 500;
-  var created= 0, processed = 0;
-
-  while (idx < ids.length && processed < limit && timeLeft_() > 5000){
-    var id   = ids[idx];     if (!id){ idx++; processed++; continue; }
-    var code = codes[idx] || '';
-    ensureEntityFolder(null, entity, id, code);
-    idx++; processed++; created++;
-  }
-  props.setProperty(key, idx);
-  if (idx >= ids.length) props.deleteProperty(key);
-  return created;
-}
-
+/** DataHub 取り出し（G列 Core_values） */
 function getCoreArray_(sh, entity, fieldLabel){
   if (!fieldLabel) return [];
-  var vals = sh.getRange(2, 7, sh.getLastRow() - 1, 1).getValues();   // G 列
+  var vals = sh.getRange(2, 7, sh.getLastRow() - 1, 1).getValues(); // G列
   for (var i = 0; i < vals.length; i++){
     var cell = vals[i][0]; if (!cell) continue;
     var p    = cell.split('|'); if (p.length < 9) continue;
     if (p[1] === entity && p[2] === fieldLabel){
-      /* Core_values:  …|label|val1|val2|… → val1 から配列化 */
       return p.slice(9);
     }
   }
   return [];
 }
 
-/***************************  INTERNAL *************************************/
-function serializeFiles_(folder, kind, id){
-  var out = [], it = folder.getFiles();
-  while (it.hasNext()){
-    var f = it.next(), n = f.getName();
-    if (kind === 'proxies'){
-      if (id && n.indexOf(id) !== 0)  continue;       // id プレフィックス
-      if (!/_proxy\./i.test(n))       continue;       // *_proxy.* だけ
-    }
-    out.push({
-      id:           f.getId(),
-      name:         n,
-      mimeType:     f.getMimeType(),
-      modifiedTime: f.getLastUpdated(),
-      size:         f.getSize()
-    });
-  }
-  return out;
-}
-
-/***************************  DEBUG & LIST *********************************/
+/** entity 直下のフォルダ名一覧（監査用） */
 function listEntityFolderNames(entity, meta){
-  meta           = meta || (typeof getProjectMeta==='function' ? getProjectMeta() : null);
+  meta           = meta || getProjectMeta();
   var roots      = getOrCreateProjectRoots(meta);
   var originals  = DriveApp.getFolderById(roots.originalsId);
   var rootName   = ENTITY_ROOTS[entity]; if (!rootName) return [];
-
   var entityRoot = getOrCreateSub_(originals, rootName);
   var list       = [], it = entityRoot.getFolders();
   while (it.hasNext()){
@@ -210,25 +149,74 @@ function listEntityFolderNames(entity, meta){
   return list;
 }
 
-function test_ListShotFolders(){
-  Logger.log(listEntityFolderNames('shot'));
+/** プロジェクト meta */
+function getProjectMeta(){
+  var ss = getHostSpreadsheet_();
+  var sh = ss.getSheetByName('project_meta');
+  if (!sh) throw new Error('project_meta sheet not found');
+  var data = sh.getRange(1, 1, 2, sh.getLastColumn()).getValues();
+  return Object.fromEntries(data[0].map(function (k, i){
+    return [k, data[1][i]];
+  }));
 }
 
-/***************************  META (fallback) *******************************/
-if (typeof getProjectMeta !== 'function'){
-  function getProjectMeta(){
-    var sh = SpreadsheetApp.getActive().getSheetByName('project_meta');
-    if (!sh) throw new Error('project_meta sheet not found');
-    var data = sh.getRange(1, 1, 2, sh.getLastColumn()).getValues();
-    return Object.fromEntries(data[0].map(function (k, i){
-      return [k, data[1][i]];
-    }));
+/** 一括同期（生成系のみ） */
+function syncEntityFoldersSafe(entity, limit) {
+  var ss = getHostSpreadsheet_();
+  var ids   = getCoreArray_(ss.getSheetByName('DataHub'), entity, ID_LABEL[entity]);
+  var codes = CODE_LABEL[entity] ? getCoreArray_(ss.getSheetByName('DataHub'), entity, CODE_LABEL[entity]) : [];
+
+  var roots = getOrCreateProjectRoots(getProjectMeta());
+  var originalsRoot = DriveApp.getFolderById(roots.originalsId);
+  var rootName = ENTITY_ROOTS[entity];
+  if (!rootName) throw new Error("Unknown entity: " + entity);
+  var entityRoot = getOrCreateSub_(originalsRoot, rootName);
+
+  var existing = {};
+  var it = entityRoot.getFolders();
+  while (it.hasNext()) {
+    var f = it.next();
+    var nameParts = (f.getName() || '').split('__');
+    var folderIdPart = nameParts[0];
+    var folderCodePart = nameParts.length > 1 ? nameParts[1] : '';
+    existing[folderIdPart] = { folder: f, code: folderCodePart };
   }
+
+  var created = 0, renamed = 0;
+  limit = limit || ids.length;
+
+  for (var i = 0; i < ids.length && created < limit && timeLeft_() > 5000; i++) {
+    var id = ids[i];
+    if (!id) continue;
+    if (existing[id]) continue;
+    var code = codes[i] || '';
+    var wantedName = code ? id + '__' + code : id;
+    var idFolder = entityRoot.createFolder(wantedName);
+    if (entity === 'shot')  getOrCreateSub_(idFolder, 'shotview');
+    if (entity === 'asset') getOrCreateSub_(idFolder, 'assetview');
+    existing[id] = { folder: idFolder, code: code };
+    created++;
+  }
+
+  for (var j = 0; j < ids.length && timeLeft_() > 5000; j++) {
+    var idCheck = ids[j];
+    if (!idCheck || !existing[idCheck]) continue;
+    var newCode = codes[j] || '';
+    var oldCode = existing[idCheck].code || '';
+    if (newCode && newCode !== oldCode) {
+      var newName = idCheck + '__' + newCode;
+      existing[idCheck].folder.setName(newName);
+      renamed++;
+    }
+  }
+
+  return { created: created, renamed: renamed };
 }
 
-/** ① DataHub に載っている全 Shots / Assets / Tasks を 500 行ずつ作る */
-function firstRun(){
-  scanDataHubPaged('shot',  500);   // 3 行目からスタート（カーソル保存）
-  scanDataHubPaged('asset', 500);   // 同上
-  scanDataHubPaged('task',  500);   // 同上
+function syncAllEntitiesSafe(limitPerEntity) {
+  var results = [];
+  results.push(syncEntityFoldersSafe('shot',  limitPerEntity));
+  results.push(syncEntityFoldersSafe('asset', limitPerEntity));
+  results.push(syncEntityFoldersSafe('task',  limitPerEntity));
+  return results;
 }

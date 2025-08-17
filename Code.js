@@ -101,7 +101,12 @@ function getPageLayout(ent, name) { /* ... 既存ロジックのまま ... */ }
 
 /* ────────── ルーティング ────────── */
 function doGet(e) {
-  const p    = e?.parameter || {};
+  const p = e?.parameter || {};
+  // ▼ これを先頭に入れる（MIME=JavaScript で空返し）
+  if (p.action === 'app-bundle') {
+    return ContentService.createTextOutput('// ok')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
   const ent  = (p.entity || '').toLowerCase();
   const id   = p.id || '';
   const pg   = p.page || 'Shots';

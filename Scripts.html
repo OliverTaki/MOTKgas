@@ -43,10 +43,7 @@ if (detailBar) {
   const codeLabel = dataObj.fi_0002 || dataObj.fi_0016 || dataObj.fi_0026 || '';
   if (shotCodeEl && codeLabel) shotCodeEl.textContent = codeLabel;
 
-  /* ─── 2-3. gas() ヘルパー ─── */
-  const gas = (cmd, ...args) => new Promise((res, rej) => {
-    google.script.run.withSuccessHandler(res).withFailureHandler(rej)[cmd](...args);
-  });
+
 
   /* ─── 2-4. 各種UI初期化 ─── */
   initPathMenu(dataObj);
