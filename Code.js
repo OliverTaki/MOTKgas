@@ -1,139 +1,301 @@
-/**
- * HTML テンプレートをインクルードして中身を返す
- */
+/** =========================================
+ *  Code.js
+ *  - include(): HTMLサブテンプレ取り込み
+ *  - doGet(e): Webアプリ入口（index / Detail）
+ *  - listRows(sheetName): 互換API（DataHub最優先）
+ *  - listRowsPage({entity,offset,limit}): サーバページング（非空行 total・5分キャッシュ）
+ *  - dh_healthCheck(entity): DataHub健全性チェック
+ * =========================================*/
+
+var __VIEW_CTX = {
+  scriptUrl: '',
+  page:      '',
+  entity:    '',
+  id:        '',
+  dataJson:  '[]'
+};
+
 function include(filename) {
-  const t = HtmlService.createTemplateFromFile(filename);
-  Object.keys(TEMPLATE_CONTEXT).forEach(key => {
-    t[key] = TEMPLATE_CONTEXT[key];
-  });
+  var t = HtmlService.createTemplateFromFile(filename);
+  for (var k in __VIEW_CTX) if (__VIEW_CTX.hasOwnProperty(k)) t[k] = __VIEW_CTX[k];
   return t.evaluate().getContent();
 }
 
-let TEMPLATE_CONTEXT = {};
-
-const SHEET = {
-  SHOTS:       'Shots',
-  ASSETS:      'Assets',
-  TASKS:       'Tasks',
-  MEMBERS:     'ProjectMembers',
-  USERS:       'Users',
-  PAGES:       'Pages',
-  FIELDS:      'Fields',
-  PROJECTMETA: 'project_meta'
-};
-
-const ENTITY_CONF = {
-  shot:   { sheet: SHEET.SHOTS,   key: 'fi_0001', ui: 'DetailShot' },
-  asset:  { sheet: SHEET.ASSETS,  key: 'fi_0015', ui: 'DetailAsset' },
-  task:   { sheet: SHEET.TASKS,   key: 'fi_0025', ui: 'DetailTask' },
-  user:   { sheet: SHEET.USERS,   key: 'fi_0044', ui: 'DetailUser' },
-  member: { sheet: SHEET.MEMBERS, key: 'fi_0034', ui: 'DetailMember' },
-  page:   { sheet: SHEET.PAGES,   key: 'fi_0052', ui: 'DetailMember' }
-};
-
-/* ────────── 内部ユーティリティ ────────── */
-function _open(name) {
-  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
-}
-
-/* ────────── データ取得コア (★listRowsを修正) ────────── */
-/**
- * 全レコード一覧を取得する関数
- */
-function listRows(sheetName) {
-  const ss  = SpreadsheetApp.getActiveSpreadsheet();
-  const hub = ss.getSheetByName('DataHub');
-  if (hub) {
-    const all    = hub.getDataRange().getValues();
-    if (all.length > 0) {
-      const headerRow = all[0];
-      const col = headerRow.indexOf(sheetName);
-      if (col >= 0) {
-        // ★修正：DataHubからのみヘッダーとデータを取得し、正しく構成する
-        const dataHubColumn = all.map(r => r[col]);
-        
-        // DataHubの2行目からfield_idを取得
-        const fieldIds = String(dataHubColumn[1] || '').split('|');
-        // DataHubの3行目からfield_nameを取得
-        const fieldNames = String(dataHubColumn[2] || '').split('|');
-        // DataHubの4行目以降からレコードデータを取得
-        const dataRows = dataHubColumn.slice(3)
-                                      .map(r => r ? r.split('|') : [])
-                                      .filter(r => r.length > 0 && r[0] !== '');
-        
-        // clientが期待する [ [field_id], [field_name], [data...], [data...] ] の形式で返す
-        return [fieldIds, fieldNames, ...dataRows];
-      }
-    }
-  }
-  // フォールバック：従来のシート直読み
-  const s = _open(sheetName);
-  return s ? s.getDataRange().getValues() : [];
-}
-
-/**
- * 単一レコード取得の元の関数
- */
-function getEntity(ent, id) {
-    const c = ENTITY_CONF[ent];
-    if (!c) return null;
-    const sh = _open(c.sheet);
-    if(!sh) return null;
-
-    const allData = sh.getDataRange().getValues();
-    const headers = allData[0];
-    const keyIndex = headers.indexOf(c.key);
-    if(keyIndex === -1) return null;
-
-    const rowData = allData.find(r => String(r[keyIndex]) === String(id));
-    if(!rowData) return null;
-
-    const obj = {};
-    headers.forEach((h, i) => {
-        obj[h] = rowData[i];
-    });
-    return obj;
-}
-
-/* ────────── ページレイアウト保存 ────────── */
-function savePageLayout(ent, name, json) { /* ... 既存ロジックのまま ... */ }
-function getPageLayout(ent, name) { /* ... 既存ロジックのまま ... */ }
-
-/* ────────── ルーティング ────────── */
 function doGet(e) {
-  const p = e?.parameter || {};
-  // ▼ これを先頭に入れる（MIME=JavaScript で空返し）
+  var p = (e && e.parameter) || {};
   if (p.action === 'app-bundle') {
     return ContentService.createTextOutput('// ok')
       .setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
-  const ent  = (p.entity || '').toLowerCase();
-  const id   = p.id || '';
-  const pg   = p.page || 'Shots';
-  const base = ScriptApp.getService().getUrl();
 
-  TEMPLATE_CONTEXT = { entity: ent, id: id, page: pg, scriptUrl: base };
+  __VIEW_CTX.scriptUrl = ScriptApp.getService().getUrl();
+  __VIEW_CTX.page   = p.page   || 'Shots';
+  __VIEW_CTX.entity = (p.entity||'').toLowerCase();
+  __VIEW_CTX.id     = p.id     || '';
 
-  let template, title;
-  if (ENTITY_CONF[ent] && id) {
-    template = HtmlService.createTemplateFromFile(ENTITY_CONF[ent].ui);
-    title    = `${ent}:${id}`;
-    TEMPLATE_CONTEXT.layout = getPageLayout(ent, '_default') || '[]';
-    TEMPLATE_CONTEXT.data = JSON.stringify(getEntity(ent, id));
+  var templateName, title;
+  if (__VIEW_CTX.entity && __VIEW_CTX.id) {
+    // ディテールはクライアント側でAPI呼ぶため埋め込みデータは空でOK
+    templateName = 'DetailShot';
+    title = __VIEW_CTX.entity + ':' + __VIEW_CTX.id;
+    __VIEW_CTX.dataJson = '[]';
   } else {
-    template = HtmlService.createTemplateFromFile('index');
-    title    = 'MOTK Sheets';
-    
-    // listRowsがヘッダーを含む正しい形式のデータを返す
-    const rows = listRows(pg).slice(0, 302); // ヘッダー2行 + データ300行
-    TEMPLATE_CONTEXT.dataJson   = JSON.stringify(rows);
-    
-    // headerJsonは念のため残しておくが、dataJsonから生成されるものが優先される
-    TEMPLATE_CONTEXT.headerJson = JSON.stringify(rows.length > 1 ? rows[1] : []);
+    templateName = 'index';
+    title = 'MOTK Sheets';
+    // ★ 初期HTML生成を軽量化：サーバで全量を埋め込まない
+    __VIEW_CTX.dataJson = '[]';
   }
 
-  Object.assign(template, TEMPLATE_CONTEXT);
-  const output = template.evaluate();
-  output.setTitle(title);
-  return output;
+  var t = HtmlService.createTemplateFromFile(templateName);
+  for (var k in __VIEW_CTX) if (__VIEW_CTX.hasOwnProperty(k)) t[k] = __VIEW_CTX[k];
+
+  var out = t.evaluate();
+  out.setTitle(title);
+  out.addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  return out;
+}
+
+/* =========================
+ *  DataHub ユーティリティ
+ * =========================*/
+
+function _norm_(s){
+  return String(s||'')
+    .replace(/\u3000/g,' ')
+    .replace(/[\u200B-\u200D\uFEFF]/g,'')
+    .trim().toLowerCase()
+    .replace(/[\s_]/g,'')
+    .replace(/s$/, '');
+}
+
+function _hubFindEntityCol_(hubSheet, entityLabel){
+  var lastCol = hubSheet.getLastColumn();
+  if (lastCol < 1) return -1;
+  var headerRow = hubSheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var target = _norm_(entityLabel);
+  for (var c=0; c<headerRow.length; c++){
+    if (_norm_(headerRow[c]) === target) return c+1;
+  }
+  return -1;
+}
+
+/** ===== DataHub 読み取り（全量・互換） ===== */
+function _hubReadBlockAll_(hubSheet, col){
+  var lastRow = hubSheet.getLastRow();
+  if (lastRow < 3) return [[],[]];
+  var fiStr = String(hubSheet.getRange(2, col).getValue() || '');
+  var hnStr = String(hubSheet.getRange(3, col).getValue() || '');
+  if (!fiStr || !hnStr) return [[],[]];
+
+  var ids = fiStr.split('|').map(function(s){ return String(s||'').trim(); });
+  var names = hnStr.split('|').map(function(s){ return String(s||'').trim(); });
+
+  var out = [ids, names];
+  if (lastRow >= 4){
+    var vals = hubSheet.getRange(4, col, lastRow-3, 1).getValues();
+    for (var r=0; r<vals.length; r++){
+      var line = String(vals[r][0]||'');
+      if (line==='') continue;
+      var a = line.split('|');
+      if (a.length < ids.length) a = a.concat(new Array(ids.length - a.length).fill(''));
+      else if (a.length > ids.length) a = a.slice(0, ids.length);
+      out.push(a);
+    }
+  }
+  return out;
+}
+
+/** ===== DataHub 読み取り（ページング・非空 total・5分キャッシュ） ===== */
+function _hubReadBlockPage_(hubSheet, col, offset, limit){
+  var lastRow = hubSheet.getLastRow();
+  if (lastRow < 3) return {ids:[], header:[], rows:[], total:0};
+
+  var fiStr = String(hubSheet.getRange(2, col).getValue() || '');
+  var hnStr = String(hubSheet.getRange(3, col).getValue() || '');
+  if (!fiStr || !hnStr) return {ids:[], header:[], rows:[], total:0};
+
+  var ids   = fiStr.split('|').map(function(s){ return String(s||'').trim(); });
+  var names = hnStr.split('|').map(function(s){ return String(s||'').trim(); });
+
+  var baseRow = 4;
+  var n = Math.max(0, lastRow - (baseRow - 1));
+  if (n === 0) return { ids:ids, header:names, rows:[], total:0 };
+
+  var cache = CacheService.getScriptCache();
+  var key = 'dh_total:' + SpreadsheetApp.getActive().getId() + ':' + col;
+  var cached = cache.get(key);
+  var total;
+
+  if (cached != null) {
+    total = parseInt(cached, 10) || 0;
+  } else {
+    var allVals = hubSheet.getRange(baseRow, col, n, 1).getValues();
+    total = 0;
+    for (var i=0; i<allVals.length; i++){
+      if (String(allVals[i][0]||'').trim()!=='') total++;
+    }
+    cache.put(key, String(total), 300); // 5分キャッシュ
+  }
+
+  // ページ範囲抽出（非空のみカウント）
+  var vals = hubSheet.getRange(baseRow, col, n, 1).getValues();
+  var rows = [];
+  var seen = 0;
+  for (var r=0; r<vals.length; r++){
+    var line = String(vals[r][0]||'').trim();
+    if (line==='') continue;
+    if (seen >= offset && rows.length < limit){
+      var a = line.split('|');
+      if (a.length < ids.length) a = a.concat(new Array(ids.length - a.length).fill(''));
+      else if (a.length > ids.length) a = a.slice(0, ids.length);
+      rows.push(a);
+    }
+    seen++;
+    if (rows.length>=limit) break;
+  }
+
+  return { ids: ids, header: names, rows: rows, total: total };
+}
+
+/* =========================
+ *  Sheet 直読み（互換 & ページ）
+ * =========================*/
+
+function _sheetRead2HeaderAll_(sheet){
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return [[],[]];
+  var vals = sheet.getRange(1,1,lastRow,lastCol).getValues();
+  var ids = vals[0].map(function(s){ return String(s||'').trim(); });
+  var names = vals[1].map(function(s){ return String(s||'').trim(); });
+  var out = [ids, names];
+  for (var r=2; r<vals.length; r++){
+    var row = vals[r];
+    var nonEmpty = row.some(function(v){ return v!=='' && v!=null; });
+    if (!nonEmpty) continue;
+    out.push(row.map(function(v){ return v==null?'':String(v); }));
+  }
+  return out;
+}
+
+/** Sheet 版ページング：total は非空行のみ */
+function _sheetRead2HeaderPage_(sheet, offset, limit){
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return {ids:[], header:[], rows:[], total:0};
+
+  var ids   = sheet.getRange(1,1,1,lastCol).getValues()[0].map(function(s){ return String(s||'').trim(); });
+  var names = sheet.getRange(2,1,1,lastCol).getValues()[0].map(function(s){ return String(s||'').trim(); });
+
+  var baseRow = 3;
+  if (lastRow < baseRow) return { ids:ids, header:names, rows:[], total:0 };
+
+  var dataVals = sheet.getRange(baseRow,1,lastRow-baseRow+1,lastCol).getValues();
+
+  var total = 0;
+  for (var i=0;i<dataVals.length;i++){
+    var row = dataVals[i];
+    var nonEmpty = row.some(function(v){ return v!=='' && v!=null; });
+    if (nonEmpty) total++;
+  }
+
+  var rows = [];
+  var seen = 0;
+  for (var r=0; r<dataVals.length; r++){
+    var row = dataVals[r];
+    var nonEmpty = row.some(function(v){ return v!=='' && v!=null; });
+    if (!nonEmpty) continue;
+    if (seen >= offset && rows.length < limit){
+      rows.push(row.map(function(v){ return v==null?'':String(v); }));
+    }
+    seen++;
+    if (rows.length>=limit) break;
+  }
+
+  return { ids:ids, header:names, rows:rows, total:total };
+}
+
+/* =========================
+ *  公開API
+ * =========================*/
+
+function listRows(sheetName){
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var entityLabel = String(sheetName||'');
+
+  var hub = ss.getSheetByName('DataHub');
+  if (hub){
+    var col = _hubFindEntityCol_(hub, entityLabel);
+    if (col > 0){
+      try{ return _hubReadBlockAll_(hub, col); }catch(e){}
+    }
+  }
+  var candidates = _normSheetCandidates_(entityLabel);
+  for (var i=0;i<candidates.length;i++){
+    var sh = ss.getSheetByName(candidates[i]);
+    if (sh) return _sheetRead2HeaderAll_(sh);
+  }
+  return [[],[]];
+}
+
+function _normSheetCandidates_(label){
+  var base = String(label||'');
+  var s = _norm_(base);
+  var caps = function(x){ return x.charAt(0).toUpperCase()+x.slice(1); };
+  var sg = s; var pl = s + 's';
+  return [ base, caps(s), s.toUpperCase(), s, caps(pl), pl.toUpperCase(), pl ]
+    .filter(function(v, i, a){ return v && a.indexOf(v)===i; });
+}
+
+function listRowsPage(arg){
+  var entity = (arg && arg.entity) ? String(arg.entity) : '';
+  var offset = Math.max(0, (arg && arg.offset)|0);
+  var limit  = Math.max(1, (arg && arg.limit)|0) || 100;
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var hub = ss.getSheetByName('DataHub');
+  if (hub){
+    var col = _hubFindEntityCol_(hub, entity);
+    if (col > 0){
+      try{ return _hubReadBlockPage_(hub, col, offset, limit); }catch(e){}
+    }
+  }
+  var candidates = _normSheetCandidates_(entity);
+  for (var i=0;i<candidates.length;i++){
+    var sh = ss.getSheetByName(candidates[i]);
+    if (sh) return _sheetRead2HeaderPage_(sh, offset, limit);
+  }
+  return {ids:[], header:[], rows:[], total:0};
+}
+
+function dh_healthCheck(entityLabel){
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var res = { entity:String(entityLabel||''), hubSheet:false, columnFound:false, col:-1, idsLen:0, rowsLen:0, error:'' };
+  try{
+    var hub = ss.getSheetByName('DataHub');
+    res.hubSheet = !!hub;
+    if (!hub) return res;
+    var col = _hubFindEntityCol_(hub, entityLabel);
+    res.columnFound = col>0; res.col = col;
+    if (!res.columnFound) return res;
+    var lastRow = hub.getLastRow();
+    var fiStr = String(hub.getRange(2, col).getValue()||'');
+    var hnStr = String(hub.getRange(3, col).getValue()||'');
+    if (!fiStr || !hnStr){ res.error='empty header'; return res; }
+    var ids = fiStr.split('|'); res.idsLen = ids.length;
+
+    var baseRow = 4;
+    var n = Math.max(0, lastRow - (baseRow - 1));
+    var rowsLen = 0;
+    if (n>0){
+      var all = hub.getRange(baseRow, col, n, 1).getValues();
+      for (var i=0;i<all.length;i++){ if (String(all[i][0]||'').trim()!=='') rowsLen++; }
+    }
+    res.rowsLen = rowsLen;
+    return res;
+  }catch(e){
+    res.error = String(e&&e.message||e);
+    return res;
+  }
 }
