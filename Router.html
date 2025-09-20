@@ -1,0 +1,67 @@
+﻿<!-- ===== 1.Router ===== -->
+<script>
+(function(){
+  "use strict";
+<!-- ===== 1.End ===== -->
+
+  /* ===== 2.URL builders ===== */
+  function baseUrl(){
+    return (window.scriptUrl || window.SCRIPT_URL || (location.origin + location.pathname));
+  }
+  function pageUrl(pg, withTs){
+    var u = new URL(baseUrl(), baseUrl());
+    u.searchParams.set("page", pg || "DetailShot");
+    if(withTs){ u.searchParams.set("ts", Date.now().toString(36)); }
+    return u.toString();
+  }
+  function buildEntityUrl(ent,id){
+    // 荳隕ｧURL縺九ｉ縺ｧ繧ら｢ｺ螳溘↓隧ｳ邏ｰ縺ｸ
+    var u = new URL(baseUrl(), baseUrl());
+    u.searchParams.set("page", "DetailShot");
+    u.searchParams.set("entity", ent||"shot");
+    u.searchParams.set("id", id||"");
+    u.searchParams.set("ts", Date.now().toString(36));
+    return u.toString();
+  }
+  window.__Router__ = { baseUrl, pageUrl, buildEntityUrl };
+
+/* ===== 3.GNAVI href陬懈ｭ｣・・蝗槭□縺托ｼ・===== */
+function pumpOnce(scope){
+  if(!scope) return;
+  scope.querySelectorAll("a[href],a[data-page]").forEach(function(a){
+    try{
+      var pg = a.dataset.page
+        || (a.href.match(/[?&]page=([^&]+)/)||[])[1]
+        || (a.textContent||"").trim();
+      if(pg) a.href = pageUrl(pg, false);
+      // 譌｢蟄・target 繧貞ｰ企㍾縲Ｅata-target 縺後≠繧後・縺昴ｌ繧帝←逕ｨ縲よ悴謖・ｮ壹・縺ｿ _top縲・
+      if(a.hasAttribute("data-target")) a.target = a.getAttribute("data-target");
+      else if(!a.hasAttribute("target")) a.target = "_top";
+      if(!a.hasAttribute("rel")) a.rel = "noopener";
+    }catch(_){}
+  });
+}
+
+  /* ===== 4.Entity繝ｪ繝ｳ繧ｯ縺ｯ蟶ｸ縺ｫ繝輔Ν驕ｷ遘ｻ ===== */
+  document.addEventListener("click", function(ev){
+    var a = ev.target && ev.target.closest ? ev.target.closest("a[href]") : null;
+    if(!a) return;
+    try{
+      var u = new URL(a.href, location.origin);
+      var ent = u.searchParams.get("entity");
+      var id  = u.searchParams.get("id");
+      if(!(ent && id)) return;
+      ev.preventDefault();
+      var href = buildEntityUrl(ent, id);
+      try{ window.top.location.assign(href); }catch(_){ window.top.location.href = href; }
+    }catch(_){}
+  }, {capture:true});
+
+  /* ===== 5.Init ===== */
+  document.addEventListener("DOMContentLoaded", function(){
+    pumpOnce(document);            // 竊・縺薙ｌ縺ｧGNAVI繧ｯ繝ｪ繝・け譎ゅ↓URL縺悟､峨ｏ繧・
+  }, {once:true});
+
+})();
+</script>
+
