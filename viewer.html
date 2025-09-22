@@ -129,7 +129,7 @@ th.draggable{cursor:move;}
 
 /* Save dropdown */
 .dropdown{position:relative;display:inline-block;}
-.dd-menu{position:absolute;right:0;top:calc(100% + 6px);background:var(--panel);border:1px solid var(--border);border-radius:8px;min-width:220px;box-shadow:0 10px 28px rgba(0,0,0,.18);display:none;}
+.dd-menu{position:absolute;left:0;top:calc(100% + 6px);background:var(--panel);border:1px solid var(--border);border-radius:8px;min-width:220px;box-shadow:0 10px 28px rgba(0,0,0,.18);display:none;}
 .dd-menu.open{display:block;}
 .dd-item{padding:8px 12px;cursor:pointer;}
 .dd-item:hover{background:rgba(0,0,0,.06);}
@@ -2348,94 +2348,81 @@ function removeGlobalClosers(panelEl){
 }
 
 
-/* ===== 23.Save ドロップダウン（Save / Save as / Revert） ===== */
-(function setupSaveDropdown(){
-  var btn=document.getElementById('saveDDBtn');
-  var root=document.getElementById('saveDD');
-  if(!btn || !root) return;
+<!-- ===== 23. Save ドロップダウン（Save / Save as… / Revert） ===== -->
 
-  var menu=null;
+(function(){
+  var ddBtn   = document.getElementById('saveDDBtn');
+  var ddMenu  = document.getElementById('saveDDMenu');
+  var popover = document.getElementById('npPopover');
+  var npName  = document.getElementById('npName');
+  var npCancel= document.getElementById('npCancel');
+  var npSave  = document.getElementById('npSave');
 
-  btn.addEventListener('click', function(ev){
-    ev.preventDefault();
-    if(menu && menu.parentNode){
-      removeGlobalClosers(menu);
-      menu.parentNode.removeChild(menu);
-      menu=null;
-      return;
-    }
+  if(!ddBtn || !ddMenu) return;
 
-    menu=document.createElement('div');
-    menu.className='dd-menu open';
-    menu.innerHTML=[
-      '<div class="dd-item" data-act="save">Save</div>',
-      '<div class="dd-item" data-act="saveas">Save as...</div>',
-      '<div class="dd-item" data-act="revert">Revert</div>'
-    ].join('');
+  function closeMenu(){
+    ddMenu.classList.remove('open');
+    removeGlobalClosers(ddMenu);
+  }
 
-    // 左寄せでボタン直下に配置（はみ出す場合は右寄せ）
-    root.appendChild(menu);
-    var r=menu.getBoundingClientRect();
-    if(r.right > window.innerWidth - 8){
-      menu.style.left='auto';
-      menu.style.right='0';
-    }else{
-      menu.style.left='0';
-      menu.style.right='auto';
-    }
+  function openMenu(){
+    ddMenu.classList.add('open');
+    addGlobalClosers(ddMenu, ddBtn, closeMenu);
+  }
 
-    function close(){
-      if(menu && menu.parentNode){
-        removeGlobalClosers(menu);
-        menu.parentNode.removeChild(menu);
-        menu=null;
-      }
-    }
-    addGlobalClosers(menu, btn, close);
+  ddBtn.addEventListener('click', function(e){
+    e.preventDefault();
+    e.stopPropagation();
+    if(ddMenu.classList.contains('open')) closeMenu();
+    else openMenu();
+  });
 
-    menu.addEventListener('click', function(e){
-      var act=e.target && e.target.getAttribute ? e.target.getAttribute('data-act') : '';
-      if(!act) return;
+  ddMenu.addEventListener('click', function(e){
+    var item = e.target.closest('.dd-item');
+    if(!item) return;
+    var act = item.getAttribute('data-act') || '';
+    closeMenu();
+    if(act==='save')       saveCurrentPageConfig();
+    else if(act==='saveas') openNewPagePopover();
+    else if(act==='revert') revertCurrentPageConfig();
+  });
 
-      if(act==='save'){
-        savePageConfig();
-        close();
-        return;
-      }
-      if(act==='saveas'){
-        var nm=prompt('New page name');
-        if(!nm){ close(); return; }
-        callFirst(['sv_createPage','gsCreatePagePreset','createPagePreset'],
-          {entity:_canon(STATE.sheetName),name:nm,shared:true,pageType:'table'},
-          function(res){
-            STATE.pageList=STATE.pageList.concat([{id:(res&&res.id)||('pg_'+Date.now()),name:nm,entity:_canon(STATE.sheetName),pageType:'table'}]);
-            wirePresetSelectAfterLoad();
-            STATE.pageId=(res&&res.id)||('pg_'+Date.now());
-            var sel=document.getElementById('presetSelect'); if(sel) sel.value=STATE.pageId;
-            savePageConfig();
-            close();
-          },
-          function(){
-            STATE.pageId=('pg_'+Date.now());
-            savePageConfig();
-            close();
-          }
-        );
-        return;
-      }
-      if(act==='revert'){
-        if(!STATE.pageId){ close(); return; }
-        showStatus('loading settings…');
-        loadPageConfigFromCacheThenNetwork(STATE.pageId,function(){
-          fetchAndRenderPage(STATE.page);
-          setDirty(false);
-          close();
-        });
-        return;
-      }
+  function openNewPagePopover(){
+    if(!popover) return;
+    // 位置合わせ（ボタン直下）
+    var r = ddBtn.getBoundingClientRect();
+    popover.style.left   = (r.left + window.scrollX) + 'px';
+    popover.style.top    = (r.bottom + window.scrollY + 8) + 'px';
+    popover.style.display= 'block';
+    npName.value = '';
+
+    addGlobalClosers(popover, ddBtn, closeNewPagePopover);
+  }
+
+  function closeNewPagePopover(){
+    if(!popover) return;
+    popover.style.display='none';
+    removeGlobalClosers(popover);
+  }
+
+  if(npCancel) npCancel.addEventListener('click', function(){
+    closeNewPagePopover();
+  });
+
+  if(npSave) npSave.addEventListener('click', function(){
+    var name = (npName && npName.value || '').trim();
+    if(!name){ npName && npName.focus(); return; }
+    // 「share」は使わない（チェックボックスへの依存を削除）
+    saveAsPage(name, /*shared*/ false, function(){
+      closeNewPagePopover();
     });
   });
+
+  // 外部からも呼べるように
+  window.initSaveDropdown = function(){};
 })();
+
+
 
 
 /* ===== 24.fetch をグループ対応版に差し替え（サーバは Code.js 最小修正版が必要） ===== */
@@ -2562,41 +2549,134 @@ function fetchPageOnlyFromCacheThenNetwork(page, cb){
 }
 
 
+<!-- ===== 25. Save ハンドラ（Save / Save as… / Revert の実装） ===== -->
 
-/* ===== 25.Save ハンドラ ===== */
-function savePageConfig(){
-  if(!STATE.pageId || !hasGoogle()) return;
+(function(){
+  function ensureFn(){ return function(){}; }
 
-  var cfg = {
-    order: resolveOrder(),
-    widths: STATE.widths,
-    hidden: STATE.hiddenCols,
-    group : (STATE.group||[]).slice(),
-    filterSets: STATE.filterSets || {},
-    filterGroups: STATE.filterGroups || [],
-    groupCombine: (STATE.groupCombine==='any'?'any':'all')
+  // いまのページ設定を“保存用”に組み立て
+  function buildCurrentConfig(){
+    var cfg = {
+      order       : (STATE.pageCfgRaw && Array.isArray(STATE.pageCfgRaw.order)) ? STATE.pageCfgRaw.order.slice() : resolveOrder().slice(),
+      widths      : Object.assign({}, STATE.widths||{}),
+      hidden      : Object.assign({}, STATE.hiddenCols||{}),
+      sort        : Array.isArray(STATE.sort) ? STATE.sort.slice() : [],
+      group       : Array.isArray(STATE.group) ? STATE.group.slice() : [],
+      filterSets  : Object.assign({}, STATE.filterSets||{}),
+      filterGroups: Array.isArray(STATE.filterGroups) ? deepCopy(STATE.filterGroups) : [],
+      groupCombine: (STATE.groupCombine==='any'?'any':'all'),
+      pageType    : 'table',
+      entity      : STATE.sheetName || ''
+    };
+    return cfg;
+  }
+
+  function canonicalEntity(){
+    try{
+      return entityForServer ? entityForServer() : (STATE.sheetName||'');
+    }catch(_){
+      return (STATE.sheetName||'');
+    }
+  }
+
+  // Save（上書き保存）
+  window.saveCurrentPageConfig = function(){
+    if(!STATE.pageId){
+      // pageId が無い場合は Save as… にフォールバック
+      openNewPageFallback();
+      return;
+    }
+    var cfg = buildCurrentConfig();
+    showStatus('saving…');
+    callFirst(['sv_savePageConfig','gsSavePageConfig','setPageLayout'],
+      { pageId: STATE.pageId, entity: canonicalEntity(), pageType:'table', config: cfg },
+      function(res){
+        try{ setDirty(false); }catch(_){}
+        // キャッシュ更新
+        var key='motk:cfg:'+STATE.pageId;
+        LSC_set(key, cfg);
+        showStatus('saved');
+      },
+      function(){
+        showStatus('save failed');
+      }
+    );
   };
 
-  showStatus('saving…');
-  callFirst(['sv_savePageConfig','gsSavePageConfig'],
-    { pageId: STATE.pageId, config: cfg },
-    function(){
-      STATE.pageCfgRaw = {
-        order: cfg.order.slice(),
-        widths: copy(cfg.widths),
-        hidden: copy(cfg.hidden),
-        group : cfg.group.slice(),
-        filterSets: copy(cfg.filterSets),
-        filterGroups: deepCopy(cfg.filterGroups),
-        groupCombine: cfg.groupCombine
-      };
-      LSC_set('motk:cfg:'+STATE.pageId, STATE.pageCfgRaw);
-      setDirty(false);
-      setFinalStatus();
-    },
-    function(){ setFinalStatus(); }
-  );
-}
+  function openNewPageFallback(){
+    try{ window.initSaveDropdown && document.getElementById('npPopover') && (function(){
+      // セクション23で定義済みのポップオーバを開く
+      var btn=document.getElementById('saveDDBtn');
+      btn && btn.click();
+      var m=document.getElementById('saveDDMenu');
+      var saveas = m && m.querySelector('.dd-item[data-act="saveas"]');
+      saveas && saveas.click();
+    })(); }catch(_){}
+  }
+
+  // Save as（新規ページとして保存）
+  window.saveAsPage = function(name, shared, done){
+    done = ensureFn() || done;
+    var cfg = buildCurrentConfig();
+    showStatus('saving as "'+name+'" …');
+
+    callFirst(['sv_savePageAs','gsSavePageAs','createPagePreset'],
+      {
+        name  : name,
+        entity: canonicalEntity(),
+        pageType:'table',
+        shared: !!shared,       // 共有フラグは無視してもよいが、引数は残す
+        config: cfg
+      },
+      function(res){
+        try{
+          // 返却値から新しい pageId を抜く
+          var newId = (res && (res.pageId || res.id || res.pid)) || '';
+          if(newId) STATE.pageId = newId;
+          setDirty(false);
+          // キャッシュへ保存
+          if(newId){ LSC_set('motk:cfg:'+newId, cfg); }
+          // ページ一覧を更新してプルダウン反映
+          loadPagesFromCacheThenNetwork();
+          // 選択を最新へ
+          var sel=document.getElementById('presetSelect');
+          if(sel && STATE.pageId){ sel.value = STATE.pageId; }
+          showStatus('saved');
+        }catch(_){
+          showStatus('saved');
+        }
+        done && done();
+      },
+      function(){
+        showStatus('save as failed');
+        done && done();
+      }
+    );
+  };
+
+  // Revert（サーバ保存状態へ戻す）
+  window.revertCurrentPageConfig = function(){
+    if(!STATE.pageId){ showStatus('nothing to revert'); return; }
+    showStatus('reverting…');
+
+    callFirst(['sv_revertPageConfig','gsRevertPageConfig','revertPageLayout'],
+      { pageId: STATE.pageId, entity: canonicalEntity(), pageType:'table' },
+      function(){
+        // サーバの設定を再ロードして反映
+        loadPageConfigFromCacheThenNetwork(STATE.pageId, function(){
+          try{ setDirty(false); }catch(_){}
+          fetchAndRenderPage(STATE.page||1);
+          showStatus('reverted');
+        });
+      },
+      function(){
+        showStatus('revert failed');
+      }
+    );
+  };
+})();
+
+
 
 
 /* ===== 26.ちょいユーティリティ ===== */

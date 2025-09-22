@@ -808,6 +808,7 @@ function dp_saveAsPage(srcId, newId, patch){
 }
 /* ===== 83. End ===== */
 
+
 /* ===== 84.pages.header ===== */
 /**
  * Pages sheet writer with synonym mapping:
@@ -1028,35 +1029,19 @@ function _pg_all_(){
   return { sh:sh, fi:v[0], names:v[1], rows:v.slice(2) };
 }
 function _pg_idxBy(a,key){ key=String(key).trim().toLowerCase(); for(var i=0;i<a.length;i++){ if(String(a[i]).trim().toLowerCase()===key) return i; } return -1; }
-function _pg_findNameIdx(names, arr){ for(var i=0;i<arr.length;i++){ var idx=_pg_idxBy(names, arr[i]); if(idx>=0) return idx; } return -1; }
 function _pg_bool(v){ var s=String(v).trim().toLowerCase(); return s==='true'||s==='1'||s==='yes'||s==='on'||s==='y'||s==='✓'; }
-var __PAGES_FI__ = { ID:'fi_0052', NAME:'fi_0053', TYPE:'fi_0054', ENTITY:'fi_0055', CONFIG:'fi_0056', SHARED:'fi_0057' };
 
-function gsSavePageConfig(params){
-  params=params||{};
-  var pid=params.pageId;
-  if(!pid){
-    var sp=PropertiesService.getScriptProperties();
-    var lastId=sp.getProperty('LAST_CREATED_PAGE_ID');
-    var lastAt=Number(sp.getProperty('LAST_CREATED_PAGE_AT')||0);
-    if(lastId && (Date.now()-lastAt)<15000) pid=lastId;
+function _pg_findIdx(fi,names, fiKey, labelKey, altLabels){
+  // FI優先→ラベル→同義語
+  var idx = _pg_idxBy(fi, fiKey);
+  if(idx>=0) return idx;
+  idx = _pg_idxBy(names, labelKey);
+  if(idx>=0) return idx;
+  for(var i=0;i<(altLabels||[]).length;i++){
+    idx = _pg_idxBy(names, altLabels[i]);
+    if(idx>=0) return idx;
   }
-  if(!pid) return { ok:false, error:'pageId required' };
-
-  var cfg=params.config; var cfgStr=(typeof cfg==='string')? cfg : JSON.stringify(cfg||{});
-  var a=_pg_all_(), sh=a.sh, fi=a.fi, names=a.names, rows=a.rows;
-  var cID=_pg_idxBy(fi,__PAGES_FI__.ID), cCFG=_pg_idxBy(fi,__PAGES_FI__.CONFIG);
-  if(cID<0||cCFG<0) return { ok:false, error:'Pages FI columns missing' };
-
-  var r=-1; for(var i=0;i<rows.length;i++){ if(String(rows[i][cID])===String(pid)){ r=i; break; } }
-  if(r<0) return { ok:false, error:'Record not found: '+pid };
-
-  var row=rows[r].slice();
-  row[cCFG]=cfgStr;
-  sh.getRange(2+1+r,1,1,fi.length).setValues([row]);
-
-  PropertiesService.getScriptProperties().setProperty('CURRENT_PAGE_VIEW_ID', String(pid));
-  return { ok:true, id:pid };
+  return -1;
 }
 
 function gsCreatePagePreset(params){
@@ -1065,9 +1050,10 @@ function gsCreatePagePreset(params){
   var name  = String(params.name||'').trim() || '(no name)';
   var shared= !!params.shared;
   var ptype = String(params.pageType||'table').trim() || 'table';
-  var cfgIn = params.config; var cfgStr=(typeof cfgIn==='string')? cfgIn : (cfgIn? JSON.stringify(cfgIn): '');
+  var cfgIn = params.config; 
+  var cfgStr=(typeof cfgIn==='string')? cfgIn : (cfgIn? JSON.stringify(cfgIn): '');
 
-  // 単発ロック（多重呼び出し抑止）
+  // 単発ロック + 直前重複防止
   var lock=LockService.getScriptLock();
   try{ lock.tryLock(3000); }catch(e){}
   var sp=PropertiesService.getScriptProperties();
@@ -1079,35 +1065,43 @@ function gsCreatePagePreset(params){
   }
 
   var a=_pg_all_(), sh=a.sh, fi=a.fi, names=a.names, rows=a.rows;
-  var cID=_pg_idxBy(fi,__PAGES_FI__.ID),
-      cNM=_pg_idxBy(fi,__PAGES_FI__.NAME),
-      cTP=_pg_idxBy(fi,__PAGES_FI__.TYPE),
-      cEN=_pg_idxBy(fi,__PAGES_FI__.ENTITY),
-      cCF=_pg_idxBy(fi,__PAGES_FI__.CONFIG),
-      cSH=_pg_idxBy(fi,__PAGES_FI__.SHARED);
-  if(cID<0||cNM<0||cTP<0||cEN<0||cSH<0){
+
+  // 必須4列は「FIが無くてもラベルで可」、CONFIG/Shared は無くてもエラーにしない
+  var cID=_pg_findIdx(fi,names,'fi_0052','page id',['id','page_id']);
+  var cNM=_pg_findIdx(fi,names,'fi_0053','page name',['name','title']);
+  var cTP=_pg_findIdx(fi,names,'fi_0054','page type',['type']);
+  var cEN=_pg_findIdx(fi,names,'fi_0055','entity',['sheet','table']);
+  var cCF=_pg_findIdx(fi,names,'fi_0056','config',['CONFIG','Config']);
+  var cSH=_pg_findIdx(fi,names,'fi_0057','shared',['is_shared','shared?']);
+
+  if(cID<0 || cNM<0 || cTP<0 || cEN<0){
     if(lock) try{ lock.releaseLock(); }catch(e){}
-    return { ok:false, error:'Pages FI columns missing' };
+    return { ok:false, error:'Pages header missing (need Page ID / Page Name / Page Type / Entity)' };
   }
 
-  // newId 採番
-  var maxN=0; for(var i=0;i<rows.length;i++){ var m=String(rows[i][cID]||'').match(/^pg_(\d{1,})$/i); if(m){ var n=+m[1]; if(n>maxN) maxN=n; } }
+  // newId 採番（既存の pg_#### から最大+1）
+  var maxN=0;
+  for(var i=0;i<rows.length;i++){
+    var m=String(rows[i][cID]||'').match(/^pg_(\d{1,})$/i);
+    if(m){ var n=+m[1]; if(n>maxN) maxN=n; }
+  }
   var newId='pg_'+('0000'+(maxN+1)).slice(-4);
 
-  // 1行生成（クリーン作成）
+  // 新規行ベース
   var outRow=new Array(fi.length).fill('');
-  outRow[cID]=newId; outRow[cNM]=name; outRow[cTP]=ptype; outRow[cEN]=ent; outRow[cSH]=shared?true:false;
+  outRow[cID]=newId; outRow[cNM]=name; outRow[cTP]=ptype; outRow[cEN]=ent;
+  if(cSH>=0) outRow[cSH]=shared?true:false;
   if(cCF>=0 && cfgStr) outRow[cCF]=cfgStr;
 
-  // 監査系（名称行で探索）
-  var cCreatedBy=_pg_findNameIdx(names, ['CreatedBy','Created By']);
-  var cCreated  =_pg_findNameIdx(names, ['Created','Created At','CreatedAt','Created Date','CreatedDate']);
+  // 監査（ラベル列優先で自動検出）
+  var createdByIdx=_pg_idxBy(names,'created by'); if(createdByIdx<0) createdByIdx=_pg_idxBy(names,'createdby');
+  var createdAtIdx=_pg_idxBy(names,'created');    if(createdAtIdx<0) createdAtIdx=_pg_idxBy(names,'created at');
   try{
-    if(cCreatedBy>=0){
+    if(createdByIdx>=0){
       var by=Session.getActiveUser() && Session.getActiveUser().getEmail ? Session.getActiveUser().getEmail() : '';
-      outRow[cCreatedBy]=by||'system';
+      outRow[createdByIdx]=by||'system';
     }
-    if(cCreated>=0){ outRow[cCreated]=new Date(); }
+    if(createdAtIdx>=0){ outRow[createdAtIdx]=new Date(); }
   }catch(e){}
 
   sh.appendRow(outRow);
@@ -1117,10 +1111,12 @@ function gsCreatePagePreset(params){
   sp.setProperty('CURRENT_PAGE_VIEW_ID', String(newId));
   if(lock) try{ lock.releaseLock(); }catch(e){}
 
-  var ret={}; for(var z=0; z<fi.length; z++){ ret[fi[z]||names[z]||('c'+z)] = outRow[z]; }
-  return { ok:true, id:newId, name:name, pageType:ptype, entity:ent, shared:shared, fields:ret };
+  var ret={};
+  for(var z=0; z<fi.length; z++){ ret[fi[z]||names[z]||('c'+z)] = outRow[z]; }
+  return { ok:true, id:newId, name:name, pageType:ptype, entity:ent, shared:!!(cSH>=0 && outRow[cSH]), fields:ret };
 }
-/* ===== 88. End ===== */
+
+
 
 
 /* ===== 89.labels.bulk_api (テーブル用の一括ラベル解決) ===== */
