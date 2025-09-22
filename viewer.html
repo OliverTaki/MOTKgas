@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
@@ -2610,5 +2610,147 @@ function labelForFieldId(fid){
 
 })(); 
 </script>
+
+<!-- ===== 60.saveas-modal (UI: Shared付き) ===== -->
+<div id="pgSaveAsMask"></div>
+<div id="pgSaveAs" role="dialog" aria-modal="true" aria-labelledby="pgSaveAsTitle">
+  <div class="hd" id="pgSaveAsTitle">Save as Page View</div>
+  <div class="bd">
+    <div class="row"><label for="pgNewId">Page ID</label><input id="pgNewId" placeholder="pg_XXXX" /></div>
+    <div class="row"><label for="pgName">Page Name</label><input id="pgName" placeholder="View name" /></div>
+    <div class="row"><label for="pgType">Page Type</label>
+      <select id="pgType"><option value="table">table</option><option value="overview">overview</option><option value="detail">detail</option></select>
+    </div>
+    <div class="row"><label for="pgEntity">Entity</label>
+      <select id="pgEntity"><option value="shot">shot</option><option value="asset">asset</option><option value="task">task</option><option value="member">member</option><option value="user">user</option></select>
+    </div>
+    <div class="row" style="display:flex;align-items:center;gap:8px">
+      <input id="pgShared" type="checkbox" /><label for="pgShared">Shared</label>
+    </div>
+  </div>
+  <div class="ft">
+    <button id="pgSaveAsCancel">Cancel</button>
+    <button id="pgSaveAsOk">Save</button>
+  </div>
+</div>
+<!-- ===== 60. End ===== -->
+
+<!-- ===== 61.local_cache (Config/Labels TTLキャッシュ) ===== -->
+<script>
+(function(){
+  var TTL_MS = 15000; // 15秒
+  function k(ns, id){ return "MOTK."+ns+"."+id; }
+  function now(){ return Date.now(); }
+  window.MOTKCache = {
+    get: function(ns, id){
+      try{
+        var raw = localStorage.getItem(k(ns,id)); if(!raw) return null;
+        var obj = JSON.parse(raw);
+        if (!obj || !obj.t || now()-obj.t>TTL_MS) return null;
+        return obj.v;
+      }catch(e){ return null; }
+    },
+    set: function(ns, id, val){
+      try{ localStorage.setItem(k(ns,id), JSON.stringify({t:now(), v:val})); }catch(e){}
+    }
+  };
+})();
+</script>
+<!-- ===== 61. End ===== -->
+
+<!-- ===== 62.prefetch_pages ===== -->
+<script>
+(function(){
+  var TTL_MS = 15000;
+  function k(ns, id){ return "MOTK."+ns+"."+id; }
+  function now(){ return Date.now(); }
+  function cacheGet(ns, id){
+    try{ var raw=localStorage.getItem(k(ns,id)); if(!raw) return null;
+      var obj=JSON.parse(raw); if(!obj||!obj.t||now()-obj.t>TTL_MS) return null; return obj.v;
+    }catch(e){ return null; }
+  }
+  function cacheSet(ns, id, val){
+    try{ localStorage.setItem(k(ns,id), JSON.stringify({t:now(), v:val})); }catch(e){}
+  }
+
+  // ページ初期化時に呼ぶ： entity='shot' など
+  window.prefetchPagesForEntity = function(entity, pageType){
+    entity = entity || 'shot';
+    pageType = pageType || 'table';
+    google.script.run.withSuccessHandler(function(list){
+      if(!Array.isArray(list)||!list.length) return;
+      var ids = list.map(function(x){ return x.id; });
+      // メタをキャッシュ
+      list.forEach(function(p){ cacheSet('page.meta', p.id, p); });
+      // Config を一括ロード
+      google.script.run.withSuccessHandler(function(map){
+        map = map || {};
+        Object.keys(map).forEach(function(pid){ cacheSet('page.cfg', pid, map[pid]); });
+      }).gsLoadPageConfigsBulk(ids);
+    }).gsListPagePresets({ entity: entity, pageType: pageType });
+  };
+
+  // ビュー切替時に呼ぶ：キャッシュ優先でConfig取得
+  window.getPageConfigCached = function(pageId, onReady){
+    var cfg = cacheGet('page.cfg', pageId);
+    if(cfg){ if(onReady) onReady(cfg); return; }
+    google.script.run.withSuccessHandler(function(c){
+      cacheSet('page.cfg', pageId, c||{});
+      if(onReady) onReady(c||{});
+    }).gsLoadPageConfig({ pageId: pageId });
+  };
+})();
+</script>
+<!-- ===== 62. End ===== -->
+
+
+<!-- ===== 63.link_labels (安定ラベル置換: 一括API + キャッシュ) ===== -->
+<script>
+(function(){
+  function uniq(arr){ var s={}, o=[]; for(var i=0;i<arr.length;i++){ var v=String(arr[i]||''); if(!v) continue; if(s[v]) continue; s[v]=1; o.push(v);} return o; }
+  function isIdLike(s){ return /^((sh|as|ta|us|mb|pg)_\w+)/i.test(s); }
+
+  async function resolveLabels(ids){
+    var out={}, miss=[];
+    for (var i=0;i<ids.length;i++){
+      var id=ids[i], c = window.MOTKCache && MOTKCache.get('label', id);
+      if (c!=null){ out[id]=c; } else { miss.push(id); }
+    }
+    if (miss.length){
+      await new Promise(function(done){
+        google.script.run.withSuccessHandler(function(map){
+          map = map || {};
+          Object.keys(map).forEach(function(k){
+            MOTKCache && MOTKCache.set('label', k, map[k]);
+            out[k]=map[k];
+          });
+          done();
+        }).withFailureHandler(function(){ done(); })
+          .dp_resolveLabelsBulk(miss);
+      });
+    }
+    return out;
+  }
+
+  // テーブル描画後に呼ぶユーティリティ。container 内のテキストIDをラベル化。
+  window.applyEntityLinkLabels = async function(container){
+    var root = (typeof container==='string') ? document.querySelector(container) : container;
+    if(!root) return;
+    var texts = Array.prototype.map.call(root.querySelectorAll('[data-cell]'), function(n){ return n.textContent.trim(); });
+    var ids = uniq(texts.filter(isIdLike));
+    if(!ids.length) return;
+
+    var map = await resolveLabels(ids);
+    Array.prototype.forEach.call(root.querySelectorAll('[data-cell]'), function(n){
+      var t = n.textContent.trim();
+      if(map[t]) n.textContent = map[t];
+    });
+  };
+})();
+</script>
+<!-- ===== 63. End ===== -->
+
+
+
 </body>
 </html>

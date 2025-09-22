@@ -941,8 +941,128 @@ document.addEventListener("DOMContentLoaded", function(){
 },{once:true});
 
 })();
+
 </script>
 
+<!-- ===== 40.saveas-modal (UI) ===== -->
+<div id="pgSaveAsMask"></div>
+<div id="pgSaveAs" role="dialog" aria-modal="true" aria-labelledby="pgSaveAsTitle">
+  <div class="hd" id="pgSaveAsTitle">Save as Page View</div>
+  <div class="bd">
+    <div class="row">
+      <label for="pgNewId">Page ID</label>
+      <input id="pgNewId" placeholder="pg_XXXX" />
+    </div>
+    <div class="row">
+      <label for="pgName">Page Name</label>
+      <input id="pgName" placeholder="View name" />
+    </div>
+    <div class="row">
+      <label for="pgType">Page Type</label>
+      <select id="pgType">
+        <option value="table">table</option>
+        <option value="overview">overview</option>
+        <option value="detail">detail</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="pgEntity">Entity</label>
+      <select id="pgEntity">
+        <option value="shot">shot</option>
+        <option value="asset">asset</option>
+        <option value="task">task</option>
+        <option value="member">member</option>
+        <option value="user">user</option>
+        <option value="page">page</option>
+      </select>
+    </div>
+    <div class="row" style="align-items:center;display:flex;gap:8px">
+      <input id="pgShared" type="checkbox" /><label for="pgShared">Shared</label>
+    </div>
+  </div>
+  <div class="ft">
+    <button id="pgSaveAsCancel">Cancel</button>
+    <button id="pgSaveAsOk">Save</button>
+  </div>
+</div>
+<!-- ===== 40. End ===== -->
+
+
+
+
+<!-- ===== 41.saveas-logic (JS) ===== -->
+<script>
+(function(){
+  function qs(k){
+    var m=location.search.replace(/^\?/,'').split('&'); for(var i=0;i<m.length;i++){var kv=m[i].split('='); if(kv[0]===k) return decodeURIComponent(kv[1]||'');}
+    return '';
+  }
+  var CURRENT_ENTITY = qs('entity')||'';
+  var CURRENT_ID     = qs('id')||'';
+
+  var $mask = document.getElementById('pgSaveAsMask');
+  var $dlg  = document.getElementById('pgSaveAs');
+  var $id   = document.getElementById('pgNewId');
+  var $name = document.getElementById('pgName');
+  var $type = document.getElementById('pgType');
+  var $ent  = document.getElementById('pgEntity');
+  var $shr  = document.getElementById('pgShared');
+  var $ok   = document.getElementById('pgSaveAsOk');
+  var $ng   = document.getElementById('pgSaveAsCancel');
+
+  function open(opts){
+    opts = opts||{};
+    $id.value   = opts.newId || '';
+    $name.value = opts.name  || '';
+    $type.value = opts.type  || 'table';
+    $ent.value  = opts.entity|| (CURRENT_ENTITY||'shot');
+    $shr.checked= !!opts.shared;
+
+    $mask.style.display='block';
+    $dlg.style.display='block';
+    setTimeout(function(){ $id.focus(); }, 0);
+  }
+  function close(){
+    $mask.style.display='none';
+    $dlg.style.display='none';
+  }
+
+  $ng.onclick = close;
+  $mask.onclick = close;
+
+  $ok.onclick = function(){
+    var srcId = CURRENT_ID;            // 現在のページID（pg_XXXX）を想定
+    var newId = ($id.value||'').trim();
+    if(!/^pg_\w+$/i.test(newId)){ alert('Page ID format: pg_XXXX'); return; }
+
+    var patch = {
+      "Page Name": ($name.value||'').trim(),
+      "Page Type": ($type.value||'table'),
+      "Entity":    ($ent.value||'shot'),
+      "Shared":    $shr.checked
+    };
+
+    google.script.run
+      .withSuccessHandler(function(res){
+       if(!res||!res.ok){ alert('saveAs failed: '+(res&&res.error)); return; }
+       // 書込完了待たずに現在選択を切替（サーバ側で __select true を扱う）
+       google.script.run.dp_updateEntityRecord('page', newId, { "__select": true });
+       close();
+       location.assign(location.pathname + '?entity=page&id=' + encodeURIComponent(newId));
+      })
+      .withFailureHandler(function(err){ alert('saveAs error: '+err); })
+      .dp_saveAsPage(srcId, newId, patch);
+  };
+
+  // 既存の「名前入力」トリガに自動バインド（存在すれば）
+  var btn = document.getElementById('btnSaveAs');
+  if(btn){ btn.onclick=function(){ open({ entity: CURRENT_ENTITY }); }; }
+
+  // 外部公開
+  window.MOTK_SaveAsPage = { open: open, close: close };
+})();
+</script>
+<!-- ===== 41. End ===== -->
 
 
 </body>
