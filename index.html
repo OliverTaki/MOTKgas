@@ -1,65 +1,72 @@
-<!DOCTYPE html>
+﻿<!doctype html>
 <html>
   <head>
-    <base target="_top">
-    <meta charset="utf-8">
+    <base target="_top" />
+    <meta charset="utf-8" />
     <title>MOTKsheets G-Viewer</title>
-    <?!= include('CoreStyles'); ?>
+    <?!= include('COMMON_styles'); ?>
   </head>
-
-  <body>
-    <!-- ===== Navigation ===== -->
-<!--      <nav id="gNav">
-      <span class="logo">MOTK</span>
-      <a href="<?= scriptUrl ?>?page=Dashboard">Dashboard</a>
-    </nav>
-    <nav id="pNav">
-      <a href="<?= scriptUrl ?>?page=Shots">SHOTS</a>
-      <a href="<?= scriptUrl ?>?page=Assets">ASSETS</a>
-      <a href="<?= scriptUrl ?>?page=Tasks">TASKS</a>
-      <a href="<?= scriptUrl ?>?page=ProjectMembers">PM</a>
-      <a href="<?= scriptUrl ?>?page=Users">USERS</a>
-    </nav>
--->
-  　<?!= include('BarGnavi'); ?>
-  　<?!= include('BarPnavi'); ?>
+  <body data-nav-page="<?= page ?>">
+<!-- ===== 1.gnav ===== -->
+<nav id="gNav" class="gnavi" aria-label="Global Navigation">
+  <span class="logo">MOTK</span>
+  <a class="mi" data-page="Dashboard" href="<?= scriptUrl ?>?page=Dashboard">Dashboard</a>
+  <a class="mi" data-page="Settings" href="<?= scriptUrl ?>?page=Settings">Settings</a>
+  <span class="spacer"></span>
+  <a class="mi debug" data-page="DebugPanelPage" href="<?= scriptUrl ?>?page=DebugPanelPage" target="_blank" rel="noopener" title="Debug Panel">&#x1F41E; Debug</a>
+</nav>
+<!-- ===== 1.End ===== -->
+<nav id="pNav" aria-label="Entity Navigation">
+  <a data-page="Shots" href="<?= scriptUrl ?>?page=Shots">Shots</a>
+  <a data-page="Assets" href="<?= scriptUrl ?>?page=Assets">Assets</a>
+  <a data-page="Tasks" href="<?= scriptUrl ?>?page=Tasks">Tasks</a>
+  <a data-page="ProjectMembers" href="<?= scriptUrl ?>?page=ProjectMembers">Members</a>
+  <a data-page="Users" href="<?= scriptUrl ?>?page=Users">Users</a>
+</nav>
     <?!= include('Scripts'); ?>
 
-    <!-- ===== Main ===== -->
     <main id="main-content">
       <div class="loader">Loading...</div>
     </main>
 
-    <!-- ===== Embedded Params & Data  (viewer.js より前に置く) ===== -->
+    <!-- 笘・繝・Φ繝励Ξ蛛ｴ縺ｧ繝・・繝悶Ν繝・・繧ｿ繧貞沂繧∬ｾｼ繧・嘛iewer.html 縺・boot 譎ゅ↓蜿ら・縺励∪縺・-->
     <script>
-      const PAGE       = '<?= page ?>';
-      window.SCRIPT_URL = '<?= scriptUrl ?>';
+      const PAGE = "<?= page ?>";
+      window.SCRIPT_URL = "<?= scriptUrl ?>";
 
-      const raw        = JSON.parse('<?= dataJson ?>');
+      // DataHub/繧ｷ繝ｼ繝医°繧峨し繝ｼ繝仙・縺ｧ菴懊▲縺・JSON 繧貞ｾｩ蜈・
+      // raw[0]=id蛻悠Ds, raw[1]=繝倥ャ繝, raw[2..]=繝・・繧ｿ
+      const raw = JSON.parse(<?= dataJson ?>);
+      const ids      = raw.length > 0 ? raw[0] : [];
+      const header   = raw.length > 1 ? raw[1] : [];
+      const dataRows = raw.length > 2 ? raw.slice(2) : [];
 
-      /* ▼▼ 変更ここから ▼▼ */
-      const ids        = raw[0];          // fi_0001, fi_0002, …
-      const header     = raw[1];          // Shot ID, Shot Name, …
-      const dataRows   = raw.slice(2);    // 実データ
-      /* ▲▲ 変更ここまで ▲▲ */
-
+      // viewer.html 縺瑚ｪｭ繧繝代ャ繧ｱ繝ｼ繧ｸ
       const ALL_DATA = {
-        pageType : 'table',
+        pageType: "table",
         sheetName: PAGE,
-        ids      : ids,
-        header   : header,
-        total    : dataRows.length,
-        rows     : dataRows,
+        ids: ids,
+        header: header,
+        total: dataRows.length,
+        rows: dataRows,
         fieldMeta: [],
-        idMaps   : {},
+        idMaps: {},
       };
     </script>
 
-
-    <!-- ===== Core Bundle (列幅リサイズ等) ===== -->
+    <!-- 譌ｧ譚･縺ｮ繝舌Φ繝峨Ν蜻ｼ縺ｳ蜃ｺ縺怜ｯｾ遲厄ｼ哽S縺ｨ縺励※遨ｺ蠢懃ｭ斐ｒ霑斐☆繧医≧ doGet 繧定ｪｿ謨ｴ貂医∩ -->
     <script src="<?= scriptUrl ?>?action=app-bundle"></script>
 
-    <!-- ===== viewer.js (initializeTableState / boot) ===== -->
+    <!-- 繝・・繝悶Ν謠冗判譛ｬ菴薙ょ・驛ｨ縺ｧ DOMContentLoaded 竊・boot() 繧剃ｸ蠎ｦ縺縺醍匳骭ｲ -->
     <?!= include('viewer'); ?>
+
+    <!-- 繝ｭ繝ｼ繝繝ｼ豸医＠縺縺代Ｃoot() 縺ｯ蜻ｼ縺ｰ縺ｪ縺・ｼ・iewer蛛ｴ縺瑚ｵｷ蜍輔☆繧具ｼ・-->
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        const loader = document.querySelector('.loader');
+        if (loader) loader.style.display = 'none';
+      });
+    </script>
   </body>
 </html>
+

@@ -1,21 +1,260 @@
+<!-- ===== 1.Router ===== -->
 <script>
-/* ------------------------------------------------------------------
-   Nav href を SCRIPT_URL で補完（index / Detail 共通）
------------------------------------------------------------------- */
-(function () {
-  /* SCRIPT_URL は index.html で window 直書き、Detail はここで初期化 */
-  window.SCRIPT_URL = window.SCRIPT_URL || '<?= scriptUrl ?>';
+(function(){
+  "use strict";
+<!-- ===== 1.End ===== -->
 
-  function wireNav() {
-    if (!window.SCRIPT_URL) return;              // まだ空なら後で再試行
-    document.querySelectorAll('#gNav a[data-page], #pNav a[data-page]')
-      .forEach(a => a.href = `${window.SCRIPT_URL}?page=${a.dataset.page}`);
+  /* ===== 2.URL builders ===== */
+  function baseUrl(){
+    return (window.scriptUrl || window.SCRIPT_URL || (location.origin + location.pathname));
+  }
+  function pageUrl(pg, withTs){
+    var u = new URL(baseUrl(), baseUrl());
+    u.searchParams.set("page", pg || "DetailShot");
+    if(withTs){ u.searchParams.set("ts", Date.now().toString(36)); }
+    return u.toString();
+  }
+  function buildEntityUrl(ent,id){
+    var u = new URL(baseUrl(), baseUrl());
+    u.searchParams.set("page", "DetailShot");
+    u.searchParams.set("entity", ent||"shot");
+    u.searchParams.set("id", id||"");
+    u.searchParams.set("ts", Date.now().toString(36));
+    return u.toString();
+  }
+  window.__Router__ = { baseUrl, pageUrl, buildEntityUrl };
+
+/* ===== 3.GNAVI href===== */
+function pumpOnce(scope){
+  if(!scope) return;
+  scope.querySelectorAll("a[href],a[data-page]").forEach(function(a){
+    try{
+      var pg = a.dataset.page
+        || (a.href.match(/[?&]page=([^&]+)/)||[])[1]
+        || (a.textContent||"").trim();
+      if(pg) a.href = pageUrl(pg, false);
+            if(a.hasAttribute("data-target")) a.target = a.getAttribute("data-target");
+      else if(!a.hasAttribute("target")) a.target = "_top";
+      if(!a.hasAttribute("rel")) a.rel = "noopener";
+    }catch(_){}
+  });
+}
+
+  /* ===== 4.Entity ===== */
+  document.addEventListener("click", function(ev){
+    var a = ev.target && ev.target.closest ? ev.target.closest("a[href]") : null;
+    if(!a) return;
+    try{
+      var u = new URL(a.href, location.origin);
+      var ent = u.searchParams.get("entity");
+      var id  = u.searchParams.get("id");
+      if(!(ent && id)) return;
+      ev.preventDefault();
+      var href = buildEntityUrl(ent, id);
+      try{ window.top.location.assign(href); }catch(_){ window.top.location.href = href; }
+    }catch(_){}
+  }, {capture:true});
+
+  /* ===== 5.Init ===== */
+  document.addEventListener("DOMContentLoaded", function(){
+    pumpOnce(document);           
+  }, {once:true});
+
+})();
+</script>
+
+
+<script>
+(async function bootstrap() {
+  // 1. Navigation highlighting and href normalisation.
+    (function manageNavigation() {
+    var scriptUrl = "<?= scriptUrl ?>";
+    if (!scriptUrl) {
+      console.error('SCRIPT_URL not found in template.');
+      return;
+    }
+
+    function syncNavHeights(){
+      var docEl = document.documentElement;
+      if (!docEl) return;
+      var g = document.getElementById('gNav');
+      var p = document.getElementById('pNav');
+      if (g && g.getBoundingClientRect) {
+        var gHeight = String(Math.round(g.getBoundingClientRect().height)) + 'px';
+        docEl.style.setProperty('--header-height', gHeight);
+        docEl.style.setProperty('--gnav-height', gHeight);
+      }
+      if (p && p.getBoundingClientRect) {
+        var pHeight = String(Math.round(p.getBoundingClientRect().height)) + 'px';
+        docEl.style.setProperty('--pnav-height', pHeight);
+      }
+    }
+
+    var entityToPage = {
+      shot: 'Shots',
+      asset: 'Assets',
+      task: 'Tasks',
+      member: 'ProjectMembers',
+      user: 'Users'
+    };
+
+    function updateNavLinks() {
+      var anchors = document.querySelectorAll('#gNav a, #pNav a');
+      for (var i = 0; i < anchors.length; i++) {
+        var anchor = anchors[i];
+        var match = anchor.href && anchor.href.match(/[?&]page=([^&]+)/);
+        var pageAttr = anchor.getAttribute('data-page');
+        var page = pageAttr || (match ? match[1] : '');
+        anchor.href = page ? scriptUrl + '?page=' + page : scriptUrl;
+      }
+    }
+
+    function resolveCurrentPage() {
+      var body = document.body;
+      var dataPage = body && body.dataset ? body.dataset.navPage : '';
+      if (dataPage) return dataPage;
+
+      var searchParams = new URLSearchParams(window.location.search || '');
+      var qsPage = searchParams.get('page');
+      if (qsPage) return qsPage;
+
+      if (window.PAGE) return String(window.PAGE);
+
+      var entity = body && body.dataset ? body.dataset.navEntity : '';
+      if (!entity && window.STATE && window.STATE.entity) {
+        entity = window.STATE.entity;
+      }
+      var key = String(entity || '').toLowerCase();
+      return entityToPage[key] || '';
+    }
+
+    function highlightActiveNav() {
+      var current = resolveCurrentPage().toLowerCase();
+      var anchors = document.querySelectorAll('#pNav a');
+      for (var i = 0; i < anchors.length; i++) {
+        var anchor = anchors[i];
+        var target = (anchor.getAttribute('data-page') || '').toLowerCase();
+        var isActive = current && target === current;
+        if (isActive) {
+          anchor.classList.add('active');
+          anchor.setAttribute('aria-current', 'page');
+        } else {
+          anchor.classList.remove('active');
+          anchor.removeAttribute('aria-current');
+        }
+      }
+    }
+
+    function initNav() {
+      updateNavLinks();
+      highlightActiveNav();
+      syncNavHeights();
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function(){
+        initNav();
+        syncNavHeights();
+      }, { once: true });
+    } else {
+      initNav();
+      syncNavHeights();
+    }
+    window.addEventListener('resize', syncNavHeights);
+  })();
+
+  // 2. Detail page helpers.
+  var detailBar = document.getElementById('detailBar');
+  if (detailBar) {
+    var dataObj = window.data || {};
+    var recordKeys = Object.keys(dataObj);
+    var recordId = recordKeys.length ? dataObj[recordKeys[0]] : '';
+    var shotCodeEl = document.getElementById('shotCode');
+    var codeLabel = dataObj.fi_0002 || dataObj.fi_0016 || dataObj.fi_0026 || '';
+    if (shotCodeEl && codeLabel) {
+      shotCodeEl.textContent = codeLabel;
+    }
+
+    initPathMenu(dataObj);
+    initLayoutSelector(dataObj);
+    initModeToggle();
   }
 
-  /* 1) DOM 完成時 */
-  document.addEventListener('DOMContentLoaded', wireNav);
-  /* 2) BarGnavi / BarPnavi を include 後に監視しても安全 */
-  new MutationObserver(wireNav)
-    .observe(document.body, { childList:true, subtree:true });
- })();
- </script>
+  function gas(cmd) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return new Promise(function (resolve, reject) {
+      if (typeof google === 'undefined' || !google.script || !google.script.run) {
+        reject(new Error('google.script.run not available'));
+        return;
+      }
+      google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[cmd].apply(null, args);
+    });
+  }
+
+  function escapeHTML(str) {
+    if (typeof str !== 'string') return str;
+    return str.replace(/[&<>\'"]/g, function (tag) {
+      switch (tag) {
+        case '&': return '&amp;';
+        case '<': return '&lt;';
+        case '>': return '&gt;';
+        case '"': return '&quot;';
+        default: return '&#39;';
+      }
+    });
+  }
+
+  var prevBtn = document.getElementById('prevBtn');
+  if (prevBtn) {
+    prevBtn.addEventListener('click', function () {
+      nav(-1);
+    });
+  }
+  var nextBtn = document.getElementById('nextBtn');
+  if (nextBtn) {
+    nextBtn.addEventListener('click', function () {
+      nav(1);
+    });
+  }
+
+  async function nav(offset) {
+    try {
+      var scriptUrl = window.SCRIPT_URL || "<?= scriptUrl ?>";
+      var rows = await gas('listRows', 'Shots');
+      var dataObj = window.data || {};
+      var recordId = dataObj.fi_0001;
+      if (!recordId) return;
+      var idx = -1;
+      for (var i = 0; i < rows.length; i++) {
+        if (String(rows[i][0]) === String(recordId)) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx > -1 && rows[idx + offset]) {
+        location.href = scriptUrl + '?entity=shot&id=' + rows[idx + offset][0];
+      }
+    } catch (err) {
+      console.error('Navigation failed:', err);
+    }
+  }
+
+  // 3. Fallback detail view rendering.
+  var listBox = document.getElementById('fallbackList');
+  if (listBox && window.data) {
+    listBox.classList.remove('hidden');
+    var parts = [];
+    var keys = Object.keys(window.data);
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      parts.push('<div style="margin:4px 0;"><b>' + key + '</b>: ' + escapeHTML(String(window.data[key])) + '</div>');
+    }
+    listBox.innerHTML = parts.join('');
+    var gridNode = document.getElementById('grid');
+    if (gridNode) {
+      gridNode.classList.add('hidden');
+    }
+  }
+})();
+</script>
+
