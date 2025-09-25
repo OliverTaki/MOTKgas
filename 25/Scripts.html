@@ -1,0 +1,102 @@
+<script>
+(async () => {
+
+/* ───────── 1. gNav / pNav ─ href 補正 (★修正) ───────── */
+(function fixNav() {
+  // ★修正点: テンプレートから直接scriptUrlを取得する
+  const scriptUrl = "<?= scriptUrl ?>"; 
+  if (!scriptUrl) {
+    console.error("SCRIPT_URL not found in template.");
+    return;
+  }
+
+  function apply() {
+    document.querySelectorAll('#gNav a, #pNav a').forEach(a => {
+      const page = a.dataset.page || (a.href.match(/[?&]page=([^&]+)/)?.[1]) || '';
+      if(page) {
+        a.href = `${scriptUrl}?page=${page}`;
+      } else {
+        a.href = scriptUrl;
+      }
+    });
+  }
+  
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', apply);
+  } else {
+    apply();
+  }
+  // 動的に要素が追加された場合にも対応
+  new MutationObserver(apply).observe(document.body, { childList: true, subtree: true });
+})();
+
+
+/* ───────── 2. Detail ページ判定 ───────── */
+const detailBar = document.getElementById('detailBar');
+if (detailBar) {
+  /* ─── 2-1. DataObject / RecordId を取得 ─── */
+  const dataObj = window.data;
+  const recordId = dataObj[Object.keys(dataObj)[0]];
+
+  /* ─── 2-2. コード表示 ─── */
+  const shotCodeEl = document.getElementById('shotCode');
+  const codeLabel = dataObj.fi_0002 || dataObj.fi_0016 || dataObj.fi_0026 || '';
+  if (shotCodeEl && codeLabel) shotCodeEl.textContent = codeLabel;
+
+
+
+  /* ─── 2-4. 各種UI初期化 ─── */
+  initPathMenu(dataObj);
+  initLayoutSelector(dataObj);
+  initModeToggle();
+}
+
+/* –― gas() ヘルパー（グローバルにも定義）–― */
+const gas = (cmd, ...args) => new Promise((res, rej) => {
+  google.script.run.withSuccessHandler(res).withFailureHandler(rej)[cmd](...args);
+});
+
+function escapeHTML(str) {
+  if (typeof str !== 'string') return str;
+  return str.replace(/[&<>'"]/g, tag => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;',
+      "'": '&#39;', '"': '&quot;'
+  }[tag]));
+}
+
+/* ───────── 3-5. UI 初期化関数 ───────── */
+function initPathMenu(data) { /* ... 既存ロジックのまま ... */ }
+function initLayoutSelector(data) { /* ... 既存ロジックのまま ... */ }
+function initModeToggle() { /* ... 既存ロジックのまま ... */ }
+
+
+/* –― Prev / Next –― */
+document.getElementById('prevBtn')?.addEventListener('click', ()=>nav(-1));
+document.getElementById('nextBtn')?.addEventListener('click', ()=>nav(1));
+async function nav(offset){
+  try{
+    // ★修正点: window.SCRIPT_URL を使う
+    const scriptUrl = window.SCRIPT_URL || "<?= scriptUrl ?>";
+    const rows = await gas('listRows','Shots');
+    const recordId = window.data?.fi_0001; // detailページのIDを取得
+    if (!recordId) return;
+    const idx  = rows.findIndex(r => String(r[0]) === String(recordId));
+    if (idx > -1 && rows[idx + offset])
+      location.href = `${scriptUrl}?entity=shot&id=${rows[idx + offset][0]}`;
+  }catch(e){
+    console.error("Navigation failed:", e);
+  }
+}
+
+/* ───────── 6. Fallback カード描画 ───────── */
+const listBox = document.getElementById('fallbackList');
+if (listBox && window.data) {
+  listBox.classList.remove('hidden');
+  listBox.innerHTML = Object.entries(window.data).map(
+    ([k,v]) => `<div style="margin:4px 0;"><b>${k}</b>: ${escapeHTML(String(v))}</div>`
+  ).join('');
+  document.getElementById('grid')?.classList.add('hidden');
+}
+
+})();
+</script>

@@ -1,0 +1,67 @@
+<!-- ===== 1.Router ===== -->
+<script>
+(function(){
+  "use strict";
+<!-- ===== 1.End ===== -->
+
+  /* ===== 2.URL builders ===== */
+  function baseUrl(){
+    return (window.scriptUrl || window.SCRIPT_URL || (location.origin + location.pathname));
+  }
+  function pageUrl(pg, withTs){
+    var u = new URL(baseUrl(), baseUrl());
+    u.searchParams.set("page", pg || "DetailShot");
+    if(withTs){ u.searchParams.set("ts", Date.now().toString(36)); }
+    return u.toString();
+  }
+  function buildEntityUrl(ent,id){
+    // 一覧URLからでも確実に詳細へ
+    var u = new URL(baseUrl(), baseUrl());
+    u.searchParams.set("page", "DetailShot");
+    u.searchParams.set("entity", ent||"shot");
+    u.searchParams.set("id", id||"");
+    u.searchParams.set("ts", Date.now().toString(36));
+    return u.toString();
+  }
+  window.__Router__ = { baseUrl, pageUrl, buildEntityUrl };
+
+/* ===== 3.GNAVI href補正（1回だけ） ===== */
+function pumpOnce(scope){
+  if(!scope) return;
+  scope.querySelectorAll("a[href],a[data-page]").forEach(function(a){
+    try{
+      var pg = a.dataset.page
+        || (a.href.match(/[?&]page=([^&]+)/)||[])[1]
+        || (a.textContent||"").trim();
+      if(pg) a.href = pageUrl(pg, false);
+      // 既存 target を尊重。data-target があればそれを適用。未指定のみ _top。
+      if(a.hasAttribute("data-target")) a.target = a.getAttribute("data-target");
+      else if(!a.hasAttribute("target")) a.target = "_top";
+      if(!a.hasAttribute("rel")) a.rel = "noopener";
+    }catch(_){}
+  });
+}
+
+  /* ===== 4.Entityリンクは常にフル遷移 ===== */
+  document.addEventListener("click", function(ev){
+    var a = ev.target && ev.target.closest ? ev.target.closest("a[href]") : null;
+    if(!a) return;
+    try{
+      var u = new URL(a.href, location.origin);
+      var ent = u.searchParams.get("entity");
+      var id  = u.searchParams.get("id");
+      if(!(ent && id)) return;
+      ev.preventDefault();
+      var href = buildEntityUrl(ent, id);
+      try{ window.top.location.assign(href); }catch(_){ window.top.location.href = href; }
+    }catch(_){}
+  }, {capture:true});
+
+  /* ===== 5.Init ===== */
+  document.addEventListener("DOMContentLoaded", function(){
+    pumpOnce(document);            // ← これでGNAVIクリック時にURLが変わる
+  }, {once:true});
+
+})();
+</script>
+

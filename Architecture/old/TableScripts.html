@@ -1,0 +1,56 @@
+<!-- TableScripts.html -->
+<script>
+(function(){
+  // index.html で定義済み
+  //   const header = JSON.parse('<?= headerJson ?>');
+  //   const ALL_DATA = <?= dataJson ?>;
+  if (!Array.isArray(header) || header.length === 0) {
+    document.getElementById('tableContainer').textContent = 'ヘッダーがありません';
+    return;
+  }
+  const rows = Array.isArray(ALL_DATA) ? ALL_DATA : [];
+  const container = document.getElementById('tableContainer');
+
+  // 空ヘッダー列は除外
+  const validIdx = header
+    .map((h,i)=> h!=null && String(h).trim()!=='' ? i : -1)
+    .filter(i=>i>=0);
+
+  // テーブル要素作成
+  const table = document.createElement('table');
+  table.style.borderCollapse = 'collapse';
+  table.style.width = '100%';
+
+  // ヘッダー行
+  const thead = document.createElement('thead');
+  const trH = document.createElement('tr');
+  validIdx.forEach(i=>{
+    const th = document.createElement('th');
+    th.textContent = header[i];
+    th.style.border = '1px solid #ccc';
+    th.style.padding = '4px';
+    trH.appendChild(th);
+  });
+  thead.appendChild(trH);
+  table.appendChild(thead);
+
+  // データ行
+  const tbody = document.createElement('tbody');
+  rows.forEach(row=>{
+    const tr = document.createElement('tr');
+    validIdx.forEach(i=>{
+      const td = document.createElement('td');
+      td.textContent = row[i] != null ? row[i] : '';
+      td.style.border = '1px solid #eee';
+      td.style.padding = '4px';
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+
+  // 表示
+  container.innerHTML = '';
+  container.appendChild(table);
+})();
+</script>

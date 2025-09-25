@@ -1,0 +1,117 @@
+<style>
+  /* ---- Theme: Dark ------------------------------------------------------ */
+  :root {
+    --bg-1: #0f1115;
+    --bg-2: #16181d;
+    --fg-1: #e5e7eb;
+    --fg-2: #9ca3af;
+    --accent: #3b82f6;
+    --border: #2b2f36;
+    font-family:
+      -apple-system,
+      BlinkMacSystemFont,
+      Segoe UI,
+      Roboto,
+      Helvetica,
+      Arial,
+      sans-serif;
+  }
+  html,
+  body {
+    margin: 0;
+    background: var(--bg-1);
+    color: var(--fg-1);
+  }
+  a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+
+  /* ---- Layout ----------------------------------------------------------- */
+  header.banner {
+    background: var(--bg-2);
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  header.banner h1 {
+    margin: 0;
+    font-size: 20px;
+  }
+  nav.gnavi {
+    display: flex;
+    gap: 12px;
+    padding: 8px 24px;
+    background: var(--bg-2);
+    border-bottom: 1px solid var(--border);
+  }
+  nav.gnavi a {
+    color: var(--fg-1);
+    padding: 4px 8px;
+    border-radius: 4px;
+  }
+  nav.gnavi a.active {
+    background: var(--accent);
+    color: #fff;
+  }
+  nav.tabs {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+  }
+  nav.tabs button {
+    flex: 1;
+    background: var(--bg-2);
+    color: var(--fg-1);
+    border: none;
+    padding: 10px;
+    font-weight: bold;
+    border-top: 1px solid var(--border);
+  }
+  nav.tabs button.active {
+    background: var(--accent);
+    color: #fff;
+  }
+  main {
+    padding: 16px 24px 64px;
+  }
+  .row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .row label {
+    width: 160px;
+    color: var(--fg-2);
+  }
+  .row span {
+    flex: 1;
+    word-break: break-all;
+  }
+  .hidden {
+    display: none;
+  }
+
+  /* ---- Table page ------------------------------------------------------- */
+  table.data {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  table.data thead {
+    background: var(--bg-2);
+  }
+  table.data th,
+  table.data td {
+    border: 1px solid var(--border);
+    padding: 6px;
+    font-size: 13px;
+  }
+  table.data tbody tr:hover {
+    background: #1f2937;
+    cursor: pointer;
+  }
+</style>

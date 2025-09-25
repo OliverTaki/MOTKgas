@@ -1,0 +1,27 @@
+  <nav id="pNav">
+    <?
+      // --- 現在地を特定するロジック ---
+      let currentPageName = '';
+      if (entity) {
+        if (entity === 'shot') {
+          currentPageName = 'Shots';
+        } else if (entity === 'asset') {
+          currentPageName = 'Assets';
+        } else if (entity === 'task') {
+          currentPageName = 'Tasks';
+        } else if (entity === 'member') {
+          currentPageName = 'ProjectMembers';
+        } else if (entity === 'user') {
+          currentPageName = 'Users';
+        }
+      } else {
+        currentPageName = page;
+      }
+    ?>
+
+    <a href="<?= scriptUrl ?>?page=Shots" class="<?= currentPageName === 'Shots' ? 'active' : '' ?>">Shots</a>
+    <a href="<?= scriptUrl ?>?page=Assets" class="<?= currentPageName === 'Assets' ? 'active' : '' ?>">Assets</a>
+    <a href="<?= scriptUrl ?>?page=Tasks" class="<?= currentPageName === 'Tasks' ? 'active' : '' ?>">Tasks</a>
+    <a href="<?= scriptUrl ?>?page=ProjectMembers" class="<?= currentPageName === 'ProjectMembers' ? 'active' : '' ?>">Members</a>
+    <a href="<?= scriptUrl ?>?page=Users" class="<?= currentPageName === 'Users' ? 'active' : '' ?>">Users</a>
+  </nav>

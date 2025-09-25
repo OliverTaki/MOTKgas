@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+  <head>
+    <base target="_top" />
+    <meta charset="utf-8" />
+    <title>MOTKsheets G-Viewer</title>
+    <?!= include('CoreStyles'); ?>
+  </head>
+  <body>
+    <?!= include('BarGnavi'); ?>  
+    <?!= include('BarPnavi'); ?>  
+    <?!= include('Scripts'); ?>
+
+    <main id="main-content">
+      <div class="loader">Loading...</div>
+    </main>
+
+    <!-- ★ テンプレ側でテーブルデータを埋め込む：viewer.html が boot 時に参照します -->
+    <script>
+      const PAGE = "<?= page ?>";
+      window.SCRIPT_URL = "<?= scriptUrl ?>";
+
+      // DataHub/シートからサーバ側で作った JSON を復元
+      // raw[0]=id列IDs, raw[1]=ヘッダ, raw[2..]=データ
+      const raw = JSON.parse(<?= dataJson ?>);
+      const ids      = raw.length > 0 ? raw[0] : [];
+      const header   = raw.length > 1 ? raw[1] : [];
+      const dataRows = raw.length > 2 ? raw.slice(2) : [];
+
+      // viewer.html が読むパッケージ
+      const ALL_DATA = {
+        pageType: "table",
+        sheetName: PAGE,
+        ids: ids,
+        header: header,
+        total: dataRows.length,
+        rows: dataRows,
+        fieldMeta: [],
+        idMaps: {},
+      };
+    </script>
+
+    <!-- 旧来のバンドル呼び出し対策：JSとして空応答を返すよう doGet を調整済み -->
+    <script src="<?= scriptUrl ?>?action=app-bundle"></script>
+
+    <!-- テーブル描画本体。内部で DOMContentLoaded → boot() を一度だけ登録 -->
+    <?!= include('viewer'); ?>
+
+    <!-- ローダー消しだけ。boot() は呼ばない（viewer側が起動する） -->
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        const loader = document.querySelector('.loader');
+        if (loader) loader.style.display = 'none';
+      });
+    </script>
+  </body>
+</html>
