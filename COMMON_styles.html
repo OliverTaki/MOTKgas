@@ -99,22 +99,16 @@
 }
 
 #table-view-container {
-  position: relative;
+  position: fixed;
+  top: var(--total-header-height);
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
   background: var(--surface);
-
-  /* ↓ 正しく設定されているか確認 */
-  margin-top: calc(var(--header-height) + var(--pnav-height));
-
-  /* ↓ この行、または類似の padding-top 指定が完全に削除されていることを確認 */
-  /* padding-top: var(--nav-offset);  <-- このような指定を削除 */
-
   font: 13px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-  overflow: auto;
-
-  /* ← 明るめ＋detail同等の配色（Firefox） */
+  overflow: hidden;
   scrollbar-color:#cbd5e1 #0f1420;
   scrollbar-width:thin;
 }
