@@ -154,11 +154,10 @@
     var checked = (v===true) || (typeof v==="number" && v!==0) ||
                   (/^(true|yes|on|1)$/i.test(String(v||"")));
     input.checked = !!checked;
-    input.disabled = !o.editable; // Read-only by default
+    input.disabled = !o.editable;
     return input;
   }
   function R_select(o){
-    // Display only: cannot edit without option list
     return document.createTextNode(o.val==null?"":String(o.val));
   }
   function R_json(o){
@@ -188,7 +187,7 @@
     return box;
   }
   function R_originals(o){
-    var a = chip("", "Open Originals", true);
+    var a = chip("", "Loading Originals...", true);
     a.setAttribute("data-pending","1");
     var ctx = {
       entity: o.entity || "shot",
@@ -196,8 +195,9 @@
       fid: o.fid, val: o.val, row: o.row || {}
     };
     resolveOriginalsUrl(ctx).then(function(url){
-      if(url){ a.href=url; a.removeAttribute("data-pending"); }
-      else { a.textContent="(Originals not found)"; a.removeAttribute("href"); a.removeAttribute("data-pending"); }
+      if(url){ a.href=url; a.textContent="Open Originals"; }
+      else { a.textContent="(Originals not found)"; a.removeAttribute("href"); }
+      a.removeAttribute("data-pending");
     }).catch(function(){
       a.textContent="(Originals not found)";
       a.removeAttribute("href"); a.removeAttribute("data-pending");
@@ -205,8 +205,6 @@
     return a;
   }
   function R_file_list(o){
-    // Accepts JSON array or comma-separated string.
-    // item: {id, url, name, kind="file|folder"} | "https://..." | "DRIVE_ID"
     var items=[];
     try{
       if(typeof o.val==="string" && /^\s*\[/.test(o.val)) items = JSON.parse(o.val)||[];
@@ -233,7 +231,6 @@
     return box;
   }
   function R_thumbnails(o){
-    // Thumbnail URLs/IDs to small <img> or <a> nodes
     var list = parseList(o.val);
     var box=el("div","thumbs");
     list.forEach(function(tok){
@@ -245,7 +242,6 @@
     return box;
   }
   function R_versions(o){
-    // Render version tags as chips
     var list = parseList(o.val);
     var box=el("span");
     list.forEach(function(v,i){

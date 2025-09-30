@@ -61,12 +61,62 @@ function getIdNameMap_(sheetName) {
   return map;
 }
 
-/** ダミー：環境依存の originals フォルダID を取得する */
+/** 環境依存の originals フォルダID を取得する */
 function lookupOriginalsFolderId(entity, id) {
-  // TODO: 実装に合わせる（DB/Sheet/命名規則 など）
-  // 未実装のままでもクライアント側で値中のDrive ID抽出フォールバックが効く
-  return "";
+  // 簡易実装: ProjectMeta シートから originals_root_url を基に、再帰検索でentity/id 対応フォルダIDを探す
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var metaSh = ss.getSheetByName('project_meta');
+    if (!metaSh) return "";
+    
+    var metaData = metaSh.getRange(1,1,2,metaSh.getLastColumn()).getValues();
+    var meta = {};
+    metaData[0].forEach(function(k,i){ meta[String(k).toLowerCase()] = metaData[1][i]; });
+    
+    var rootUrl = meta['originals_root_url'] || meta['proxies_root_url'] || "";
+    if (!rootUrl) return "";
+    
+    var rootId = _sv_extractFolderId_(rootUrl); // 既存ヘルパ流用（_sv_extractFolderId_）
+    if (!rootId) return "";
+    
+    var rootFolder = DriveApp.getFolderById(rootId);
+    // 再帰検索: 名前がidを含むフォルダを探す
+    var foundId = _recursiveSearchFolders(rootFolder, id);
+    if (foundId) return foundId;
+    
+    // フォールバック: 直下ファイル検索（proxy系対応）
+    var files = rootFolder.getFilesByName(id + '_proxy');
+    if (files.hasNext()) {
+      return files.next().getParents().next().getId(); // 親フォルダID
+    }
+  } catch (e) {
+    // ログ出力（本番では console.log 相当）
+    console.log('lookupOriginalsFolderId error: ' + e.message);
+  }
+  return ""; // 未発見時は空文字（クライアントフォールバック有効）
 }
+
+/** 内部ヘルパー: フォルダ再帰検索（名前.indexOf(id) > -1 or exact matchでヒット） */
+function _recursiveSearchFolders(folder, id) {
+  try {
+    var folders = folder.getFolders();
+    while (folders.hasNext()) {
+      var subFolder = folders.next();
+      var name = subFolder.getName().toLowerCase();
+      if (name === id.toLowerCase() || name.indexOf(id.toLowerCase()) !== -1) {
+        return subFolder.getId();
+      }
+      // 再帰
+      var subResult = _recursiveSearchFolders(subFolder, id);
+      if (subResult) return subResult;
+    }
+  } catch (e) {
+    console.log('Recursive search error: ' + e.message);
+  }
+  return null;
+}
+/* —— ヘルパ（実装例）—— **/
+
 
 /** ShotviewAPI.gs — JSONセーフ返却 + フォルダ全量インデックス対応
  * - 単一: sv_listEntityProxies({id, projectMeta}) → 常に配列（0件でも []）

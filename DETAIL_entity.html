@@ -198,6 +198,52 @@ function toPreview(url){
   return m ? ("https://drive.google.com/file/d/"+m[1]+"/preview") : "";
 }
 
+// Inside the main script, add this after the utils section:
+FieldsAPI.renderEntityLink = function(arg) {
+  if (arg.type === 'originals' && arg.url) {
+    var link = document.createElement('a');
+    link.href = arg.url;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = 'Open Originals';
+    link.className = 'originals-link';
+    // For loading state:
+    var loadingText = document.createTextNode('Loading Originals...');
+    link.appendChild(loadingText);
+    setTimeout(() => {
+      if (link.firstChild.textContent === 'Loading Originals...') {
+        link.firstChild.textContent = 'Open Originals';
+      }
+    }, 1000); // Adjust timeout as needed
+    return link;
+  }
+  return FieldsAPI.renderEntityLink(arg); // Fallback to original
+};
+
+// Override for Originals links (new tab for 403 avoidance + loading state)
+if (FieldsAPI && FieldsAPI.renderEntityLink) {
+  var originalRender = FieldsAPI.renderEntityLink;
+  FieldsAPI.renderEntityLink = function(arg) {
+    if (arg.type === 'originals' && arg.url) {
+      var link = document.createElement('a');
+      link.href = arg.url;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = 'Loading Originals...';
+      link.className = 'originals-link';
+      // Switch to 'Open Originals' after 1s (or adjust)
+      setTimeout(() => {
+        if (link.textContent === 'Loading Originals...') {
+          link.textContent = 'Open Originals';
+        }
+      }, 1000);
+      return link;
+    }
+    return originalRender(arg); // Fallback to original for other links
+  };
+}
+
+
 /* ===== 13.2 Router ===== */
 var Router = (window.__Router__ || {
   baseUrl: function(){ return (window.scriptUrl || window.SCRIPT_URL || (location.origin + location.pathname)); },
@@ -842,6 +888,22 @@ function linkifyLinksStrict(scope){
       v.textContent=""; v.appendChild(a);
     }
   });
+  // Originalsリンクnew tab + loading state (Debug Panel準拠)
+  var originalsCells = root.querySelectorAll('td[data-type="originals"]');
+  originalsCells.forEach(function(cell) {
+    var link = cell.querySelector('a');
+    if (link && link.href && !link.target) {
+      link.target = '_blank';
+      link.rel = 'noopener';
+      var originalText = link.textContent;
+      link.textContent = 'Loading Originals...';
+      setTimeout(() => {
+        if (link.textContent === 'Loading Originals...') {
+          link.textContent = originalText || 'Open Originals';
+        }
+      }, 1000);
+    }
+  });
 }
 function observeAndLinkify(){
   var grid=document.getElementById('grid'); if(!grid) return;
@@ -853,6 +915,8 @@ function observeAndLinkify(){
   setTimeout(function(){ linkifyLinksStrict(grid); }, 0);
   setTimeout(function(){ linkifyLinksStrict(grid); }, 250);
 }
+/* ===== 13.16 Linkify (strict) End ===== */
+
 
 /* ===== 13.17 Init / Error ===== */
 async function init(){
@@ -987,9 +1051,6 @@ document.addEventListener("DOMContentLoaded", function(){
 </div>
 <!-- ===== 40. End ===== -->
 
-
-
-
 <!-- ===== 41.saveas-logic (JS) ===== -->
 <script>
 (function(){
@@ -1067,6 +1128,3 @@ document.addEventListener("DOMContentLoaded", function(){
 
 </body>
 </html>
-
-
-

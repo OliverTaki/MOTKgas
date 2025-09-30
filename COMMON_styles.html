@@ -1,3 +1,23 @@
+<!-- ===== COMMON_styles.html ===== -->
+<style>
+  .field-cell { display: inline-block; min-width: 100px; }
+  .originals-link { color: #007bff; text-decoration: none; font-weight: bold; }
+  .originals-link:hover { text-decoration: underline; }
+  .no-link { color: #6c757d; font-style: italic; }
+  .entity-link { color: #28a745; text-decoration: none; }
+  .entity-link:hover { text-decoration: underline; }
+  .card { border: 1px solid #ddd; padding: 10px; margin: 10px 0; }
+  .card-fields .field { margin: 5px 0; }
+  .input { border: 1px solid #ccc; padding: 2px; }
+  .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
+  .modal-content { background: white; margin: 15% auto; padding: 20px; width: 80%; max-width: 500px; }
+  table td { vertical-align: top; padding: 5px; }
+  /* Gridstack/Card/Pagination: Styled but structured in page files */
+  .grid-stack { background: #f8f9fa; }
+  .grid-stack-item { border: 1px solid #dee2e6; }
+  .pagination { text-align: center; margin: 10px 0; }
+</style>
+
 <style>
   :root {
     --bg-primary: #ffffff;
@@ -22,8 +42,7 @@
     }
   }
 
-  html,
-  body {
+  html, body {
     margin: 0;
     padding: 0;
     font-family:
@@ -65,134 +84,220 @@
     bottom: 0;
   }
 
-  /* --- Table View Styles --- */
-  #table-view-container {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-  }
-/* Toolbar Styles */
-.toolbar {
-  background-color: #f8f9fa; /* NOTE: legacy comment removed */
-  border-bottom: 1px solid #dee2e6; /* NOTE: legacy comment removed */
-  padding: 8px 16px;
-  display: flex; /* NOTE: legacy comment removed */
-  align-items: center; /* NOTE: legacy comment removed */
-  gap: 16px; /* NOTE: legacy comment removed */
 
-  /* NOTE: legacy comment removed */
-  position: sticky;
-  top: calc(var(--header-height) + var(--pnav-height)); /* NOTE: legacy comment removed */
-  left: 0;
-  right: 0;
-  z-index: 900; /* NOTE: legacy comment removed */
+/* ===== 2. Table View Styles ===== */
+/* Root vars for viewer-specific (merged with global) */
+:root{
+  --surface:var(--bg-primary);
+  --panel:var(--bg-secondary);
+  --border:var(--border-color);
+  --toolbar-h:29px;
+  --nav-offset:0px;
+  --sbw:12px;
+  /* ↓ フッター高さぶんの下余白（JSで実測反映）。デフォルトは安全側 */
+  --footer-pad:96px;
 }
-  #tableWrap {
-    flex-grow: 1;
-    overflow: auto;
-  }
-  #statusBar {
-    height: var(--statusbar-height);
-    border-top: 1px solid var(--border-color);
-    display: flex;
-    align-items: center;
-    padding: 0 12px;
-    gap: 12px;
-    background-color: var(--bg-secondary);
-  }
-  .spacer {
-    flex-grow: 1;
-  }
-  .pagination-controls {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
 
-  /* --- Base Table Styles --- */
-  table {
-    border-collapse: separate;
-    border-spacing: 0;
-    width: max-content;
-    box-sizing: border-box;
-  }
-  th,
-  td {
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--border-color);
-    border-right: 1px solid var(--border-color);
-    vertical-align: top;
-    white-space: normal;
-    word-break: break-word;
-    font-size: 14px;
-    box-sizing: border-box;
-  }
-  tr th:first-child,
-  tr td:first-child {
-    border-left: 1px solid var(--border-color);
-  }
-  thead tr:first-child th {
-    border-top: 1px solid var(--border-color);
-  }
+#table-view-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--surface);
 
-  /* --- Clone Header Styles --- */
-  .floating-header-wrapper {
-    position: fixed;
-    z-index: 220;
-    overflow: hidden; /* Hide horizontal scrollbar of the wrapper */
-  }
-  .floating-header-wrapper table {
-    background-color: var(--bg-secondary);
-  }
-  .floating-header-wrapper th {
-    background-color: var(--bg-secondary);
-    cursor: move;
-  }
+  /* ↓ 正しく設定されているか確認 */
+  margin-top: calc(var(--header-height) + var(--pnav-height));
 
-  .resizer {
-    position: absolute;
-    right: 0;
-    top: 0;
-    width: 5px;
-    height: 100%;
-    cursor: col-resize;
-    user-select: none;
-  }
-  .thumb {
-    width: 160px;
-    height: 90px;
-    object-fit: cover;
-    display: block;
-    cursor: pointer;
-  }
-  a {
-    color: var(--link-color);
-    text-decoration: none;
-  }
-  a:hover {
-    color: var(--link-hover-color);
-    text-decoration: underline;
-  }
-  button {
-    padding: 4px 10px;
-    border-radius: 4px;
-    border: 1px solid var(--border-color);
-    background-color: var(--bg-primary);
-    color: var(--fg-primary);
-    cursor: pointer;
-  }
-  button:hover {
-    background-color: var(--bg-secondary);
-  }
+  /* ↓ この行、または類似の padding-top 指定が完全に削除されていることを確認 */
+  /* padding-top: var(--nav-offset);  <-- このような指定を削除 */
 
-  #hierMenu ul { padding:0.25rem 0; }
-  #hierMenu li { list-style:none; cursor:pointer; white-space:nowrap; padding:0.25rem 0.75rem; }
-  #hierMenu li:hover { background:#eef; }
-  .ship-table th { text-align:left; font-weight:600; padding-right:0.5rem; }
-  .ship-table td { padding-left:0.5rem; }
+  font: 13px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  overflow: auto;
 
-  /* NOTE: legacy comment removed */
-  #gNav a,#pNav a{cursor:pointer;display:inline-block;padding:0 6px}
+  /* ← 明るめ＋detail同等の配色（Firefox） */
+  scrollbar-color:#cbd5e1 #0f1420;
+  scrollbar-width:thin;
+}
+
+
+/* Toolbar */
+#toolbar{
+  flex:0 0 auto;display:flex;align-items:center;gap:8px;min-height:var(--toolbar-h);
+  padding:4px 8px;background:var(--panel);border-bottom:1px solid var(--border);
+  position:sticky;
+  top: 0; /* ← 親コンテナの最上部に固定 */
+  z-index:100;font-size:13px;
+}
+#toolbar .btn{padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;}
+#toolbar .btn:disabled{opacity:.5;cursor:not-allowed;}
+#toolbar .btn:hover:not(:disabled){background:var(--panel);}
+#toolbar select,#toolbar input[type="search"]{padding:3px 8px;}
+.spacer{flex:1 1 auto;}
+.muted{opacity:.7;}
+#quickSearch{min-width:240px;}
+
+/* Table wrapper（横スクロール＋下余白を“常に”確保） */
+#tableWrap{
+  flex:1 1 auto;
+  min-height:0;
+  position:relative;
+  overflow-x:auto;
+  overflow-y:auto;
+  background:var(--surface);
+  /* ← フッター高さぶんの余白を CSS 変数で確保（JSが実測で更新） */
+  padding-bottom:var(--footer-pad, 96px);
+
+  /* ← 明るめ＋detail同等の配色（Firefox） */
+  scrollbar-color:#cbd5e1 #0f1420;
+  scrollbar-width:thin;
+}
+/* WebKit 系スクロールバー（detail同等） */
+#tableWrap::-webkit-scrollbar,
+#table-view-container::-webkit-scrollbar{width:var(--sbw);height:var(--sbw);}
+#tableWrap::-webkit-scrollbar-thumb,
+#table-view-container::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:6px;}
+#tableWrap::-webkit-scrollbar-track,
+#table-view-container::-webkit-scrollbar-track{background:#0f1420;}
+
+#tableWrap > table{
+  display:block;
+  width:max-content;     /* 内容幅に合わせる → 横スクロール出る */
+  min-width:100%;
+  border-collapse:separate;border-spacing:0;margin:0;background:var(--surface);
+  table-layout:fixed;font-size:13px;
+}
+#tableWrap table thead{display:table-header-group;}
+#tableWrap table tbody{display:table-row-group;}
+
+#tableWrap table th,#tableWrap table td{
+  white-space:normal;padding:5px 8px;border-bottom:1px solid var(--border);
+  border-right:1px solid var(--border); /* 縦線 */
+  background:var(--surface);overflow:hidden;min-width:56px;word-break:break-word;
+}
+/* 末尾列は右罫線なし */
+#tableWrap table th:last-child,#tableWrap table td:last-child{ border-right:none; }
+
+#tableWrap table thead th{
+  position:sticky;top:0;z-index:20;background:var(--panel);
+  border-bottom:1px solid var(--border);user-select:none;text-align:left;
+  padding:3px 8px;line-height:1.2;
+}
+th{position:relative;}
+th.draggable{cursor:move;}
+.resize-h{position:absolute;top:0;right:0;width:8px;height:100%;cursor:col-resize;user-select:none;}
+
+/* Footer (status + pager) — stickyで最前面。ただし #tableWrap の padding-bottom で被らない */
+#statusBar{
+  position:sticky;        /* ← sticky フッター */
+  bottom:0;
+  z-index:101;
+  flex:0 0 auto;
+  background:var(--panel);
+  border-top:1px solid var(--border);
+  display:flex;align-items:center;gap:8px;
+  padding:6px 8px;
+}
+#pager{display:flex;align-items:center;gap:8px;}
+#pager .btn{padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;min-width:34px;}
+#pager .btn:disabled{opacity:.5;cursor:not-allowed;}
+#perPage{padding:4px 8px;}
+#pageSelect{padding:4px 6px;min-width:70px;max-width:180px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:inherit;}
+
+/* Panels（はみ出さない） */
+.panel{
+  position:fixed;display:none;z-index:10000;background:var(--panel);border:1px solid var(--border);border-radius:8px;
+  padding:10px;box-shadow:0 10px 28px rgba(0,0,0,.18);
+  max-height:72vh;overflow:auto;
+  min-width:320px;max-width:min(92vw,640px);width:min(92vw,640px);
+  font-size:13px;
+}
+.panel .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;padding-bottom:6px;border-bottom:1px dashed var(--border);}
+.panel .btn{padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;}
+.panel .btn:hover{background:var(--panel);}
+.row{display:flex;align-items:flex-start;gap:8px;padding:4px 0;}
+.subtle{opacity:.7;font-size:12px;}
+.divider{height:1px;background:var(--border);margin:6px 0;}
+.tinyLabel{font-size:11px;opacity:.75;display:block;line-height:1.1;margin-bottom:2px;}
+
+/* Filter groups（見出し） */
+.fg-item{border:1px solid var(--border);border-radius:6px;margin:6px 0;}
+.fg-head{display:flex;align-items:center;gap:8px;padding:6px;}
+.fg-body{padding:6px 8px 8px 10px;border-top:1px dashed var(--border);}
+.fg-collapse{cursor:pointer;user-select:none;}
+.fg-title{font-weight:600;}
+
+/* Group header rows in table（少し明るい灰色） */
+.grp1{background:#f5f6f8;color:inherit;border-left:4px solid #d1d5db;}
+.grp2{background:#eef1f5;color:inherit;border-left:4px solid #e5e7eb;}
+.grpLabel{display:inline-block;padding:4px 10px;font-weight:600;}
+
+/* Save dropdown */
+.dropdown{position:relative;display:inline-block;}
+.dd-menu{position:absolute;left:0;top:calc(100% + 6px);background:var(--panel);border:1px solid var(--border);border-radius:8px;min-width:220px;box-shadow:0 10px 28px rgba(0,0,0,.18);display:none;}
+.dd-menu.open{display:block;}
+.dd-item{padding:8px 12px;cursor:pointer;}
+.dd-item:hover{background:rgba(0,0,0,.06);}
+
+/* --- Clone Header Styles --- */
+.floating-header-wrapper {
+  position: fixed;
+  z-index: 220;
+  overflow: hidden;
+}
+.floating-header-wrapper table {
+  background-color: var(--bg-secondary);
+}
+.floating-header-wrapper th {
+  background-color: var(--bg-secondary);
+  cursor: move;
+}
+
+.resizer {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+}
+.thumb {
+  width: 160px;
+  height: 90px;
+  object-fit: cover;
+  display: block;
+  cursor: pointer;
+}
+a {
+  color: var(--link-color);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--link-hover-color);
+  text-decoration: underline;
+}
+button {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-primary);
+  color: var(--fg-primary);
+  cursor: pointer;
+}
+button:hover {
+  background-color: var(--bg-secondary);
+}
+
+#hierMenu ul { padding:0.25rem 0; }
+#hierMenu li { list-style:none; cursor:pointer; white-space:nowrap; padding:0.25rem 0.75rem; }
+#hierMenu li:hover { background:#eef; }
+.ship-table th { text-align:left; font-weight:600; padding-right:0.5rem; }
+.ship-table td { padding-left:0.5rem; }
+
+#gNav a,#pNav a{cursor:pointer;display:inline-block;padding:0 6px}
+
+
+
 
   /* ===== Detail Page ===== */
 html.detail-root{
@@ -361,7 +466,7 @@ body.detail-page .media.aspect::before{ content:""; display:block; padding-top:5
 body.detail-page .media.aspect .inner{ position:absolute; inset:0; }
 body.detail-page .media iframe{ width:100%; height:100%; border:0; background:#0f1115; }
 body.detail-page .media-note{padding:8px 10px;font-size:12px;color:#9aa3b2}
-body.detail-page .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+body.detail-page .modal{ position:固定; inset:0; display:none; align-items:center; justify-content:center;
       background:rgba(0,0,0,.45); z-index:40000; }
 body.detail-page .panel{
       position:relative; z-index:40001;
@@ -369,10 +474,10 @@ body.detail-page .panel{
       background:var(--panel); border:1px solid var(--panel-bd); border-radius:12px;
       box-shadow:0 18px 48px rgba(0,0,0,.5);
     }
-body.detail-page .panel .hd{padding:10px 12px;border-bottom:1px solid var(--panel-bd);font-weight:600}
+body.detail-page .panel .hd{padding:10px 12px; border-bottom:1px solid var(--panel-bd); font-weight:600}
 body.detail-page .panel .bd{padding:12px}
-body.detail-page .panel .ft{padding:10px 12px;border-top:1px solid var(--panel-bd);display:flex;gap:8px;justify-content:flex-end}
-body.detail-page .row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+body.detail-page .panel .ft{padding:10px 12px; border-top:1px solid var(--panel-bd); display:flex; gap:8px; justify-content:flex-end}
+body.detail-page .row{display:flex; gap:8px; align-items:center; margin-bottom:8px}
 body.detail-page .row .grow{flex:1 1 auto}
 body.detail-page /* NOTE: legacy comment removed */
     .field-row{
@@ -393,16 +498,16 @@ body.detail-page .chip{
       font-size:11px; white-space:nowrap;
     }
 
-/* ===== 90.saveas-modal-styles ===== */
-#pgSaveAsMask{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:999}
-#pgSaveAs{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);min-width:360px;background:#fff;border:1px solid #ddd;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.2);display:none;z-index:1000}
-#pgSaveAs .hd{padding:12px 14px;border-bottom:1px solid #eee;font-weight:600}
-#pgSaveAs .bd{padding:14px;display:grid;gap:10px}
-#pgSaveAs .ft{padding:12px 14px;border-top:1px solid #eee;display:flex;gap:8px;justify-content:flex-end}
-#pgSaveAs input, #pgSaveAs select{width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box}
-#pgSaveAs .row{display:grid;gap:6px}
-#pgSaveAs label{font-size:12px;color:#555}
-/* ===== 90. End ===== */
-
+  /* ===== 90.saveas-modal-styles ===== */
+  #pgSaveAsMask{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:999}
+  #pgSaveAs{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);min-width:360px;background:#fff;border:1px solid #ddd;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.2);display:none;z-index:1000}
+  #pgSaveAs .hd{padding:12px 14px;border-bottom:1px solid #eee;font-weight:600}
+  #pgSaveAs .bd{padding:14px;display:grid;gap:10px}
+  #pgSaveAs .ft{padding:12px 14px;border-top:1px solid #eee;display:flex;gap:8px;justify-content:flex-end}
+  #pgSaveAs input, #pgSaveAs select{width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box}
+  #pgSaveAs .row{display:grid;gap:6px}
+  #pgSaveAs label{font-size:12px;color:#555}
+  /* ===== 90. End ===== */
 
 </style>
+<!-- ===== COMMON_styles.html End ===== -->

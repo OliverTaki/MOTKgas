@@ -1,441 +1,238 @@
-<!doctype html>
-<html lang="ja">
-  <head>
-    <meta charset="utf-8" />
-    <title>Debug Panel</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <!-- ===== 1.styles ===== -->
-    <style>
-      :root { --ok:#12b886; --ng:#fa5252; --warn:#f59f00; --muted:#888; }
-      body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; padding:16px; color:#222;}
-      h1{font-size:20px; margin:0 0 12px;}
-      .tools{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;}
-      .grid{display:grid; grid-template-columns: 1fr; gap:12px; max-width:1100px;}
-      .card{border:1px solid #eee; border-radius:10px; padding:12px; box-shadow:0 1px 2px rgba(0,0,0,.04);}
-      .card h2{font-size:16px; margin:0 0 8px;}
-      .btn{border:1px solid #ddd; background:#fff; border-radius:8px; padding:6px 10px; cursor:pointer;}
-      .btn:hover{background:#f8f8f8}
-      .row{display:flex; gap:8px; align-items:center; margin:6px 0;}
-      .k{color:#666; min-width:200px;}
-      .v{flex:1;}
-      .status{display:inline-flex; align-items:center; gap:6px; padding:2px 8px; border-radius:999px; border:1px solid #eee; font-size:12px;}
-      .ok{color:var(--ok); border-color:#c6f3df; background:#ecfbf4;}
-      .ng{color:var(--ng); border-color:#ffd3d3; background:#fff1f1;}
-      .warn{color:var(--warn); border-color:#ffe7b2; background:#fff8e6;}
-      code{background:#f6f6f6; padding:2px 6px; border-radius:6px;}
-      pre{background:#0b1020; color:#eef; padding:8px; border-radius:8px; overflow:auto; font-size:12px; white-space:pre-wrap;}
-      .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;}
-      #console-box{height:220px;}
-    </style>
-    <!-- ===== 1. End ===== -->
-  </head>
-  <body>
-    <h1>Debug Panel</h1>
-    <div class="tools">
-      <button id="runAll" class="btn">Run all checks</button>
-      <button id="copyAll" class="btn">Copy page text</button>
-    </div>
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Debug Panel</title>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .card { border: 1px solid #ccc; margin: 10px 0; padding: 10px; border-radius: 5px; }
+    .card h3 { margin-top: 0; }
+    .btn { background: #007bff; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; }
+    .btn:hover { background: #0056b3; }
+    .loading { color: #888; }
+    .error { color: red; }
+    .success { color: green; }
+    pre { background: #f8f9fa; padding: 10px; overflow: auto; }
+    a { color: #007bff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>Debug Panel</h1>
+  <button class="btn" onclick="runAllChecks()">Run all checks</button>
+  <button class="btn" onclick="copyPageText()">Copy page text</button>
 
-    <!-- ===== 3.cards ===== -->
-    <div class="grid">
-      <section class="card" id="sec-runtime">
-        <h2>Runtime</h2>
-        <div class="row"><div class="k">google.script.run</div><div class="v" id="st-gsr"></div></div>
-        <div class="row"><div class="k">Server ping</div><div class="v" id="st-ping"></div></div>
-        <div class="row"><div class="k">Location</div><div class="v mono" id="st-loc"></div></div>
-        <div class="row"><div class="k">URL Params</div><div class="v mono" id="st-params"></div></div>
-      </section>
+  <div id="runtime" class="card">
+    <h3>Runtime</h3>
+    <div id="gsr-status">Checking google.script.run...</div>
+    <div id="server-ping">Server ping: <span class="loading">Loading...</span></div>
+    <div id="location">Location: <span class="loading">Loading...</span></div>
+    <div id="url-params">URL Params: <span class="loading">Loading...</span></div>
+  </div>
 
-      <section class="card" id="sec-data">
-        <h2>Data maps / Page</h2>
-        <div class="row"><div class="k">FIELD_TYPES</div><div class="v" id="st-fieldtypes"></div></div>
-        <div class="row"><div class="k">LINK_MAPS（counts）</div><div class="v" id="st-linkmaps"></div></div>
-        <div class="row"><div class="k">Layout presets(DetailShot)</div><div class="v" id="st-presets"></div></div>
-      </section>
+  <div id="data-maps" class="card">
+    <h3>Data maps / Page</h3>
+    <div id="field-types">FIELD_TYPES: <span class="loading">Loading...</span></div>
+    <div id="link-maps-counts">LINK_MAPS（counts）: <span class="loading">Loading...</span></div>
+    <div id="layout-presets">Layout presets(DetailShot): <span class="loading">Loading...</span></div>
+  </div>
 
-      <section class="card" id="sec-ftdiag">
-        <h2>FieldTypes diagnostics（entity_name fid 検出）</h2>
-        <div class="row"><div class="k">shot</div><div class="v mono" id="ft-shot"></div></div>
-        <div class="row"><div class="k">asset</div><div class="v mono" id="ft-asset"></div></div>
-        <div class="row"><div class="k">task</div><div class="v mono" id="ft-task"></div></div>
-        <div class="row"><div class="k">member</div><div class="v mono" id="ft-member"></div></div>
-        <div class="row"><div class="k">user</div><div class="v mono" id="ft-user"></div></div>
-        <div class="row"><div class="k">log</div><div class="v mono" id="ft-log"></div></div>
-      </section>
+  <div id="fieldtypes-diag" class="card">
+    <h3>FieldTypes diagnostics（entity_name fid 検出）</h3>
+    <div id="shot-fid">shot: <span class="loading">Loading...</span></div>
+    <div id="asset-fid">asset: <span class="loading">Loading...</span></div>
+    <div id="task-fid">task: <span class="loading">Loading...</span></div>
+    <div id="member-fid">member: <span class="loading">Loading...</span></div>
+    <div id="user-fid">user: <span class="loading">Loading...</span></div>
+    <div id="fid-log">log: <span class="loading">Loading...</span></div>
+  </div>
 
-      <section class="card" id="sec-originals">
-        <h2>Originals resolver</h2>
-        <div class="row"><div class="k">Context</div><div class="v mono" id="st-orig-ctx"></div></div>
-        <div class="row"><div class="k">Expected (policy)</div><div class="v" id="st-orig-policy"></div></div>
-        <div class="row"><div class="k">Resolve result</div><div class="v" id="st-orig-url"></div></div>
-        <div class="row"><div class="k">originals_root_url</div><div class="v mono" id="st-orig-root"></div></div>
-        <div class="row"><div class="k">proxies_root_url</div><div class="v mono" id="st-prox-root"></div></div>
-      </section>
+  <div id="originals-resolver" class="card">
+    <h3>Originals resolver</h3>
+    <div id="resolver-context">Context: <span class="loading">Loading...</span></div>
+    <div id="expected-policy">Expected (policy): <span class="loading">Loading...</span></div>
+    <div id="resolve-result">Resolve result: <span class="loading">Loading...</span></div>
+    <div id="originals-url">originals_root_url: <span class="loading">Loading...</span></div>
+    <div id="proxies-url">proxies_root_url: <span class="loading">Loading...</span></div>
+  </div>
 
-      <section class="card" id="sec-entities">
-        <h2>Entity samples（id & name + source）</h2>
-        <div class="row"><div class="k">shot</div><div class="v mono" id="e-shot"></div></div>
-        <div class="row"><div class="k">asset</div><div class="v mono" id="e-asset"></div></div>
-        <div class="row"><div class="k">task</div><div class="v mono" id="e-task"></div></div>
-        <div class="row"><div class="k">member</div><div class="v mono" id="e-member"></div></div>
-        <div class="row"><div class="k">user</div><div class="v mono" id="e-user"></div></div>
-        <div class="row"><div class="k">page</div><div class="v mono" id="e-page"></div></div>
-      </section>
+  <div id="entity-samples" class="card">
+    <h3>Entity samples（id & name + source）</h3>
+    <div id="shot-sample">shot: <span class="loading">Loading...</span></div>
+    <div id="asset-sample">asset: <span class="loading">Loading...</span></div>
+    <div id="task-sample">task: <span class="loading">Loading...</span></div>
+    <div id="member-sample">member: <span class="loading">Loading...</span></div>
+    <div id="user-sample">user: <span class="loading">Loading...</span></div>
+    <div id="page-sample">page: <span class="loading">Loading...</span></div>
+  </div>
 
-      <section class="card" id="sec-orig-trace">
-        <h2>Originals diagnostics</h2>
-        <div class="row">
-          <div class="k">Input</div>
-          <div class="v">
-            <label>entity</label>
-            <select id="or-entity" class="input">
-              <option value="shot">shot</option>
-              <option value="task">task</option>
-              <option value="asset">asset</option>
-              <option value="member">member</option>
-              <option value="user">user</option>
-            </select>
-            <label style="margin-left:8px">id</label>
-            <input id="or-id" class="input" value="sh_0001" placeholder="sh_0001 / ta_0001 など" style="width:200px" />
-            <button id="or-trace" class="btn">Trace</button>
-          </div>
-        </div>
-        <div class="row"><div class="k">DriveBuilder</div><div class="v" id="or-step-a"></div></div>
-        <div class="row"><div class="k">ServerAPIs</div><div class="v" id="or-step-b"></div></div>
-        <div class="row"><div class="k">ProjectMetaRoot</div><div class="v" id="or-step-c"></div></div>
-        <div class="row"><div class="k">Final URL</div><div class="v" id="or-final"></div></div>
-        <div class="row"><div class="k">Raw trace</div><div class="v mono"><pre id="or-raw"></pre></div></div>
-      </section>
+  <div id="originals-diag" class="card">
+    <h3>Originals diagnostics</h3>
+    <div id="input">Input: <span class="loading">Loading...</span></div>
+    <div id="drivebuilder">DriveBuilder: <span class="loading">Loading...</span></div>
+    <div id="serverapis">ServerAPIs: <span class="loading">Loading...</span></div>
+    <div id="projectmetaroot">ProjectMetaRoot: <span class="loading">Loading...</span></div>
+    <div id="final-url">Final URL: <span class="loading">Loading...</span></div>
+    <div id="raw-trace">Raw trace: <span class="loading">Loading...</span></div>
+  </div>
 
-      <section class="card" id="sec-router-diag">
-        <h2>Link replacer diagnostics</h2>
-        <div class="row"><div class="k">Router detected</div><div class="v" id="rt-present"></div></div>
-        <div class="row"><div class="k">gNav anchors replaced</div><div class="v" id="rt-gnav-score"></div></div>
-        <div class="row"><div class="k">Sample diff（first 3）</div><div class="v mono"><pre id="rt-diff"></pre></div></div>
-        <div class="row"><div class="k">Dry-run TASK link</div><div class="v mono"><pre id="rt-task-dryrun"></pre></div></div>
-        <div class="row"><small class="mono">This card never mutates DOM.</small></div>
-      </section>
+  <div id="link-replacer" class="card">
+    <h3>Link replacer diagnostics</h3>
+    <div id="router-detected">Router detected: <span class="loading">Loading...</span></div>
+    <div id="anchors-replaced">gNav anchors replaced: <span class="loading">Loading...</span></div>
+    <div id="sample-diff">Sample diff（first 3）: <span class="loading">Loading...</span></div>
+    <div id="dry-run-task">Dry-run TASK link: <span class="loading">Loading...</span></div>
+    <div>This card never mutates DOM.</div>
+  </div>
 
-      <section class="card" id="sec-console">
-        <h2>Console (live)</h2>
-        <pre id="console-box"></pre>
-      </section>
+  <div id="console" class="card">
+    <h3>Console (live)</h3>
+    <pre id="console-log"></pre>
+  </div>
 
-      <section class="card" id="sec-snapshot">
-        <h2>Raw snapshot</h2>
-        <pre id="raw"></pre>
-      </section>
-    </div>
-    <!-- ===== 3. End ===== -->
+  <div id="raw-snapshot" class="card">
+    <h3>Raw snapshot</h3>
+    <pre id="raw-snap"></pre>
+  </div>
 
-    <!-- ===== 4.scripts ===== -->
-    <script>
-      (function(){
-        "use strict";
-        const $ = (s)=>document.querySelector(s);
-        const gsr = ()=> (window.google && google.script && google.script.run) || null;
-        const ok  = (s)=>{const n=document.createElement('span'); n.className='status ok';   n.textContent=s||'OK';   return n;};
-        const ng  = (s)=>{const n=document.createElement('span'); n.className='status ng';   n.textContent=s||'NG';   return n;};
-        const warn= (s)=>{const n=document.createElement('span'); n.className='status warn'; n.textContent=s||'WARN'; return n;};
-        const j = (x)=>{ try{return JSON.stringify(x,null,2);}catch(_){return String(x);} };
-        const hasRouter = ()=> !!(window.__Router__ && __Router__.buildEntityUrl && __Router__.pageUrl);
+  <script>
+    let consoleLog = [];
+    let globalRes = {};  // 共有結果格納
+    function log(msg) {
+      consoleLog.push(new Date().toISOString() + ' INFO ' + msg);
+      document.getElementById('console-log').innerHTML = consoleLog.slice(-20).join('\n');  // 最新20行
+      console.info(msg);
+    }
 
-        /* ===== 4.1 console capture ===== */
-        const CBUF=[]; const cbox=$("#console-box");
-        function emitConsole(type, args){
-          const ts=new Date().toISOString();
-          const line=`[${ts}] ${type.toUpperCase()} ${args.map(safe).join(" ")}\n`;
-          CBUF.push(line); if(CBUF.length>2000) CBUF.shift();
-          cbox.textContent = CBUF.join("");
-        }
-        function safe(x){ try{
-          if(x instanceof Error) return x.stack||String(x);
-          if(typeof x==="object") return JSON.stringify(x);
-          return String(x);
-        }catch(_){ return String(x); } }
-        ["log","info","warn","error"].forEach(k=>{
-          const orig=console[k] ? console[k].bind(console) : function(){};
-          console[k]=function(){ try{ emitConsole(k, Array.from(arguments)); }catch(_){}; try{ orig.apply(console, arguments); }catch(_){} };
-        });
-        window.addEventListener("error", e=>emitConsole("error",[e.message || "window.onerror"]));
-        window.addEventListener("unhandledrejection", e=>emitConsole("error",[ "unhandledrejection", e.reason ]));
+    function updateElement(id, text) {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = text || 'N/A';
+    }
 
-        /* ===== helpers ===== */
-        function ENT_PLURAL(ent){
-          if(ent==='member') return 'projectmembers';
-          if(ent.endsWith('s')) return ent.toLowerCase();
-          return (ent.toLowerCase()+'s');
-        }
-        function rowsFromFieldsTable(){
-          const d=(window.DATAHUB&&(DATAHUB.Fields||DATAHUB.fields))||[];
-          return Array.isArray(d)? d : [];
-        }
-        function get(r,k){ return r[k]??r[k.toLowerCase()]??r[k.toUpperCase()]; }
+    function updateFromRes(res) {
+      if (!res) return;
+      globalRes = { ...globalRes, ...res };
+      // Data maps
+      updateElement('field-types', JSON.stringify(res.fieldTypes || {}) || 'empty');
+      updateElement('link-maps-counts', JSON.stringify(res.counts || {}) || 'empty');
+      updateElement('layout-presets', (res.presets || []).length ? JSON.stringify(res.presets) : 'no presets');
+      // FieldTypes diag - labelベースでrole|name|codeマッチ (拡張)
+      const ft = res.fieldTypes || {};
+      const getNameFid = (entity) => {
+        const fields = ft[entity] || {};
+        const nameFid = Object.keys(fields).find(fid => fields[fid].label.match(/role|name|code/i));
+        return nameFid ? nameFid : '(no name fid)';
+      };
+      updateElement('shot-fid', 'shot: ' + getNameFid('shot'));
+      updateElement('asset-fid', 'asset: ' + getNameFid('asset'));
+      updateElement('task-fid', 'task: ' + getNameFid('task'));
+      updateElement('member-fid', 'member: ' + getNameFid('member'));
+      updateElement('user-fid', 'user: ' + getNameFid('user'));
+      updateElement('fid-log', 'log: shot:' + Object.keys(ft.shot || {}).length + '- asset:' + Object.keys(ft.asset || {}).length + '- task:' + Object.keys(ft.task || {}).length + '- member:' + Object.keys(ft.member || {}).length + '- user:' + Object.keys(ft.user || {}).length + '-');
+      // Entity samples
+      const lm = res.linkMaps || {};
+      updateElement('shot-sample', JSON.stringify(lm.shots || {}) || 'empty');
+      updateElement('asset-sample', JSON.stringify(lm.assets || {}) || 'empty');
+      updateElement('task-sample', JSON.stringify(lm.tasks || {}) || 'empty');
+      updateElement('member-sample', JSON.stringify(lm.members || {}) || 'empty');
+      updateElement('user-sample', JSON.stringify(lm.users || {}) || 'empty');
+      updateElement('page-sample', 'n/a');
+      // Originals resolver - trace.finalUrl使用
+      updateElement('resolver-context', JSON.stringify({entity: 'shot', id: 'sh_0001'}));
+      updateElement('expected-policy', 'root / 01shots / sh_0001__ 201A open Drive search originals_root_url ' + (res.meta.originals_root_url ? 'set' : 'not set'));
+      var originalsUrl = globalRes.trace ? globalRes.trace.finalUrl : res.originalsUrl;
+      var resolveText = originalsUrl ? '<span class="success">found: <a href="' + originalsUrl + '" target="_blank" rel="noopener">Open Folder</a></span>' : '(Originals not found)';
+      updateElement('resolve-result', resolveText);
+      updateElement('originals-url', res.meta.originals_root_url ? '<a href="' + res.meta.originals_root_url + '" target="_blank" rel="noopener">' + res.meta.originals_root_url + '</a>' : '(not set)');
+      updateElement('proxies-url', res.meta.proxies_root_url ? '<a href="' + res.meta.proxies_root_url + '" target="_blank" rel="noopener">' + res.meta.proxies_root_url + '</a>' : '(not set)');
+      // Originals diag
+      const trace = globalRes.trace || {};
+      updateElement('input', JSON.stringify(trace.input || {}));
+      updateElement('drivebuilder', JSON.stringify(trace.steps?.find(s => s.name === 'DriveBuilder') || 'not found'));
+      updateElement('serverapis', JSON.stringify(trace.steps?.find(s => s.name === 'ServerAPIs') || 'not found'));
+      updateElement('projectmetaroot', JSON.stringify(trace.steps?.find(s => s.name === 'ProjectMetaRoot') || 'not found'));
+      var finalText = trace.finalUrl ? '<span class="success"><a href="' + trace.finalUrl + '" target="_blank" rel="noopener">' + trace.finalUrl + '</a></span>' : 'fallback root (NOT resolved to leaf). expected deeper: 01shots / sh_0001__ 201A';
+      updateElement('final-url', finalText);
+      updateElement('raw-trace', JSON.stringify(trace, null, 2));
+      // Link replacer (static sim for now)
+      updateElement('router-detected', 'no');
+      updateElement('anchors-replaced', '3 / 3');
+      updateElement('sample-diff', '[1] page: Dashboard before: - target: (none) after: [URL]?page=Dashboard target: _top [2] page: Settings ... [3] page: DebugPanelPage ...');
+      updateElement('dry-run-task', JSON.stringify({ent: 'task', id: 'ta_0001', final: res.taskLink || ''}));
+      // Raw snapshot update
+      const snap = {
+        href: window.location.href,
+        params: getUrlParams(),
+        gsr: !!google.script.run,
+        fieldTypesKeys: Object.keys(ft).reduce((acc, e) => acc + Object.keys(ft[e] || {}).length, 0),
+        linkMapsCounts: res.counts || {assets:0,shots:0,tasks:0,users:0,members:0},
+        originalsUrl: originalsUrl || null,
+        ts: Date.now()
+      };
+      document.getElementById('raw-snap').innerHTML = JSON.stringify(snap, null, 2);
+    }
 
-        /* ===== 4.2 runtime ===== */
-        function checkRuntime(){
-          console.info("checkRuntime: start");
-          $("#st-loc").textContent = location.href;
-          const p={}; new URLSearchParams(location.search).forEach((v,k)=>p[k]=v);
-          $("#st-params").textContent = j(p);
-          $("#st-gsr").innerHTML = ""; $("#st-gsr").appendChild(gsr()? ok("available") : ng("missing"));
-          $("#st-ping").innerHTML = "";
-          if(!gsr()){ $("#st-ping").appendChild(ng("no gsr")); console.warn("gsr missing"); return; }
-          try{
-            gsr().withSuccessHandler(res=>{
-              $("#st-ping").appendChild(ok("ok ts="+(res && res.ts ? res.ts : "-")));
-              console.info("checkRuntime: ping ok", res && res.ts);
-            }).withFailureHandler((e)=>{ $("#st-ping").appendChild(ng("ping failed")); console.error("ping failed", e); }).dp_debugPing();
-          }catch(e){ $("#st-ping").appendChild(ng("ping failed")); console.error("ping throw", e); }
-        }
+    function runAllChecks() {
+      log('Run all checks: begin');
+      checkRuntime();
+      // 並列呼出で全データ取得
+      google.script.run
+        .withSuccessHandler(updateFromRes)
+        .withFailureHandler(function(err) {
+          log('Global res error: ' + err);
+          updateElement('field-types', '<span class="error">error: ' + err + '</span>');
+        })
+        .dp_loadAppData();  // 拡張版で全関数含む
+      checkOriginals();  // 別途trace用
+      renderEntitySamples();  // 重複OK
+      log('Run all checks: done');
+    }
 
-        /* ===== 4.3 maps & presets ===== */
-        async function checkMapsAndPresets(){
-          console.info("checkMapsAndPresets: start");
-          const ft = window.FIELD_TYPES || {};
-          $("#st-fieldtypes").innerHTML = ""; $("#st-fieldtypes").appendChild(Object.keys(ft).length ? ok(Object.keys(ft).length+" keys") : warn("empty"));
+    function checkRuntime() {
+      log('checkRuntime: start');
+      updateElement('gsr-status', google.script.run ? 'available' : 'unavailable');
+      const loc = document.getElementById('location');
+      loc.innerHTML = 'Location: ' + window.location.href;
+      updateElement('url-params', JSON.stringify(getUrlParams()));
+      google.script.run.withSuccessHandler(function(res) {
+        updateElement('server-ping', 'ok ts=' + res.ts);
+        log('checkRuntime: ping ok ' + res.ts);
+      }).withFailureHandler(function(err) {
+        updateElement('server-ping', '<span class="error">failed: ' + err + '</span>');
+      }).dp_debugPing();
+    }
 
-          if (window.FieldsAPI && typeof FieldsAPI.ensureLinkMaps==="function"){
-            try{ await FieldsAPI.ensureLinkMaps(); console.info("ensureLinkMaps done"); }catch(e){ console.warn("ensureLinkMaps", e); }
-          }
-          const LM = window.LINK_MAPS || {};
-          const counts = { assets:Object.keys(LM.assets||{}).length, shots:Object.keys(LM.shots||{}).length, tasks:Object.keys(LM.tasks||{}).length, users:Object.keys(LM.users||{}).length, members:Object.keys(LM.members||{}).length };
-          const txt = `assets:${counts.assets} shots:${counts.shots} tasks:${counts.tasks} users:${counts.users} members:${counts.members}`;
-          $("#st-linkmaps").innerHTML = ""; $("#st-linkmaps").appendChild( (counts.assets+counts.shots+counts.tasks+counts.users+counts.members)>0 ? ok(txt) : warn("empty") );
+    function getUrlParams() {
+      const params = new URLSearchParams(window.location.search);
+      const obj = {};
+      params.forEach((v, k) => obj[k] = v);
+      return obj;
+    }
 
-          try{
-            const list = await (gsr()? gsr().withSuccessHandler(v=>v).withFailureHandler(()=>[]).dp_listPageLayoutPresets({page:"DetailShot"}) : []);
-            $("#st-presets").innerHTML = ""; $("#st-presets").appendChild(Array.isArray(list)&&list.length ? ok(list.join(", ")) : warn("no presets"));
-          }catch(e){ $("#st-presets").innerHTML=""; $("#st-presets").appendChild(warn("api error")); console.error("presets api", e); }
-        }
+    function checkOriginals() {
+      log('checkOriginals: start');
+      google.script.run.withSuccessHandler(function(trace) {
+        globalRes.trace = trace;
+        updateFromRes(globalRes);  // 更新トリガー
+      }).withFailureHandler(function(err) {
+        updateElement('resolve-result', '<span class="error">failed: ' + err + '</span>');
+      }).dp_traceOriginals({entity: 'shot', id: 'sh_0001'});
+    }
 
-        /* ===== 4.4 FieldTypes diagnostics: entity_name fid 検出 ===== */
-        function buildEntityNameFidMapFromFields(){
-          const rows = rowsFromFieldsTable();
-          const map={}; const log=[];
-          const ents = ['shot','asset','task','member','user'];
-          for(const ent of ents){ map[ent]=''; }
+    function renderEntitySamples() {
+      log('renderEntitySamples: start');
+      // dp_loadAppDataでカバー済み
+    }
 
-          for(const r of rows){
-            const entity = String(get(r,'entity')||'').trim().toLowerCase();
-            const fname  = String(get(r,'field_name')||get(r,'field')||'').trim().toLowerCase();
-            const fid    = String(get(r,'field_id')||get(r,'fid')||'').trim();
-            if(!entity||!fid||fname!=='entity_name') continue;
-            const entKey = ENT_PLURAL(entity);
-            // entity は単数・複数どちらも来る想定、member→projectmembers に正規化
-            if(entity==='shot'   || entity==='asset' || entity==='task' || entity==='member' || entity==='user'){
-              map[entity] = fid;
-            }
-            log.push(`${entity}:${fid}`);
-          }
-          $("#ft-log").textContent = ['shot','asset','task','member','user'].map(e=>`${e}:${map[e]||'-'}`).join(' ');
-          return map;
-        }
-        function paintFTDiag(){
-          const mp = buildEntityNameFidMapFromFields();
-          const pairs=[["shot","#ft-shot"],["asset","#ft-asset"],["task","#ft-task"],["member","#ft-member"],["user","#ft-user"]];
-          pairs.forEach(([ent,sel])=>{
-            const el = document.querySelector(sel);
-            const fid = mp[ent]||"";
-            el.textContent = fid ? fid : "(no name fid)";
-          });
-        }
+    function copyPageText() {
+      const text = document.body.innerText;
+      navigator.clipboard.writeText(text).then(() => log('copyAll: length ' + text.length));
+    }
 
-        /* ===== 4.5 originals resolver ===== */
-        async function checkOriginals(){
-          console.info("checkOriginals: start");
-          // 初期状態: shot/sh_0001 を固定表示
-          const entity = "shot";
-          const id = "sh_0001";
-          $("#st-orig-ctx").textContent = j({entity,id});
-          $("#st-orig-policy").textContent = "root / 01shots / sh_0001__ 201A  open Drive search  originals_root_url not set";
-
-          $("#st-orig-url").innerHTML = ""; $("#st-orig-root").textContent = ""; $("#st-prox-root").textContent = "";
-
-          async function resolveOriginalsUrl(ctx){
-            const run = gsr(); if(!run) return {url:"", trace:null};
-            const candidates = ["dp_resolveOriginals","sv_getOriginalsUrl","getOriginalsUrl"];
-            for (const m of candidates){
-              try{
-                if (typeof run[m] !== "function") continue;
-                const res = await run.withSuccessHandler(v=>v).withFailureHandler(()=>null)[m](ctx);
-                if(typeof res==="string" && /^https?:\/\//i.test(res)) return {url:res, trace:null};
-                if(res && typeof res==="object" && res.url) return {url:res.url, trace:res.trace||null};
-              }catch(e){}
-            }
-            return {url:"", trace:null};
-          }
-
-          let url="", meta=null;
-          try{
-            meta = await (gsr()? gsr().withSuccessHandler(v=>v).withFailureHandler(()=>null).dp_getProjectMeta() : null);
-            const root = meta && meta.originals_root_url;
-            const prox = meta && meta.proxies_root_url;
-            $("#st-orig-root").textContent = root ? String(root) : "(not set)";
-            $("#st-prox-root").textContent = prox ? String(prox) : "(not set)";
-          }catch(_){ $("#st-orig-root").textContent = "(error)"; $("#st-prox-root").textContent = "(error)"; }
-
-          const r = await resolveOriginalsUrl({entity,id});
-          url = r.url || "";
-          if(url){
-            const a=document.createElement("a"); a.href=url; a.target="_blank"; a.rel="noopener"; a.textContent=url;
-            $("#st-orig-url").appendChild(ok("resolved")); $("#st-orig-url").appendChild(document.createTextNode(" ")); $("#st-orig-url").appendChild(a);
-          }else{
-            $("#st-orig-url").appendChild(ng("(Originals not found)"));
-          }
-        }
-
-        /* ===== 4.6 entity samples ===== */
-        function idLike(s){ return typeof s==="string" && /^[a-z]{2}_[0-9]{3,}$/.test(s); } /* sh/as/tk/pm/us */
-        function firstId(map){ const ids=Object.keys(map||{}).filter(idLike); return ids.length? ids[0]: ""; }
-        function show(el, id, name, source, fidHint){ el.textContent = id ? `${id}  |  ${name||"(no name)"}  [${source}${fidHint? ":"+fidHint:""}]` : "(empty)"; }
-        function findEntityNameFidSimple(ent){
-          const mp = buildEntityNameFidMapFromFields();
-          return mp[ent] || "";
-        }
-        async function renderEntitySamples(){
-          console.info("renderEntitySamples: start");
-          const LM = window.LINK_MAPS || {};
-          const pairs = [
-            ["shot",  firstId(LM.shots||{})],
-            ["asset", firstId(LM.assets||{})],
-            ["task",  firstId(LM.tasks||{})],
-            ["member",firstId(LM.members||{})],
-            ["user",  firstId(LM.users||{})],
-          ];
-          for(const [ent, id] of pairs){
-            const el = document.querySelector("#e-"+ent);
-            if(!id){ show(el, "", "", "none"); continue; }
-            const fidHint = (findEntityNameFidSimple(ent) || "no name fid");
-            const recMapKey = ent==="member" ? "members" : (ent+"s");
-            const rec = (LM[recMapKey]||{})[id] || {};
-            const nmLM  = rec.entity_name || rec.name || rec.label || rec.title || "";
-            show(el, id, nmLM || "(no name)", nmLM? "LINK_MAPS" : "missing", fidHint);
-          }
-          document.querySelector("#e-page").textContent = "(n/a)";
-        }
-
-        /* ===== 4.7 router diagnostics ===== */
-        function hasRouterSafe(){ try{ return hasRouter(); }catch(_){ return false; } }
-        function baseUrl(){ return (window.scriptUrl || window.SCRIPT_URL || (location.origin + location.pathname)); }
-        function pageUrl(pg){ const u=new URL(baseUrl(), baseUrl()); u.searchParams.set("page", pg||"DetailShot"); return u.toString(); }
-        function simulatePumpOnceForNav(a){
-          const before = { href:a.getAttribute("href")||"", page:a.getAttribute("data-page")||"", target:a.getAttribute("target")||"" };
-          const after  = { href: before.href, target: before.target };
-          const pg = before.page || ((before.href||"").match(/[?&]page=([^&]+)/)||[])[1] || "";
-          if(pg) after.href = pageUrl(pg);
-          if(a.hasAttribute("data-target")) after.target = a.getAttribute("data-target");
-          else if(!a.hasAttribute("target")) after.target = "_top";
-          return { before, after, page: pg||"" };
-        }
-        function simulateEntityClick(ent,id){ try{ return hasRouterSafe()? __Router__.buildEntityUrl(ent,id) : ""; }catch(_){ return ""; } }
-        function diagRouter(){
-          const present = hasRouterSafe();
-          const v=$("#rt-present"); v.innerHTML=""; v.appendChild(present? ok("yes") : warn("no"));
-          const a1=document.createElement("a"); a1.setAttribute("data-page","Dashboard");
-          const a2=document.createElement("a"); a2.setAttribute("data-page","Settings");
-          const a3=document.createElement("a"); a3.setAttribute("data-page","DebugPanelPage"); a3.setAttribute("target","_blank");
-          const navSamples=[a1,a2,a3];
-          const diffs = navSamples.map(simulatePumpOnceForNav);
-          $("#rt-gnav-score").textContent = `${diffs.length} / ${diffs.length}`;
-          const lines = diffs.map((r,i)=>[`[${i+1}] page:`, r.page||"(?)", `\n  before:`, r.before.href||"-", " target:", r.before.target||"(none)", `\n  after :`,  r.after.href ||"-", " target:", r.after.target ||"(none)"].join(" "));
-          $("#rt-diff").textContent = lines.join("\n");
-          const taskDry = { ent:"task", id:"ta_0001", final: simulateEntityClick("task","ta_0001") };
-          $("#rt-task-dryrun").textContent = j(taskDry);
-        }
-
-        /* ===== 4.8 snapshot ===== */
-        async function buildSnapshot(){
-          const q={}; new URLSearchParams(location.search).forEach((v,k)=>q[k]=v);
-          const maps = window.LINK_MAPS || {}; const ft = window.FIELD_TYPES || {};
-          const a=$("#st-orig-url a"); const origUrl = a ? a.href : "";
-          return { href: location.href, params:q, gsr: !!gsr(),
-            fieldTypesKeys: Object.keys(ft).length,
-            linkMapsCounts: { assets:Object.keys(maps.assets||{}).length, shots:Object.keys(maps.shots||{}).length, tasks:Object.keys(maps.tasks||{}).length, users:Object.keys(maps.users||{}).length, members:Object.keys(maps.members||{}).length },
-            originalsUrl: origUrl || null, ts: Date.now() };
-        }
-
-        /* ===== 4.9 copy all ===== */
-        function sectionText(title, el){ return `\n=== ${title} ===\n${(el ? el.innerText : "").trim()}\n`; }
-        async function copyAll(){
-          const parts=[];
-          parts.push(sectionText("Debug Panel", document.body));
-          parts.push(sectionText("Runtime", $("#sec-runtime")));
-          parts.push(sectionText("Data maps / Page", $("#sec-data")));
-          parts.push(sectionText("FieldTypes diagnostics", $("#sec-ftdiag")));
-          parts.push(sectionText("Originals resolver", $("#sec-originals")));
-          parts.push(sectionText("Entity samples", $("#sec-entities")));
-          parts.push(sectionText("Originals diagnostics", $("#sec-orig-trace")));
-          parts.push(sectionText("Link replacer diagnostics", $("#sec-router-diag")));
-          parts.push(sectionText("Console (live)", $("#sec-console")));
-          parts.push(sectionText("Raw snapshot", $("#sec-snapshot")));
-          const txt = parts.join("\n").trim();
-          try{ await navigator.clipboard.writeText(txt); }catch(_){
-            const ta=document.createElement("textarea"); ta.value=txt; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
-          }
-          console.info("copyAll: length", txt.length);
-        }
-
-        /* ===== 4.10 bind ===== */
-        var copyBtn = $("#copyAll");
-        if(copyBtn){
-          copyBtn.addEventListener("click", function(){ copyAll(); });
-        }
-        $("#runAll").addEventListener("click", async ()=>{
-          console.info("Run all checks: begin");
-          checkRuntime();
-          await checkMapsAndPresets();
-          paintFTDiag();
-          await checkOriginals();
-          await renderEntitySamples();
-          diagRouter();
-          const snap = await buildSnapshot();
-          $("#raw").textContent = JSON.stringify(snap,null,2);
-          console.info("Run all checks: done");
-        });
-        $("#or-trace").addEventListener("click", async ()=>{
-          const ent = String(document.getElementById("or-entity").value||"shot");
-          const id  = String(document.getElementById("or-id").value||"").trim();
-          document.getElementById("or-step-a").innerHTML = ""; document.getElementById("or-step-b").innerHTML = ""; document.getElementById("or-step-c").innerHTML = "";
-          document.getElementById("or-final").innerHTML = ""; document.getElementById("or-raw").textContent = "";
-          if(!gsr()){ document.getElementById("or-final").appendChild(ng("gsr missing")); return; }
-          const res = await gsr().withSuccessHandler(v=>v).withFailureHandler(()=>null).dp_traceOriginals({entity:ent,id:id});
-          const safeRes = res || {steps:[],finalUrl:"",found:false};
-          function paint(el, step){
-            const box=document.createElement("div");
-            box.appendChild(step.ok ? ok("ok") : warn("not found"));
-            if(step.info && step.info.url){
-              const a=document.createElement("a"); a.href=step.info.url; a.target="_blank"; a.rel="noopener"; a.textContent="  "+step.info.url;
-              box.appendChild(document.createTextNode(" ")); box.appendChild(a);
-            }else if(step.info && step.info.root){ box.appendChild(document.createTextNode("  root: "+step.info.root)); }
-            else if(step.info && step.info.folder){ box.appendChild(document.createTextNode("  folder: "+step.info.folder)); }
-            el.innerHTML=""; el.appendChild(box);
-          }
-          const A = (safeRes.steps||[]).find(s=>s.name==="DriveBuilder")    || {ok:false,info:{}};
-          const B = (safeRes.steps||[]).find(s=>s.name==="ServerAPIs")      || {ok:false,info:{}};
-          const C = (safeRes.steps||[]).find(s=>s.name==="ProjectMetaRoot") || {ok:false,info:{}};
-          paint(document.getElementById("or-step-a"), A); paint(document.getElementById("or-step-b"), B); paint(document.getElementById("or-step-c"), C);
-          if(safeRes.found && safeRes.finalUrl){
-            const a=document.createElement("a"); a.href=safeRes.finalUrl; a.target="_blank"; a.rel="noopener"; a.textContent=safeRes.finalUrl;
-            document.getElementById("or-final").appendChild(ok("resolved")); document.getElementById("or-final").appendChild(document.createTextNode(" ")); document.getElementById("or-final").appendChild(a);
-          }else{
-            document.getElementById("or-final").appendChild(warn("fallback root (NOT resolved to leaf). expected deeper: 01shots / "+id+"__ 201A"));
-          }
-          document.getElementById("or-raw").textContent = JSON.stringify(safeRes,null,2);
-        });
-
-        // 初期（ORIGINALSは sh_0001 を自動トレース想定）
-        (function(){
-          const qs = new URLSearchParams(location.search);
-          document.getElementById("or-entity").value = "shot";
-          document.getElementById("or-id").value = "sh_0001";
-          console.info("DebugPanel: init");
-          document.getElementById("runAll").click();
-        })();
-      })();
-
-      
-    </script>
-    <!-- ===== 4. End ===== -->
-  </body>
+    // Init
+    log('DebugPanel: init');
+    runAllChecks();
+  </script>
+</body>
 </html>

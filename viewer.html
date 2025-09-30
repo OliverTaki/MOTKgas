@@ -11,130 +11,6 @@
       catch(e){ window.scriptUrl = location.pathname; }
     })();
   </script>
-  <style>
-:root{
-  --surface:var(--bg-primary);
-  --panel:var(--bg-secondary);
-  --border:var(--border-color);
-  --toolbar-h:29px;
-  --nav-offset:0px;
-  --sbw:12px;
-  /* ↓ フッター高さぶんの下余白（JSで実測反映）。デフォルトは安全側 */
-  --footer-pad:96px;
-}
-html,body{height:100%;margin:0;}
-/* body へはフォント強制しない（GNAVI/PNAVIに影響しない） */
-#table-view-container{
-  position:relative;display:flex;flex-direction:column;min-height:100vh;
-  background:var(--surface);padding-top:var(--nav-offset);
-  font:13px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-}
-
-/* Toolbar */
-#toolbar{
-  flex:0 0 auto;display:flex;align-items:center;gap:8px;min-height:var(--toolbar-h);
-  padding:4px 8px;background:var(--panel);border-bottom:1px solid var(--border);
-  position:sticky;top:var(--nav-offset);z-index:100;font-size:13px;
-}
-#toolbar .btn{padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;}
-#toolbar .btn:disabled{opacity:.5;cursor:not-allowed;}
-#toolbar .btn:hover:not(:disabled){background:var(--panel);}
-#toolbar select,#toolbar input[type="search"]{padding:3px 8px;}
-.spacer{flex:1 1 auto;}
-.muted{opacity:.7;}
-#quickSearch{min-width:240px;}
-
-/* Table wrapper（横スクロール＋下余白を“常に”確保） */
-#tableWrap{
-  flex:1 1 auto;
-  min-height:0;
-  position:relative;
-  overflow-x:auto;
-  overflow-y:auto;
-  background:var(--surface);
-  /* ← フッター高さぶんの余白を CSS 変数で確保（JSが実測で更新） */
-  padding-bottom:var(--footer-pad, 96px);
-}
-#tableWrap::-webkit-scrollbar{width:var(--sbw);height:var(--sbw);}
-#tableWrap::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:6px;}
-#tableWrap::-webkit-scrollbar-track{background:#e8edf4;}
-
-#tableWrap > table{
-  display:block;
-  width:max-content;     /* 内容幅に合わせる → 横スクロール出る */
-  min-width:100%;
-  border-collapse:separate;border-spacing:0;margin:0;background:var(--surface);
-  table-layout:fixed;font-size:13px;
-}
-#tableWrap table thead{display:table-header-group;}
-#tableWrap table tbody{display:table-row-group;}
-
-#tableWrap table th,#tableWrap table td{
-  white-space:normal;padding:5px 8px;border-bottom:1px solid var(--border);
-  background:var(--surface);overflow:hidden;min-width:56px;word-break:break-word;
-}
-#tableWrap table thead th{
-  position:sticky;top:0;z-index:20;background:var(--panel);
-  border-bottom:1px solid var(--border);user-select:none;text-align:left;
-  padding:3px 8px;line-height:1.2;
-}
-th{position:relative;}
-th.draggable{cursor:move;}
-.resize-h{position:absolute;top:0;right:0;width:8px;height:100%;cursor:col-resize;user-select:none;}
-
-/* Footer (status + pager) — stickyで最前面。ただし #tableWrap の padding-bottom で被らない */
-#statusBar{
-  position:sticky;        /* ← sticky フッター */
-  bottom:0;
-  z-index:101;
-  flex:0 0 auto;
-  background:var(--panel);
-  border-top:1px solid var(--border);
-  display:flex;align-items:center;gap:8px;
-  padding:6px 8px;
-}
-#pager{display:flex;align-items:center;gap:8px;}
-#pager .btn{padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;min-width:34px;}
-#pager .btn:disabled{opacity:.5;cursor:not-allowed;}
-#perPage{padding:4px 8px;}
-#pageSelect{padding:4px 6px;min-width:70px;max-width:180px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:inherit;}
-
-/* Panels（はみ出さない） */
-.panel{
-  position:fixed;display:none;z-index:10000;background:var(--panel);border:1px solid var(--border);border-radius:8px;
-  padding:10px;box-shadow:0 10px 28px rgba(0,0,0,.18);
-  max-height:72vh;overflow:auto;
-  min-width:320px;max-width:min(92vw,640px);width:min(92vw,640px);
-  font-size:13px;
-}
-.panel .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;padding-bottom:6px;border-bottom:1px dashed var(--border);}
-.panel .btn{padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;}
-.panel .btn:hover{background:var(--panel);}
-.row{display:flex;align-items:flex-start;gap:8px;padding:4px 0;}
-.subtle{opacity:.7;font-size:12px;}
-.divider{height:1px;background:var(--border);margin:6px 0;}
-.tinyLabel{font-size:11px;opacity:.75;display:block;line-height:1.1;margin-bottom:2px;}
-
-/* Filter groups（見出し） */
-.fg-item{border:1px solid var(--border);border-radius:6px;margin:6px 0;}
-.fg-head{display:flex;align-items:center;gap:8px;padding:6px;}
-.fg-body{padding:6px 8px 8px 10px;border-top:1px dashed var(--border);}
-.fg-collapse{cursor:pointer;user-select:none;}
-.fg-title{font-weight:600;}
-
-/* Group header rows in table（少し明るい灰色） */
-.grp1{background:#f5f6f8;color:inherit;border-left:4px solid #d1d5db;}
-.grp2{background:#eef1f5;color:inherit;border-left:4px solid #e5e7eb;}
-.grpLabel{display:inline-block;padding:4px 10px;font-weight:600;}
-
-/* Save dropdown */
-.dropdown{position:relative;display:inline-block;}
-.dd-menu{position:absolute;left:0;top:calc(100% + 6px);background:var(--panel);border:1px solid var(--border);border-radius:8px;min-width:220px;box-shadow:0 10px 28px rgba(0,0,0,.18);display:none;}
-.dd-menu.open{display:block;}
-.dd-item{padding:8px 12px;cursor:pointer;}
-.dd-item:hover{background:rgba(0,0,0,.06);}
-
-  </style>
 </head>
 <body>
 <div id="table-view-container">
@@ -142,7 +18,6 @@ th.draggable{cursor:move;}
   <div id="toolbar">
     <select id="presetSelect" aria-label="Pages"></select>
     <span id="presetStatus" class="muted"></span>
-
     <!-- Save dropdown（Save / Save as… / Revert） -->
     <div class="dropdown" id="saveDD">
       <button id="saveDDBtn" class="btn">Save ▾</button>
@@ -152,21 +27,17 @@ th.draggable{cursor:move;}
         <div class="dd-item" data-act="revert">Revert</div>
       </div>
     </div>
-
     <!-- 旧ボタンは撤去（機能はドロップダウンに集約） -->
     <!-- <button id="saveCfgBtn" class="btn" disabled>Save</button> -->
     <!-- <button id="revertCfgBtn" class="btn" disabled>Revert</button> -->
-
     <button id="sortBtn" class="btn">Sort</button>
     <button id="filterBtn" class="btn">Filter</button>
     <button id="columnsBtn" class="btn">Fields</button>
     <div class="spacer"></div>
     <input id="quickSearch" type="search" placeholder="Server search (Enter)" />
   </div>
-
   <!-- Table -->
   <div id="tableWrap"></div>
-
   <!-- Footer -->
   <div id="statusBar">
     <span id="statusLeft" class="muted">loading…</span>
@@ -185,12 +56,10 @@ th.draggable{cursor:move;}
     </div>
   </div>
 </div>
-
 <!-- Panels -->
 <div id="colPanel" class="panel" role="dialog" aria-label="Fields menu"></div>
 <div id="sortPanel" class="panel" role="dialog" aria-label="Sort menu"></div>
 <div id="filterPanel" class="panel" role="dialog" aria-label="Filter menu"></div>
-
 <!-- New Page small popover -->
 <div id="npPopover" style="display:none;position:absolute;z-index:10001;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px;box-shadow:0 10px 28px rgba(0,0,0,.25);min-width:280px;">
   <h3 style="margin:0 0 8px 0;font:600 14px system-ui;">New Page</h3>
@@ -198,11 +67,11 @@ th.draggable{cursor:move;}
   <div class="row"><label style="min-width:72px;">Shared</label><label><input id="npShared" type="checkbox"> share with team</label></div>
   <div class="row" style="justify-content:flex-end;gap:8px;"><button id="npCancel" class="btn">Cancel</button><button id="npSave" class="btn">Save</button></div>
 </div>
-
+<?!= include('COMMON_renderer'); ?> <!-- FieldsAPI集約 (インライン挿入でMIMEエラー回避) -->
+<?!= include('Scripts'); ?> <!-- Router/Bootstrap (インライン挿入でMIMEエラー回避) -->
 <script>
 ;(function(){
   "use strict";
-
   /* ===== 1.layout offset for global navs ===== */
   function adjustNavOffset(){
     try{
@@ -211,7 +80,6 @@ th.draggable{cursor:move;}
       document.documentElement.style.setProperty('--nav-offset', (h||0)+'px');
     }catch(e){}
   }
-
   /* ===== 2.utils ===== */
   function uniq(a){var o={},r=[];for(var i=0;i<a.length;i++){var v=a[i];if(v!=null && v!=='' && !o[v]){o[v]=1;r.push(v)}}return r;}
   var rIC = window.requestIdleCallback
@@ -225,7 +93,6 @@ th.draggable{cursor:move;}
   function clamp(n,a,b){return Math.max(a,Math.min(b,n));}
   function deepCopy(o){return JSON.parse(JSON.stringify(o));}
   function hasGoogle(){return !!(window.google&&google.script&&google.script.run);}
-
 /* ===== 2A.copy helper ===== */
 function copy(o){
   var r={};
@@ -236,7 +103,6 @@ function copy(o){
   }
   return r;
 }
-
 /* ===== 2B.global closers ===== */
 // 任意の「メニュー/パネル」を、外クリック or ESC で閉じられるようにする共通ヘルパ
 function addGlobalClosers(popupEl, anchorEl, onClose){
@@ -258,14 +124,12 @@ function addGlobalClosers(popupEl, anchorEl, onClose){
   popupEl.setAttribute('data-global-closer','1');
   document.addEventListener('mousedown', onDocMouseDown);
   document.addEventListener('keydown', onKey);
-
   // 後片付け用
   popupEl._closerteardown = function(){
     document.removeEventListener('mousedown', onDocMouseDown);
     document.removeEventListener('keydown', onKey);
   };
 }
-
 function removeGlobalClosers(popupEl){
   try{
     if(popupEl && popupEl._closerteardown){
@@ -274,26 +138,20 @@ function removeGlobalClosers(popupEl){
     }
   }catch(e){}
 }
-
 /* ===== 2C.entity name normalizer (server向け) ===== */
 function entityForServer(){
   // UI のラベルや大小・スペースの揺れを吸収して、サーバ既定の識別子に正規化
   var c = _canon(STATE.sheetName);
-
   // 「Members」表示でも厳格に ProjectMembers を使う
   if (c === 'members' || c === 'projectmembers' || c === 'projectmember' || c === 'project members'){
     return 'ProjectMembers';
   }
-
   // 既定はそのまま（既存と互換）
   return STATE.sheetName;
 }
-
-
   /* ===== 3.localStorage ===== */
   function LSC_get(key,age){try{var raw=localStorage.getItem(key);if(!raw)return null;var o=JSON.parse(raw);if(!o||o.t==null)return null;if(age!=null&&(Date.now()-o.t)>age)return null;return o.v;}catch(e){return null}}
   function LSC_set(key,v){try{localStorage.setItem(key,JSON.stringify({t:Date.now(),v:v}))}catch(e){}}
-
   function showStatus(msg){var s=document.getElementById('statusLeft');if(s)s.textContent=msg||'';}
   function setFinalStatus(){
     var s=document.getElementById('statusLeft'); if(!s)return;
@@ -303,7 +161,6 @@ function entityForServer(){
     var end=Math.min(STATE.total,STATE.page*STATE.perPage);
     s.textContent=(STATE.total?(start+'–'+end+' of '+STATE.total+' '+label):('0 of 0 '+label))+src;
   }
-
   var DEFAULT_COL_W=140;
   function defaultWidthFor(colId, headerText){
     var h=String(headerText||'').toLowerCase();
@@ -311,7 +168,6 @@ function entityForServer(){
     if(/^fi_0002$/i.test(colId) || /shot(code)?/i.test(h)) return 120;
     return DEFAULT_COL_W;
   }
-
 /* ===== 4.state ===== */
 var STATE={
   sheetName:'', pageType:'table',
@@ -322,24 +178,18 @@ var STATE={
   dirty:false,
   perPage:100, page:1,
   sort:[],
-
   /* ---- Filter groups only（flat filterは使わない） ---- */
-  filterSets:{},           // { groupName: { name, mode:'all'|'any', rules:[...] } }
-  selectedGroups:{},       // { groupName: true/false } 適用対象
-  groupCombine:'all',      // 右上のグループ同士の結合
-
+  filterSets:{}, // { groupName: { name, mode:'all'|'any', rules:[...] } }
+  selectedGroups:{}, // { groupName: true/false } 適用対象
+  groupCombine:'all', // 右上のグループ同士の結合
   /* グループ見出しの有効フラグ（未定義だと無効化されるため既定で true） */
   groupEnabled:true,
-
   dataSource:'',
   _dataReady:false, _cfgReady:false,
   _prevRowForGroup:null
 };
-
 /* ===== 4A. state guard ===== */
 if (!Array.isArray(STATE.group)) STATE.group = [];
-
-
 /* ===== 5.link label maps ===== */
 window.LINK_MAPS = window.LINK_MAPS || {assets:{}, shots:{}, tasks:{}, users:{}, members:{}};
 var KNOWN_LINK_FIELD_IDS={
@@ -348,29 +198,27 @@ var KNOWN_LINK_FIELD_IDS={
   fi_0037:'user',
   fi_0058:'user',
   fi_0061:'asset', fi_0062:'task',
-  fi_0063:'shot',  fi_0064:'task',
+  fi_0063:'shot', fi_0064:'task',
   fi_0065:'asset'
 };
-
 /* 小ヘルパ（このセクション内だけで使う） */
 function _idxOf(a,v){ if(!Array.isArray(a)) return -1; for(var i=0;i<a.length;i++){ if(a[i]===v) return i; } return -1; }
-
 function prefetchEntityMap(entity, pickNameFn, bucketKey){
   if(!hasGoogle())return;
   var key='map:'+entity; if(prefetchEntityMap[key])return; prefetchEntityMap[key]=true;
   google.script.run.withSuccessHandler(function(res){
     try{
       // DataHub 形式/オブジェクト形式の双方に対応
-      var ids   = (res && Array.isArray(res.ids)) ? res.ids
+      var ids = (res && Array.isArray(res.ids)) ? res.ids
                 : (Array.isArray(res) && Array.isArray(res[0]) ? res[0] : []);
       var header= (res && Array.isArray(res.header)) ? res.header
                 : (Array.isArray(res) && Array.isArray(res[1]) ? res[1] : []);
-      var rows  = (res && Array.isArray(res.rows)) ? res.rows
+      var rows = (res && Array.isArray(res.rows)) ? res.rows
                 : (Array.isArray(res) ? res.slice(2) : []);
       var map={};
       for(var r=0;r<rows.length;r++){
         var row = rows[r]||[];
-        var id  = String(row[0]||'').trim(); if(!id) continue;
+        var id = String(row[0]||'').trim(); if(!id) continue;
         var name = pickNameFn(ids, header, row) || id;
         map[id]=name;
       }
@@ -378,7 +226,6 @@ function prefetchEntityMap(entity, pickNameFn, bucketKey){
     }catch(e){}
   }).withFailureHandler(function(){/* ignore */}).listRowsPage({entity:entity,offset:0,limit:50000});
 }
-
 /* 以下 pick系は (ids, header, row) 署名に統一 */
 function pickAssetName(ids, header, row){
   var i = header.findIndex(function(h){return String(h).toLowerCase().includes('asset name')});
@@ -409,7 +256,6 @@ function pickMemberName(ids, header, row){
   if(i<0) i=1; // それでも無ければ2列目
   return String(row[i]||'').trim();
 }
-
   /* ===== 6.Proxy index ===== */
   var PROXY_CACHE={};
   function prefetchProxyIndex(){
@@ -419,9 +265,8 @@ function pickMemberName(ids, header, row){
         try{
           var latest=(idx&&idx.latestByShotId)?idx.latestByShotId:{};
           for(var k in latest){ PROXY_CACHE[String(k)]=latest[k]||null; }
-
           // 可視セルの再判定（スクロール/カスタムイベントの両方を飛ばす）
-          var wrap=document.getElementById('tableWrap'); 
+          var wrap=document.getElementById('tableWrap');
           if(wrap){
             try{
               var ev=new Event('scroll'); wrap.dispatchEvent(ev);
@@ -436,8 +281,6 @@ function pickMemberName(ids, header, row){
       function(){}
     );
   }
-
-
   /* ===== 7.GAS util ===== */
   function callFirst(names, params, onOk, onFail){
     onOk=onOk||function(){}; onFail=onFail||function(){};
@@ -450,7 +293,6 @@ function pickMemberName(ids, header, row){
       }catch(e){ next(); }
     })();
   }
-
   /* ===== 8.URL state ===== */
   function readUrlState(){
     var usp=new URLSearchParams(location.search);
@@ -459,7 +301,6 @@ function pickMemberName(ids, header, row){
     var pp=parseInt(usp.get('pp')||'',10); if(pp===50||pp===100||pp===200||pp===500)STATE.perPage=pp;
     // sort はそのまま維持
     var s=usp.get('s')||''; STATE.sort=parseSortParam(s);
-
     // 旧フィルタは使わない（互換維持のため読みはするが送らない）
     // var f=usp.get('f')||''; STATE.filter=parseFilterParam(f);
     // var fm=(usp.get('fm')||'all').toLowerCase(); STATE.filterMode=(fm==='any'?'any':'all');
@@ -476,13 +317,13 @@ function pickMemberName(ids, header, row){
   function parseSortParam(s){if(!s)return[];return s.split(',').map(function(x){return x.match(/^([^.]+)\.(asc|desc)$/i)}).filter(Boolean).map(function(m){return({id:m[1],dir:m[2].toLowerCase(),on:true})})}
   function serializeSort(l){if(!l||!l.length)return'';return l.map(function(it){return it&&it.id?(it.id+'.'+(it.dir==='desc'?'desc':'asc')):''}).filter(Boolean).join(',')}
 
+
 /* ===== 9.pages / config ===== */
 function _getVal(o,keys){for(var i=0;i<keys.length;i++){var k=keys[i]; if(o&&o[k]!=null) return o[k];} return null;}
 function getPageId(x){return (_getVal(x,['pageId','id','fi_0052','Page ID'])||'')}
 function getPageName(x){return (_getVal(x,['pageName','name','fi_0053','Page Name'])||'(no name)')}
 function getPageType(x){return (_canon(_getVal(x,['pageType','Page Type','type','fi_0054']))||'')}
 function getPageEnt(x){ return (_canon(_getVal(x,['entity','Entity','fi_0055']))||'') }
-
 function loadPagesFromCacheThenNetwork(){
   var key='motk:pages:'+_canon(STATE.sheetName);
   var cached=LSC_get(key,60*60*1000);
@@ -522,7 +363,6 @@ function onPresetChange(){
   showStatus('loading settings…');
   loadPageConfigFromCacheThenNetwork(STATE.pageId,function(){ fetchAndRenderPage(1); });
 }
-
 function applyLoadedConfig(cfg){
   STATE.pageCfgRaw={
     order:(cfg&&Array.isArray(cfg.order))?uniq(cfg.order):null,
@@ -538,12 +378,10 @@ function applyLoadedConfig(cfg){
   STATE.filterSets=copy(STATE.pageCfgRaw.filterSets||{});
   STATE.filterGroups=Array.isArray(STATE.pageCfgRaw.filterGroups)?deepCopy(STATE.pageCfgRaw.filterGroups):[];
   STATE.groupCombine=(cfg&&cfg.groupCombine==='any')?'any':'all';
-
   // 旧 filterSets は互換保持（未使用でも空で作る）
   if(Object.keys(STATE.filterSets).length===0){
     STATE.filterSets['Group 1']={name:'Group 1',mode:'any',rules:[]};
   }
-
   // filterGroups が空なら「empty ルール1本入り」のグループを初期投入
   if(!Array.isArray(STATE.filterGroups) || STATE.filterGroups.length===0){
     STATE.filterGroups=[{
@@ -559,12 +397,9 @@ function applyLoadedConfig(cfg){
       g0.rules=[{ id:'', op:'isempty', value:'', values:[] }];
     }
   }
-
   STATE.selectedGroups={};
   Object.keys(STATE.filterSets).forEach(function(nm){ STATE.selectedGroups[nm]=true; });
 }
-
-
 function loadPageConfigFromCacheThenNetwork(pid,done){
   if(!pid){
     STATE.pageCfgRaw=null; STATE.widths={}; STATE.hiddenCols={};
@@ -575,7 +410,6 @@ function loadPageConfigFromCacheThenNetwork(pid,done){
   var key='motk:cfg:'+pid;
   var cached=LSC_get(key,24*60*60*1000);
   if(cached){ applyLoadedConfig(cached); setDirty(false); }
-
   callFirst(['sv_loadPageConfig','gsLoadPageConfig','getPageLayout'],{pageId:pid},
     function(cfg){
       applyLoadedConfig(cfg||{});
@@ -594,16 +428,14 @@ function loadPageConfigFromCacheThenNetwork(pid,done){
     function(){ if(done)done(); }
   );
 }
-
 /* ===== 9E.detail link fields config ===== */
 /* 将来的には ProjectMeta から取得する想定の“詳細リンク化フィールド”の定義。
    いまは固定マップで運用し、後で差し替えやすい形にしておく。 */
 var DETAIL_LINK_FIELDS = {
   // canon（小文字・末尾s吸収） → FieldID の配列
-  projectmembers: ['fi_0035']   // Role だけを詳細リンク化
+  projectmembers: ['fi_0035'] // Role だけを詳細リンク化
   // 例）users: ['fi_00xx'], tasks: ['fi_00yy'] ... と後で増やす
 };
-
 /* 補助: 表示ラベルから canon を得て、リンク対象かどうか判定 */
 function isDetailLinkField(canon, fieldId){
   var c = _canon(canon);
@@ -614,7 +446,6 @@ function isDetailLinkField(canon, fieldId){
   }
   return false;
 }
-
 
 /* ===== 10.start ===== */
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',onDom,{once:true}); else onDom();

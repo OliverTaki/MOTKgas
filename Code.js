@@ -1165,8 +1165,20 @@ function dp_traceOriginals(req){
   function step(name, ok, info){ out.steps.push({ name:name, ok:!!ok, info: info||{} }); }
   function _isHttpUrl_(s){ return typeof s === "string" && /^https?:\/\//i.test(s); }
   function _safeCall_(name, arg){
-    try{ var f = this[name]; if (typeof f === "function") return {name:name, value:f(arg)}; }catch(_){}
-    return {name:null, value:null};
+    try{ 
+      var fn = Function('return ' + name + ';')();  // 動的参照 (GAS互換)
+      if (typeof fn === "function") { 
+        var val = fn(arg); 
+        step(name, val != null, { fn: name, url: _isHttpUrl_(val) ? val : null }); 
+        return {name:name, value:val}; 
+      } else {
+        step(name, false, { fn: name, exists: false });
+        return {name:name, value:null};
+      }
+    }catch(e){
+      step(name, false, { fn: name, error: e.message });
+      return {name:name, value:null};
+    }
   }
   function _safeChain_(names, arg){
     for (var i=0;i<names.length;i++){
@@ -1177,22 +1189,22 @@ function dp_traceOriginals(req){
   }
 
   // A) DriveBuilder
-  var db   = _safeChain_(["DB_getOriginalsUrl","DriveBuilder_getOriginalsUrl","DB_getOriginalsFolderUrl","DriveBuilder_getOriginalsFolderUrl"], [ent,id]);
+  var dbNames = ["DB_getOriginalsUrl","DriveBuilder_getOriginalsUrl","DB_getOriginalsFolderUrl","DriveBuilder_getOriginalsFolderUrl"];
+  var db   = _safeChain_(dbNames, [ent,id]);
   var dbUrl= "";
   if (db.value) {
     if (typeof db.value === "string" && _isHttpUrl_(db.value)) dbUrl = db.value;
     else if (db.value && typeof db.value === "object" && _isHttpUrl_(db.value.url)) dbUrl = db.value.url;
   }
-  step("DriveBuilder", !!dbUrl, { fn: db.name, url: dbUrl || null });
 
   // B) generic server APIs
-  var api   = _safeChain_(["sv_getOriginalsUrl","getOriginalsUrl","sv_getOriginalsFolderUrl","getOriginalsFolderUrl"], {entity:ent,id:id});
+  var apiNames = ["sv_getOriginalsUrl","getOriginalsUrl","sv_getOriginalsFolderUrl","getOriginalsFolderUrl"];
+  var api   = _safeChain_(apiNames, {entity:ent,id:id});
   var apiUrl= "";
   if (api.value) {
     if (typeof api.value === "string" && _isHttpUrl_(api.value)) apiUrl = api.value;
     else if (api.value && typeof api.value === "object" && _isHttpUrl_(api.value.url)) apiUrl = api.value.url;
   }
-  step("ServerAPIs", !!apiUrl, { fn: api.name, url: apiUrl || null });
 
   // C) project meta root
   var root = "";
@@ -1209,5 +1221,89 @@ function dp_traceOriginals(req){
 }
 /* ===== 98. End ===== */
 
+/* ===== 99. Setup & Helpers ===== */
 
+/** Read-only data loader: Simulate app data load without GSS changes */
+function loadAppData() {
+  var props = PropertiesService.getScriptProperties();
+  var loadedKey = 'data_loaded';
+  if (props.getProperty(loadedKey)) {
+    console.log('Data already simulated. Skipping.');
+    return;
+  }
+  
+  // GSS読取のみ（書き込みなし）でメタ確認
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var metaSh = ss.getSheetByName('project_meta');
+    if (metaSh) {
+      var metaData = metaSh.getRange(1, 1, 2, metaSh.getLastColumn()).getValues();
+      var meta = {};
+      metaData[0].forEach(function(k, i) { meta[String(k).toLowerCase()] = metaData[1][i]; });
+      console.log('GSS meta read: originals_root_url=' + (meta.originals_root_url || 'unset'));
+    }
+  } catch (e) {
+    console.error('GSS read error: ' + e.message);
+  }
+  
+  props.setProperty(loadedKey, 'true');
+  console.log('Read-only load complete: No GSS changes. Use dp_loadAppData for debug verification.');
+}
 
+/** Load FIELD_TYPES from Fields sheet (entity-specific, read-only) */
+function getFieldTypes(entity) {  // entityフィルタ追加で効率化
+  try {
+    var sh = SpreadsheetApp.getActive().getSheetByName('Fields');
+    if (!sh || sh.getLastRow() < 2) return {};
+    
+    var data = sh.getDataRange().getValues();
+    var types = {};
+    var targetEntity = (entity || '').toLowerCase().trim();
+    for (var r = 1; r < data.length; r++) {
+      var fid = String(data[r][0] || '').trim();
+      var ent = String(data[r][1] || '').toLowerCase().trim();
+      if (fid && (!targetEntity || ent === targetEntity)) {
+        if (!types[ent]) types[ent] = {};
+        types[ent][fid] = { 
+          label: String(data[r][2] || '').trim(), 
+          type: String(data[r][3] || 'text').trim(),
+          editable: !!(data[r][4] || false), 
+          required: !!(data[r][5] || false) 
+        };
+      }
+    }
+    return types;
+  } catch (e) {
+    console.error('getFieldTypes error: ' + e.message);
+    return {};
+  }
+}
+
+/** Debug: Load app data (LINK_MAPS + FieldTypes) for panel verification - アプリ読み込みフローテスト（read-only） */
+function dp_loadAppData() {
+  try {
+    // アプリ関数シミュレート（sv_getLinkMaps/getFieldTypes呼出、GSS読取のみ）
+    var linkMaps = typeof sv_getLinkMaps === 'function' ? sv_getLinkMaps() : { assets:{}, shots:{}, tasks:{}, users:{}, members:{} };
+    var fieldTypes = getFieldTypes();
+    var meta = typeof _sv_getMeta_ === 'function' ? _sv_getMeta_({}) : {};
+    
+    // カウント/キー抽出
+    var counts = { assets: Object.keys(linkMaps.assets || {}).length, shots: Object.keys(linkMaps.shots || {}).length, tasks: Object.keys(linkMaps.tasks || {}).length, users: Object.keys(linkMaps.users || {}).length, members: Object.keys(linkMaps.members || {}).length };
+    var fieldKeys = Object.keys(fieldTypes).reduce((acc, ent) => acc + Object.keys(fieldTypes[ent] || {}).length, 0);
+    
+    return {
+      linkMaps: linkMaps,
+      fieldTypes: fieldTypes,
+      meta: meta,
+      counts: counts,
+      fieldKeysTotal: fieldKeys,
+      ts: Date.now(),
+      message: 'App data loaded successfully (read-only, no GSS changes).'
+    };
+  } catch (e) {
+    console.error('dp_loadAppData error: ' + e.message);
+    return { error: e.message, ts: Date.now() };
+  }
+}
+
+/* ===== 99. End ===== */
