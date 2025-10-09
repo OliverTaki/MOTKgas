@@ -18,76 +18,7 @@ function include(filename) {
 }
 /* ===== 2. End ===== */
 
-/* ===== 3. doGet Router（差し替え・全文） ===== */
-
-var __VIEW_CTX = { scriptUrl:'', page:'', entity:'', id:'', dataJson:'[]' };
-
-function include(filename) {
-  var t = HtmlService.createTemplateFromFile(filename);
-  for (var k in __VIEW_CTX) if (__VIEW_CTX.hasOwnProperty(k)) t[k] = __VIEW_CTX[k];
-  return t.evaluate().getContent();
-}
-
-// ページ名 → テンプレート名の明示マップ（存在ファイルのみ）
-var PAGE_TEMPLATE_MAP = {
-  // 一覧系
-  "shots":       "index",
-  "shottable":   "index",
-  "index":       "index",
-
-  // 詳細
-  "detailshot":  "DETAIL_entity",
-  "detailasset": "DETAIL_entity",
-  "detailtask":  "DETAIL_entity",
-  "detailmember": "DETAIL_entity",
-  "detailuser":  "DETAIL_entity",
-  "detail_entity": "DETAIL_entity",
-
-  // デバッグ（実体は DebugPanelPage.html）
-  "debugpanel":      "DebugPanelPage",
-  "debugpanelpage":  "DebugPanelPage"
-};
-
-function _resolveTemplateName_(page, entity, id) {
-  var p = String(page || "").toLowerCase();
-
-  // entity + id を最優先（一覧URLからの遷移でも確実に詳細へ）
-  if (entity && id) return "DETAIL_entity";
-
-  // 明示マップ
-  if (p && PAGE_TEMPLATE_MAP[p]) return PAGE_TEMPLATE_MAP[p];
-
-  // 既定は index
-  return "index";
-}
-
-function doGet(e) {
-  var p = (e && e.parameter) || {};
-  __VIEW_CTX.scriptUrl = ScriptApp.getService().getUrl();
-  __VIEW_CTX.page   = p.page   || 'Shots';
-  __VIEW_CTX.entity = (p.entity||'').toLowerCase();
-  __VIEW_CTX.id     = p.id     || '';
-
-  var templateName = _resolveTemplateName_(__VIEW_CTX.page, __VIEW_CTX.entity, __VIEW_CTX.id);
-
-  try {
-    var t = HtmlService.createTemplateFromFile(templateName);
-    for (var k in __VIEW_CTX) if (__VIEW_CTX.hasOwnProperty(k)) t[k] = __VIEW_CTX[k];
-
-    var out = t.evaluate();
-    out.setTitle(templateName);
-    out.addMetaTag('viewport', 'width=device-width, initial-scale=1');
-    return out;
-  } catch (err) {
-    var msg = HtmlService.createHtmlOutput(
-      '<h1>404 Not Found</h1>'
-      + '<p>Page "'+ templateName + '" not available.</p>'
-    );
-    msg.setTitle('404 Not Found');
-    return msg;
-  }
-}
-/* ===== 3. End ===== */
+/* ===== 3. doGet Router（差し替え・全文） ===== */var __VIEW_CTX={scriptUrl:'',page:'',entity:'',id:'',dataJson:'[]'};function include(filename){var t=HtmlService.createTemplateFromFile(filename);for(var k in __VIEW_CTX)if(__VIEW_CTX.hasOwnProperty(k))t[k]=__VIEW_CTX[k];return t.evaluate().getContent()}var PAGE_TEMPLATE_MAP={"shots":"viewer","shottable":"viewer","index":"viewer","viewer":"viewer","detailshot":"DETAIL_entity","detailasset":"DETAIL_entity","detailtask":"DETAIL_entity","detailmember":"DETAIL_entity","detailuser":"DETAIL_entity","detail_entity":"DETAIL_entity","debugpanel":"DebugPanelPage","debugpanelpage":"DebugPanelPage"};function _resolveTemplateName_(page,entity,id){var p=String(page||"").toLowerCase();if(entity&&id)return"DETAIL_entity";if(p&&PAGE_TEMPLATE_MAP[p])return PAGE_TEMPLATE_MAP[p];return"viewer"}function doGet(e){var p=(e&&e.parameter)||{};__VIEW_CTX.scriptUrl=ScriptApp.getService().getUrl();__VIEW_CTX.page=p.page||'Shots';__VIEW_CTX.entity=(p.entity||'').toLowerCase();__VIEW_CTX.id=p.id||'';var templateName=_resolveTemplateName_(__VIEW_CTX.page,__VIEW_CTX.entity,__VIEW_CTX.id);try{var t=HtmlService.createTemplateFromFile(templateName);for(var k in __VIEW_CTX)if(__VIEW_CTX.hasOwnProperty(k))t[k]=__VIEW_CTX[k];var out=t.evaluate();out.setTitle(templateName);out.addMetaTag('viewport','width=device-width, initial-scale=1');return out}catch(err){try{var fv=HtmlService.createTemplateFromFile('viewer');for(var kv in __VIEW_CTX)if(__VIEW_CTX.hasOwnProperty(kv))fv[kv]=__VIEW_CTX[kv];var outv=fv.evaluate();outv.setTitle('viewer');outv.addMetaTag('viewport','width=device-width, initial-scale=1');return outv}catch(_){var msg=HtmlService.createHtmlOutput('<h1>404 Not Found</h1><p>Page \"'+templateName+'\" not available.</p>');msg.setTitle('404 Not Found');return msg}}}/* ===== 3. End ===== */
 
 
 
