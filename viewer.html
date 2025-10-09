@@ -720,29 +720,6 @@ function isDetailLinkField(canon, fieldId){
 /* ===== 10.start End ===== */
 </script>
 
-function start(){
-  STATE.sheetName = detectSheetNameFromDOM() || (window.ALL_DATA && ALL_DATA.sheetName) || '';
-  bindPagerControls();
-  updatePagerUI();
-  loadPagesFromCacheThenNetwork();
-  loadPageConfigFromCacheThenNetwork(STATE.pageId,function(){ STATE._cfgReady=true; maybeRender(); });
-  fetchPageOnlyFromCacheThenNetwork(1,function(){ STATE._dataReady=true; maybeRender(); });
-  prefetchProxyIndex();
-  prefetchEntityMap('Assets',pickAssetName,'assets');
-  prefetchEntityMap('Shots', pickShotCode,'shots');
-  prefetchEntityMap('Tasks', pickTaskName,'tasks');
-  prefetchEntityMap('Users', pickUserName,'users');
-  prefetchEntityMap('ProjectMembers', pickMemberName,'members');
-}
-function detectSheetNameFromDOM(){
-  var a=document.querySelector('#pNav a.active'); var label=a?(a.textContent||'').trim():'';
-  if(!label){ var first=document.querySelector('#pNav a[href]'); label=first?(first.textContent||'').trim():''; }
-  if(!label){ var usp=new URLSearchParams(location.search); label=(usp.get('page')||'').trim(); }
-  return label;
-}
-function maybeRender(){ if(!(STATE._dataReady&&STATE._cfgReady))return; showStatus('applying page…'); raf(function(){ renderCurrentPage(true); }); }
-
-
 /* ===== 11.data fetch ===== */
 function detectSourceByIds(ids){
   try{
