@@ -48,6 +48,7 @@
         <option value="100" selected>100</option>
         <option value="200">200</option>
         <option value="500">500</option>
+        <option value="all">ALL</option>
       </select>
       <span class="muted">per page</span>
       <button id="prevBtn" class="btn" aria-label="Previous page">‹</button>
@@ -157,11 +158,155 @@ function entityForServer(){
     var s=document.getElementById('statusLeft'); if(!s)return;
     var src=STATE.dataSource?(' · '+STATE.dataSource):'';
     var label=(STATE.sheetName||'Rows');
-    var start=(STATE.total===0)?0:((STATE.page-1)*STATE.perPage+1);
-    var end=Math.min(STATE.total,STATE.page*STATE.perPage);
-    s.textContent=(STATE.total?(start+'–'+end+' of '+STATE.total+' '+label):('0 of 0 '+label))+src;
+    var totalRows=getTotalRows();
+    var perWindow=resolvePageWindow();
+    var start=(totalRows===0)?0:((STATE.page-1)*perWindow+1);
+    if(STATE.perPage===PER_PAGE_ALL){ start = totalRows===0 ? 0 : 1; }
+    var end = (STATE.perPage===PER_PAGE_ALL) ? totalRows : Math.min(totalRows, STATE.page*perWindow);
+    if(!isFinite(end) || end<0) end = 0;
+    s.textContent=(totalRows?(start+'–'+end+' of '+totalRows+' '+label):('0 of 0 '+label))+src;
   }
+
+  function getTotalRows(){
+    var total = Number(STATE && STATE.total);
+    if(!isFinite(total) || total < 0) total = 0;
+    if(total === 0){
+      var len = Array.isArray(STATE && STATE.rows) ? STATE.rows.length : 0;
+      if(len > 0) total = len;
+    }
+    return total;
+  }
+
+  function resolvePageWindow(){
+    if(STATE && STATE.perPage === PER_PAGE_ALL){
+      var total = getTotalRows();
+      return total > 0 ? total : MAX_FETCH_LIMIT;
+    }
+    var num = Number(STATE && STATE.perPage);
+    if(!num || num < 1) num = DEFAULT_PER_PAGE;
+    return num;
+  }
+
+  function resolveFetchLimit(){
+    return (STATE && STATE.perPage === PER_PAGE_ALL) ? MAX_FETCH_LIMIT : resolvePageWindow();
+  }
+
+  function computeTotalPages(){
+    if(STATE && STATE.perPage === PER_PAGE_ALL) return 1;
+    var per = resolvePageWindow();
+    var total = getTotalRows();
+    if(total <= 0) return 1;
+    return Math.max(1, Math.ceil(total / per));
+  }
+
+  function normalizePerPageValue(value){
+    if(value == null) return DEFAULT_PER_PAGE;
+    var str = String(value).toLowerCase();
+    if(str === PER_PAGE_ALL) return PER_PAGE_ALL;
+    var num = parseInt(str, 10);
+    return PER_PAGE_ALLOWED.indexOf(num) >= 0 ? num : DEFAULT_PER_PAGE;
+  }
+
+  function perPageToString(value){
+    return value === PER_PAGE_ALL ? PER_PAGE_ALL : String(value || DEFAULT_PER_PAGE);
+  }
+
+  function updatePagerUI(){
+    var perSel=document.getElementById('perPage');
+    if(perSel){
+      var desired = perPageToString(STATE.perPage);
+      if(perSel.value !== desired) perSel.value = desired;
+    }
+    var totalPages = computeTotalPages();
+    if(STATE.perPage === PER_PAGE_ALL) STATE.page = 1;
+    else if(STATE.page > totalPages) STATE.page = totalPages;
+    var pageSel=document.getElementById('pageSelect');
+    if(pageSel){
+      if(pageSel.options.length !== totalPages){
+        var frag=document.createDocumentFragment();
+        for(var i=1;i<=totalPages;i++){
+          var opt=document.createElement('option');
+          opt.value=String(i);
+          opt.textContent='Page '+i;
+          frag.appendChild(opt);
+        }
+        pageSel.innerHTML='';
+        pageSel.appendChild(frag);
+      }
+      pageSel.value=String(STATE.page);
+      pageSel.disabled = totalPages <= 1;
+    }
+    var prevBtn=document.getElementById('prevBtn');
+    if(prevBtn) prevBtn.disabled = (STATE.page <= 1);
+    var nextBtn=document.getElementById('nextBtn');
+    if(nextBtn) nextBtn.disabled = (STATE.perPage === PER_PAGE_ALL) || (STATE.page >= totalPages);
+  }
+
+  function bindPagerControls(){
+    var perSel=document.getElementById('perPage');
+    if(perSel){
+      var perClone=perSel.cloneNode(true);
+      perSel.parentNode.replaceChild(perClone, perSel);
+      perSel=perClone;
+      perSel.value=perPageToString(STATE.perPage);
+      perSel.addEventListener('change', function(){
+        var normalized = normalizePerPageValue(perSel.value);
+        if(normalized === STATE.perPage) return;
+        STATE.perPage = normalized;
+        perSel.value = perPageToString(STATE.perPage);
+        STATE.page = 1;
+        fetchAndRenderPage(1);
+      });
+    }
+    var pageSel=document.getElementById('pageSelect');
+    if(pageSel){
+      var pageClone=pageSel.cloneNode(true);
+      pageSel.parentNode.replaceChild(pageClone, pageSel);
+      pageSel=pageClone;
+      pageSel.addEventListener('change', function(){
+        var target = parseInt(pageSel.value, 10);
+        if(!isFinite(target) || target < 1) target = 1;
+        fetchAndRenderPage(target);
+      });
+    }
+    var prevBtn=document.getElementById('prevBtn');
+    if(prevBtn){
+      var prevClone=prevBtn.cloneNode(true);
+      prevBtn.parentNode.replaceChild(prevClone, prevBtn);
+      prevBtn=prevClone;
+      prevBtn.addEventListener('click', function(ev){
+        ev.preventDefault();
+        ev.stopPropagation();
+        ev.stopImmediatePropagation();
+        if(prevBtn.disabled) return;
+        var target = Math.max(1, STATE.page-1);
+        if(target === STATE.page) return;
+        fetchAndRenderPage(target);
+      }, true);
+    }
+    var nextBtn=document.getElementById('nextBtn');
+    if(nextBtn){
+      var nextClone=nextBtn.cloneNode(true);
+      nextBtn.parentNode.replaceChild(nextClone, nextBtn);
+      nextBtn=nextClone;
+      nextBtn.addEventListener('click', function(ev){
+        ev.preventDefault();
+        ev.stopPropagation();
+        ev.stopImmediatePropagation();
+        if(nextBtn.disabled) return;
+        var totalPages = computeTotalPages();
+        var target = Math.min(totalPages, STATE.page+1);
+        if(target === STATE.page) return;
+        fetchAndRenderPage(target);
+      }, true);
+    }
+  }
+
   var DEFAULT_COL_W=140;
+  var DEFAULT_PER_PAGE=100;
+  var PER_PAGE_ALLOWED=[50, DEFAULT_PER_PAGE, 200, 500];
+  var PER_PAGE_ALL='all';
+  var MAX_FETCH_LIMIT=5000;
   function defaultWidthFor(colId, headerText){
     var h=String(headerText||'').toLowerCase();
     if(h==='shotview' || h==='assetview') return 100;
@@ -176,7 +321,7 @@ var STATE={
   pageList:[], pageId:'pg_default',
   pageCfgRaw:null, widths:{}, hiddenCols:{},
   dirty:false,
-  perPage:100, page:1,
+  perPage:DEFAULT_PER_PAGE, page:1,
   sort:[],
   /* ---- Filter groups only（flat filterは使わない） ---- */
   filterSets:{}, // { groupName: { name, mode:'all'|'any', rules:[...] } }
@@ -298,7 +443,10 @@ function pickMemberName(ids, header, row){
     var usp=new URLSearchParams(location.search);
     var pid=usp.get('pid'); if(pid)STATE.pageId=pid;
     var pg=parseInt(usp.get('pg')||'1',10); if(pg>0)STATE.page=pg;
-    var pp=parseInt(usp.get('pp')||'',10); if(pp===50||pp===100||pp===200||pp===500)STATE.perPage=pp;
+    var ppParam=usp.get('pp'); if(ppParam){
+      if(String(ppParam).toLowerCase()===PER_PAGE_ALL){ STATE.perPage=PER_PAGE_ALL; }
+      else { var pp=parseInt(ppParam,10); if(PER_PAGE_ALLOWED.indexOf(pp)>=0) STATE.perPage=pp; }
+    }
     // sort はそのまま維持
     var s=usp.get('s')||''; STATE.sort=parseSortParam(s);
     // 旧フィルタは使わない（互換維持のため読みはするが送らない）
@@ -309,7 +457,9 @@ function pickMemberName(ids, header, row){
     if(!usp) usp=new URLSearchParams(location.search);
     if(STATE.pageId) usp.set('pid',STATE.pageId);
     if(STATE.page>1) usp.set('pg',String(STATE.page)); else usp.delete('pg');
-    if(STATE.perPage!==100) usp.set('pp',String(STATE.perPage)); else usp.delete('pp');
+    if(STATE.perPage===PER_PAGE_ALL) usp.set('pp', PER_PAGE_ALL);
+    else if(STATE.perPage!==DEFAULT_PER_PAGE) usp.set('pp',String(STATE.perPage));
+    else usp.delete('pp');
     var s=serializeSort(STATE.sort.filter(function(x){return x&&x.on!==false;})); if(s)usp.set('s',s); else usp.delete('s');
     // f/fm は書かない（groupベースに移行）
     return usp;
@@ -492,7 +642,8 @@ function navigateTo(label){
 }
 function start(){
   STATE.sheetName = detectSheetNameFromDOM() || (window.ALL_DATA && ALL_DATA.sheetName) || '';
-  var perSel=document.getElementById('perPage'); if(perSel) perSel.value=String(STATE.perPage);
+  bindPagerControls();
+  updatePagerUI();
   loadPagesFromCacheThenNetwork();
   loadPageConfigFromCacheThenNetwork(STATE.pageId,function(){ STATE._cfgReady=true; maybeRender(); });
   fetchPageOnlyFromCacheThenNetwork(1,function(){ STATE._dataReady=true; maybeRender(); });
@@ -747,7 +898,7 @@ function buildServerPayload(offset, limit){
   var groups = Array.isArray(STATE.filterGroups) ? STATE.filterGroups : [];
   return {
     entity: STATE.sheetName,   // ★ DataHub は名前解決で OK（D 列に従う）
-    offset: offset|0, limit: limit|0||100,
+    offset: Math.max(0, offset|0), limit: Math.max(1, Number(limit)||DEFAULT_PER_PAGE),
     sort: activeSort,
     filterGroups: groups,
     groupCombine: (STATE.groupCombine==='any'?'any':'all')
@@ -757,8 +908,10 @@ function buildServerPayload(offset, limit){
 /* 11.6: 実データ取得（ヘッダ→剪定→本フェッチ→必要ならノーフィルタ再試行） */
 function fetchAndRenderPage(page){
   STATE.page = Math.max(1, page|0||1);
-  var limit  = STATE.perPage|0||100;
-  var offset = (STATE.page-1)*limit;
+  if(STATE.perPage===PER_PAGE_ALL) STATE.page = 1;
+  var pageWindow = resolvePageWindow();
+  var limit  = resolveFetchLimit();
+  var offset = (STATE.page-1)*pageWindow;
 
   var usp = writeUrlState();
   history.replaceState(null,'',location.pathname+'?'+usp.toString());
@@ -818,7 +971,6 @@ function fetchAndRenderPage(page){
         // 通常ルート
         STATE.dataSource = detectSourceByIds(p.ids, p.header);
         applyData(p);
-
         if(STATE.group && STATE.group.length && STATE.page>1){
           var prevPayload = buildServerPayload(offset-1, 1);
           prevPayload.filterGroups = pruned;
@@ -855,8 +1007,10 @@ function fetchAndRenderPage(page){
 /* 11.7: キャッシュ→ネット更新（ネット更新は上と同じ 2 段階） */
 function fetchPageOnlyFromCacheThenNetwork(page, cb){
   STATE.page = Math.max(1, page|0||1);
-  var limit  = STATE.perPage|0||100;
-  var offset = (STATE.page-1)*limit;
+  if(STATE.perPage===PER_PAGE_ALL) STATE.page = 1;
+  var pageWindow = resolvePageWindow();
+  var limit  = resolveFetchLimit();
+  var offset = (STATE.page-1)*pageWindow;
 
   var base = buildServerPayload(offset, limit);
 
@@ -915,7 +1069,7 @@ function fetchPageOnlyFromCacheThenNetwork(page, cb){
 function serverSearch(q){
   showStatus('searching "'+q+'" …');
   callFirst(['sv_quickSearch'],
-    { entity: STATE.sheetName, q:q, limit:STATE.perPage, offset:0 },
+    { entity: STATE.sheetName, q:q, limit:resolveFetchLimit(), offset:0 },
     function(res){
       var p = normalizeRowsPayload(res||{});
       if(!p.rows || p.rows.length===0){ showStatus('no results'); return; }
@@ -934,6 +1088,7 @@ function applyData(data){
   STATE.rows     = Array.isArray(data.rows)  ? data.rows.slice()  : [];
   var t = isFinite(data.total) ? data.total : STATE.rows.length;
   STATE.total = (t>0 ? t : STATE.rows.length);
+  updatePagerUI();
 }
 
 
@@ -2293,8 +2448,10 @@ function buildServerPayload(offset, limit){
 // 既存の fetch 関数をオーバーライド
 function fetchAndRenderPage(page){
   STATE.page = Math.max(1, page|0||1);
-  var limit  = STATE.perPage|0||100;
-  var offset = (STATE.page-1)*limit;
+  if(STATE.perPage===PER_PAGE_ALL) STATE.page = 1;
+  var pageWindow = resolvePageWindow();
+  var limit  = resolveFetchLimit();
+  var offset = (STATE.page-1)*pageWindow;
 
   var usp = writeUrlState();
   history.replaceState(null,'',location.pathname+'?'+usp.toString());
@@ -2341,8 +2498,10 @@ function fetchAndRenderPage(page){
 
 function fetchPageOnlyFromCacheThenNetwork(page, cb){
   STATE.page = Math.max(1, page|0||1);
-  var limit  = STATE.perPage|0||100;
-  var offset = (STATE.page-1)*limit;
+  if(STATE.perPage===PER_PAGE_ALL) STATE.page = 1;
+  var pageWindow = resolvePageWindow();
+  var limit  = resolveFetchLimit();
+  var offset = (STATE.page-1)*pageWindow;
 
   var payload = buildServerPayload(offset, limit);
 

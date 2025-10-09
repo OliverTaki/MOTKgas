@@ -489,6 +489,15 @@ function entityOfToken(pid){
   if(/^mb_/i.test(pid))    return "projectmember";
   return "";
 }
+
+function detailPageNameForEntity(ent){
+  var key = String(ent||'').trim().toLowerCase();
+  if(key === 'asset' || key === 'assets') return 'DetailAsset';
+  if(key === 'task' || key === 'tasks') return 'DetailTask';
+  if(key === 'user' || key === 'users') return 'DetailUser';
+  if(key === 'member' || key === 'members' || key === 'projectmember' || key === 'projectmembers') return 'DetailMember';
+  return 'DetailShot';
+}
 function isEntityToken(s){ return /\b(?:as|sh|ta|us|mb)[-_][0-9A-Za-z\-]+\b/.test(String(s||"")); }
 
 function baseUrl(){
@@ -496,11 +505,15 @@ function baseUrl(){
 }
 function currentPage(){
   var p=new URLSearchParams(location.search);
-  return p.get("page") || "DetailShot";
+  var explicit = p.get("page");
+  if(explicit) return explicit;
+  if(window.STATE && window.STATE.pageKey) return window.STATE.pageKey;
+  return "DetailShot";
 }
 function buildEntityUrl(ent,id){
   var qs=new URLSearchParams(location.search);
-  qs.set("page", currentPage());
+  var pageName = ent ? detailPageNameForEntity(ent) : currentPage();
+  qs.set('page', pageName || currentPage());
   qs.set("entity", ent||"shot");
   qs.set("id", id||"");
   // ts を足すと毎回URLが変わりHistory汚染するので、外部から必要時だけ付与

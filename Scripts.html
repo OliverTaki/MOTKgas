@@ -1,27 +1,43 @@
-<!-- ===== 1.Router ===== -->
 <script>
+/* ===== 1.Router ===== */
+
 (function(){
   "use strict";
-<!-- ===== 1.End ===== -->
+/* ===== 1.End ===== */
 
   /* ===== 2.URL builders ===== */
   function baseUrl(){
     return (window.scriptUrl || window.SCRIPT_URL || (location.origin + location.pathname));
   }
+  function normalizeEntity(ent){ return String(ent||'').trim().toLowerCase(); }
+  function detailPageNameForEntity(ent){
+    var key = normalizeEntity(ent);
+    if(key === 'asset' || key === 'assets') return 'DetailAsset';
+    if(key === 'task' || key === 'tasks') return 'DetailTask';
+    if(key === 'user' || key === 'users') return 'DetailUser';
+    if(key === 'member' || key === 'members' || key === 'projectmember' || key === 'projectmembers') return 'DetailMember';
+    return 'DetailShot';
+  }
   function pageUrl(pg, withTs){
     var u = new URL(baseUrl(), baseUrl());
-    u.searchParams.set("page", pg || "DetailShot");
-    if(withTs){ u.searchParams.set("ts", Date.now().toString(36)); }
+    var body = document.body || {};
+    var dataPage = body.dataset ? body.dataset.navPage : '';
+    var statePage = (window.STATE && window.STATE.pageKey) ? window.STATE.pageKey : null;
+    var target = pg || statePage || dataPage || 'DetailShot';
+    u.searchParams.set('page', target);
+    if(withTs){ u.searchParams.set('ts', Date.now().toString(36)); }
     return u.toString();
   }
   function buildEntityUrl(ent,id){
     var u = new URL(baseUrl(), baseUrl());
-    u.searchParams.set("page", "DetailShot");
-    u.searchParams.set("entity", ent||"shot");
-    u.searchParams.set("id", id||"");
-    u.searchParams.set("ts", Date.now().toString(36));
+    var targetPage = detailPageNameForEntity(ent);
+    u.searchParams.set('page', targetPage);
+    u.searchParams.set('entity', ent||'shot');
+    u.searchParams.set('id', id||'');
+    u.searchParams.set('ts', Date.now().toString(36));
     return u.toString();
   }
+  window.detailPageNameForEntity = detailPageNameForEntity;
   window.__Router__ = { baseUrl, pageUrl, buildEntityUrl };
 
 /* ===== 3.GNAVI href===== */
@@ -256,5 +272,250 @@ function pumpOnce(scope){
     }
   }
 })();
+</script>
+
+<!-- ===== 12.detail-popover-dom ===== -->
+<script>
+(function(){
+  "use strict";
+
+  // 共通レンダラ呼び出し
+  function renderFieldInto(node, field, row){
+    if (!node) return;
+    var ctx = { el: node, field: field, row: row };
+    if (typeof window.renderFieldCell === 'function'){
+      try { window.renderFieldCell(ctx); return; } catch(_){}
+    }
+    // フォールバック
+    node.textContent = row && field && (row[field.field_name] || row[field.name] || '') || '';
+  }
+
+  // detailカード生成時に shotview を含む全フィールドで共通レンダラを適用
+  window.renderDetailCard = function(cardEl, fieldDef, rowData){
+    if (!cardEl) return;
+    var target = cardEl.querySelector('[data-slot="value"]') || cardEl;
+    renderFieldInto(target, fieldDef, rowData);
+  };
+})();
+</script>
+<!-- ===== 12. End ===== -->
+
+
+
+<!-- ===== 13.detail-edit-init ===== -->
+<script>
+(function(){
+  "use strict";
+
+  function applyEditSaturation(on){
+    try{ document.body.style.filter = on ? 'saturate(0.5)' : ''; }catch(_){}
+  }
+
+  // GridStack を「存在確認後」にのみ参照する安全版
+  function ensureGridstack(){
+    var el = document.querySelector('#grid') ||
+             document.querySelector('#gridstackWrap') ||
+             document.querySelector('.grid-stack');
+    var GS = (window && window.GridStack) || null;
+
+    // ライブラリ未読込 or 対象要素なし → 触れない
+    if (!el || !GS || typeof GS.init !== 'function') return;
+
+    var opts = {
+      float: true,
+      margin: 0,
+      cellHeight: 8,
+      disableOneColumnMode: false,
+      minRow: 1
+    };
+
+    // 既存インスタンス再利用
+    var gs = el.gridstack || GS.init(opts, el);
+    if (!el.gridstack) el.gridstack = gs;
+
+    // プレースホルダのはみ出し防止
+    try{
+      var ph = el.querySelector('.grid-stack-placeholder');
+      if (ph){ ph.style.margin = '0'; ph.style.top = '0'; ph.style.left = '0'; }
+    }catch(_){}
+  }
+
+  function bindToolbar(){
+    var tl    = document.getElementById("toggleLayout");
+    var save  = document.getElementById("saveBtnAll");
+    var cards = document.getElementById("cardsBtn");
+    var badge = document.getElementById("modeBadge");
+    var footer= document.getElementById("footerMode");
+
+    function applyMode(){
+      var isEdit = !!(window.STATE && window.STATE.edit);
+      document.body.classList.toggle("layout-edit", isEdit);
+      document.body.setAttribute('data-layout-mode', isEdit ? 'edit' : 'view');
+
+      if (save){ save.style.display = isEdit ? "" : "none"; save.disabled = !isEdit; }
+      if (cards){ cards.style.display = isEdit ? "" : "none"; cards.disabled = !isEdit; }
+      if (tl){
+        tl.textContent = isEdit ? "Edit mode" : "View mode";
+        tl.setAttribute("aria-pressed", isEdit ? "true" : "false");
+        tl.classList.toggle('is-active', isEdit);
+      }
+      if (badge){
+        badge.textContent = isEdit ? 'EDIT MODE' : 'VIEW MODE';
+        badge.style.display = isEdit ? "inline-flex" : "none";
+      }
+      if (footer){ footer.textContent = isEdit ? 'Edit' : 'View'; }
+
+      applyEditSaturation(isEdit);
+    }
+
+    if (tl){
+      tl.addEventListener('click', function(e){
+        e.preventDefault();
+        if(!window.STATE) window.STATE = {};
+        window.STATE.edit = !window.STATE.edit;
+        applyMode();
+        // GridStack は存在時のみ初期化
+        ensureGridstack();
+      }, {passive:false});
+    }
+
+    applyMode();
+    window.bindToolbar = bindToolbar;
+
+    // リサイズ時も「存在確認→初期化」
+    window.addEventListener('resize', function(){
+      requestAnimationFrame(ensureGridstack);
+    }, {passive:true});
+  }
+
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', function(){
+      bindToolbar();
+      ensureGridstack();
+    }, {once:true});
+  } else {
+    bindToolbar();
+    ensureGridstack();
+  }
+})();
+</script>
+<!-- ===== 13. End =====02 -->
+
+<!-- ===== 14.modal-center-init ===== -->
+<script>
+/* center any existing "Cards" modal in viewport without changing its structure */
+(function(){
+  "use strict";
+
+  // heuristics to find the Cards modal element
+  function findCardsModal(){
+    return document.getElementById('cardsModal')
+        || document.querySelector('.cards-modal')
+        || document.querySelector('[data-modal="cards"]')
+        || null;
+  }
+
+  function ensureBackdrop(modal){
+    if (!modal) return null;
+    var id = 'motk-cards-backdrop';
+    var bd = document.getElementById(id);
+    if (!bd){
+      bd = document.createElement('div');
+      bd.id = id;
+      bd.className = 'motk-modal-backdrop';
+      bd.addEventListener('click', function(){ hideModal(modal, bd); }, {passive:true});
+      document.body.appendChild(bd);
+    }
+    return bd;
+  }
+
+  function centerModal(modal){
+    if (!modal) return;
+    modal.classList.add('motk-center-modal');
+  }
+
+  function showModal(modal, bd){
+    if (!modal) return;
+    centerModal(modal);
+    if (bd) bd.style.display = '';
+    modal.style.display = '';
+    modal.removeAttribute('aria-hidden');
+  }
+
+  function hideModal(modal, bd){
+    if (!modal) return;
+    modal.style.display = 'none';
+    modal.setAttribute('aria-hidden','true');
+    if (bd) bd.style.display = 'none';
+  }
+
+  function wireCardsButton(){
+    var btn = document.getElementById('cardsBtn');
+    var modal = findCardsModal();
+    var bd = ensureBackdrop(modal);
+
+    if (modal){
+      // keep centered on resize
+      window.addEventListener('resize', function(){
+        window.requestAnimationFrame(function(){ centerModal(modal); });
+      }, {passive:true});
+
+      // if modal visibility changes elsewhere, keep class
+      var mo = new MutationObserver(function(){ centerModal(modal); });
+      mo.observe(modal, {attributes:true, attributeFilter:['style','class','aria-hidden']});
+    }
+
+    if (btn){
+      btn.addEventListener('click', function(e){
+        e.preventDefault();
+        modal = modal || findCardsModal();
+        bd = bd || ensureBackdrop(modal);
+        if (!modal) return;
+        // toggle
+        var hidden = modal.style.display === 'none' || modal.getAttribute('aria-hidden') === 'true';
+        if (hidden) showModal(modal, bd); else hideModal(modal, bd);
+      }, {passive:false});
+    }
+  }
+
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', wireCardsButton, {once:true});
+  } else {
+    wireCardsButton();
+  }
+})();
+</script>
+<!-- ===== 14. End ===== -->
+
+<!-- ===== 41.detail-dom-normalize ===== -->
+<script>
+(function(){
+"use strict";
+function isDetail(){return !!document.querySelector("#detailBar,[data-detail-root],.detail-page");}
+function killSpacers(){
+  document.querySelectorAll(".spacer-top").forEach(function(n){ try{ n.parentNode.removeChild(n); }catch(_){ } });
+}
+function liftGrid(){
+  var grid=document.querySelector("#gridstackWrap")||document.querySelector("#grid")||document.querySelector(".grid-stack");
+  if(grid){
+    grid.style.marginTop="0";
+    grid.style.top="0";
+  }
+}
+function hideTopBands(){
+  ["#hScroll",".top-band",".grid-top-gap",".grid-overlay"].forEach(function(sel){
+    var el=document.querySelector(sel); if(el){ el.style.display="none"; }
+  });
+}
+function init(){
+  if(!isDetail()) return;
+  killSpacers();
+  hideTopBands();
+  liftGrid();
+}
+if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",init,{once:true});}else{init();}
+window.addEventListener("resize",function(){ if(isDetail()){ liftGrid(); } },{passive:true});
+})();
+/* ===== 41. End ===== */
 </script>
 

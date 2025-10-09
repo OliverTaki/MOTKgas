@@ -253,9 +253,82 @@
     return box;
   }
 
-  /* ========= 4. entry ========= */
+/* ========= 4. entry ========= */
   function renderCellByField(o){
     var t=(o.type || (window.FIELD_TYPES||{})[o.fid] || "").toLowerCase();
+    var fname = String(o.name || o.field_name || "").toLowerCase();
+
+    // shotview を共通経路に統合（テーブルと同じポリシー）
+    if (fname === "shotview" || t === "shotview") {
+      var el = document.createElement("span");
+      el.textContent = "";
+
+      var row = o.row || {};
+      var sid =
+        row["Shot ID"] || row["id"] || row["shot_id"] ||
+        row["sh_id"] || row["shid"] || "";
+
+      // 1) 既存キャッシュ（テーブル由来）があれば即描画
+      try{
+        if (sid && window.PROXY_CACHE && window.PROXY_CACHE[sid]) {
+          var urlC = window.PROXY_CACHE[sid];
+          var idmC = (String(urlC).match(/[-\w]{25,}/)||[])[0] || "";
+          var thumbC = idmC ? ("https://drive.google.com/thumbnail?id="+idmC+"&sz=w320") : urlC;
+          el.innerHTML = '<a href="'+urlC+'" target="_blank" rel="noopener"><img loading="lazy" decoding="async" style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px" src="'+thumbC+'"></a>';
+          return el;
+        }
+      }catch(_){}
+
+      // 2) 単発リゾルブ（Apps Script を段階的フォールバック）
+      (async function(){
+        function best(res){
+          try{
+            if(!res) return "";
+            if(typeof res==="string") return res;
+            if(Array.isArray(res) && res.length){
+              var a=res[0]; if(a.url) return a.url; if(a.previewUrl) return a.previewUrl; if(a.id) return "https://drive.google.com/file/d/"+a.id+"/view";
+            }
+            if(res.previewUrl) return res.previewUrl;
+            if(res.url) return res.url;
+            if(res.items && Array.isArray(res.items) && res.items.length){
+              var b=res.items[0]; if(b.url) return b.url; if(b.id) return "https://drive.google.com/file/d/"+b.id+"/view";
+            }
+          }catch(_){}
+          return "";
+        }
+        try{
+          var apis = [
+            ["sv_listEntityProxies",{id:sid}],
+            ["sv_getShotProxies",{id:sid}],
+            ["sv_getShotviewUrls",{id:sid}],
+            ["sv_getPreviewUrl",{id:sid}],
+            ["getPreviewUrl",{id:sid}]
+          ];
+          var url="";
+          for (var i=0;i<apis.length;i++){
+            try{
+              var res = await tryCall([apis[i][0]], apis[i][1]);
+              url = best(res);
+              if (url) break;
+            }catch(_){}
+          }
+          if (url){
+            try{ if(window.PROXY_CACHE) window.PROXY_CACHE[sid]=url; }catch(_){}
+            var idm = (String(url).match(/[-\w]{25,}/)||[])[0] || "";
+            var thumb = idm ? ("https://drive.google.com/thumbnail?id="+idm+"&sz=w320") : url;
+            el.innerHTML = '<a href="'+url+'" target="_blank" rel="noopener"><img loading="lazy" decoding="async" style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px" src="'+thumb+'"></a>';
+          } else {
+            el.textContent = "";
+          }
+        }catch(_){
+          el.textContent = "";
+        }
+      })();
+
+      return el;
+    }
+
+    // 既存タイプは従来のレンダラに委譲
     switch(t){
       case "id":          return R_id(o);
       case "text":        return R_text(o);
@@ -273,6 +346,10 @@
     }
   }
 
+/* ========= 4. entry ========= */
+
+
+
   /* ========= 5. misc ========= */
   function getLabel(fid){ return (window.PAGE_LABELS && PAGE_LABELS[fid]) || (fid||""); }
   function attachCellEditor(){ return null; }
@@ -284,10 +361,4 @@
 })();
 </script>
 
-<style>
-  .chip{ display:inline-block; padding:2px 8px; border-radius:12px; text-decoration:none; border:1px solid #ddd; font-size:12px; margin:0 4px 4px 0; }
-  .chip:hover{ background:#f5f5f5; }
-  .tag{ cursor:default; }
-  .thumbs{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
-  .thumb{ width:64px; height:36px; object-fit:cover; border-radius:6px; border:1px solid #eee; }
-</style>
+
