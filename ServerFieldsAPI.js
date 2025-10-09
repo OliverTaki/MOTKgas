@@ -773,3 +773,101 @@ function findProxyFilesLoose(id){
   return hits;
 }
 
+/* ===== 21.fieldtype-normalize ===== */
+(function(G){
+  "use strict";
+  var ROOT = (typeof G!=="undefined") ? G : (typeof globalThis!=="undefined"? globalThis : this);
+
+  function normalizeFieldType(rawType){
+    var t = String(rawType||"").toLowerCase().trim();
+    var m = t.match(/^(shot|asset|task|member|user)_link$/);
+    if (m) return { type:"link", target:m[1], meta:{ normalized:true } };
+    if (t === "entity_link") return { type:"link", target:null, meta:{ legacy:true } };
+    return { type:t, target:null, meta:{} };
+  }
+
+  function inferLinkTargetByIdPrefix(val){
+    var p = String(val||"").slice(0,3).toLowerCase();
+    if (p==="sh_") return "shot";
+    if (p==="as_") return "asset";
+    if (p==="tk_") return "task";
+    if (p==="pm_") return "member";
+    if (p==="us_") return "user";
+    return null;
+  }
+
+  function buildColumnSpec(fieldsRow, sampleValues){
+    var norm = normalizeFieldType(fieldsRow.type);
+    var target = norm.target;
+    if (!target && norm.type==="link" && Array.isArray(sampleValues)){
+      for (var i=0;i<sampleValues.length;i++){
+        var inf = inferLinkTargetByIdPrefix(sampleValues[i]);
+        if (inf){ target = inf; break; }
+      }
+    }
+    var col = {
+      id: String(fieldsRow.field_id),
+      name: String(fieldsRow.field_name||""),
+      type: norm.type,
+      target: target || undefined,
+      meta: norm.meta
+    };
+    if (col.type==="link" && !col.target) col.meta.target_inferred = false;
+    return col;
+  }
+
+  ROOT.__FieldsType__ = ROOT.__FieldsType__ || {};
+  ROOT.__FieldsType__.normalizeFieldType = normalizeFieldType;
+  ROOT.__FieldsType__.buildColumnSpec    = buildColumnSpec;
+})(typeof globalThis!=="undefined"? globalThis : this);
+/* ===== 21. End ===== */
+
+/* ===== 31.api-surface-delegates ===== */
+(function(G){
+  "use strict";
+  var ROOT = (typeof G!=="undefined") ? G : (typeof globalThis!=="undefined"? globalThis : this);
+
+  function choose(list){
+    for (var i=0;i<list.length;i++){
+      var fn = ROOT[list[i]];
+      if (typeof fn === "function") return fn.bind(ROOT);
+    }
+    return null;
+  }
+
+  var getFieldsImpl     = choose(["sv_getFields","getFields","listFields","DB_getFields"]);
+  var listRowsPageImpl  = choose(["sv_listRowsPage","listRowsPage","DB_listRowsPage"]);
+  var getProjectMetaImpl= choose(["getProjectMeta","sv_getProjectMeta","DB_getProjectMeta"]);
+
+  ROOT.getFields = function(){
+    if (!getFieldsImpl) throw new Error("getFields() not available");
+    return getFieldsImpl();
+  };
+
+  ROOT.listRowsPage = function(req){
+    if (!listRowsPageImpl) throw new Error("listRowsPage(req) not available");
+    var out = listRowsPageImpl(req||{});
+    try{
+      if (out && Array.isArray(out.columns)){
+        out.columns = out.columns.map(function(c){
+          var row = { field_id:(c.field_id||c.id), field_name:(c.field_name||c.name), type:c.type };
+          var spec = (ROOT.__FieldsType__ && ROOT.__FieldsType__.buildColumnSpec)
+            ? ROOT.__FieldsType__.buildColumnSpec(row, [])
+            : { id:String(row.field_id), name:String(row.field_name||""), type:String(row.type||"") };
+          var merged = Object.assign({}, c, { id:spec.id, name:spec.name, type:spec.type });
+          if (spec.target) merged.target = spec.target;
+          if (spec.meta)   merged.meta   = Object.assign({}, c.meta||{}, spec.meta);
+          return merged;
+        });
+      }
+    }catch(_){}
+    return out;
+  };
+
+  ROOT.getProjectMeta = function(){
+    if (!getProjectMetaImpl) throw new Error("getProjectMeta() not available");
+    return getProjectMetaImpl();
+  };
+})(typeof globalThis!=="undefined"? globalThis : this);
+/* ===== 31. End ===== */
+

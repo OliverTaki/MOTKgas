@@ -1,9 +1,12 @@
+
 <script>
 /* ===== 1.Router ===== */
 
 (function(){
   "use strict";
 /* ===== 1.End ===== */
+
+
 
   /* ===== 2.URL builders ===== */
   function baseUrl(){
@@ -43,18 +46,46 @@
 /* ===== 3.GNAVI href===== */
 function pumpOnce(scope){
   if(!scope) return;
-  scope.querySelectorAll("a[href],a[data-page]").forEach(function(a){
+  var anchors = scope.querySelectorAll("a[href],a[data-page]");
+  anchors.forEach(function(a){
     try{
-      var pg = a.dataset.page
+      var href = a.getAttribute("href") || "";
+      if(!href || href[0]==="#") return;
+
+      var u = new URL(href, baseUrl());
+      var hasPage  = !!u.searchParams.get("page");
+      var hasEntId = !!(u.searchParams.get("entity") && u.searchParams.get("id"));
+
+      // 既に page がある or entity/id がある → 触らない
+      if (hasPage || hasEntId) {
+        if(a.hasAttribute("data-target")) a.target = a.getAttribute("data-target");
+        else if(!a.hasAttribute("target")) a.target = "_top";
+        if(!a.hasAttribute("rel")) a.rel = "noopener";
+        return;
+      }
+
+      // data-page だけ補完
+      var pg = a.getAttribute("data-page")
         || (a.href.match(/[?&]page=([^&]+)/)||[])[1]
         || (a.textContent||"").trim();
-      if(pg) a.href = pageUrl(pg, false);
-            if(a.hasAttribute("data-target")) a.target = a.getAttribute("data-target");
+      if(pg){
+        u.searchParams.set("page", pg);
+        a.href = u.toString();
+      }
+
+      if(a.hasAttribute("data-target")) a.target = a.getAttribute("data-target");
       else if(!a.hasAttribute("target")) a.target = "_top";
       if(!a.hasAttribute("rel")) a.rel = "noopener";
     }catch(_){}
   });
 }
+document.addEventListener("DOMContentLoaded", function(){
+  try{ pumpOnce(document); }catch(e){ console.error(e); }
+}, {once:true});
+/* ===== 3.End ===== */
+
+
+
 
   /* ===== 4.Entity ===== */
   document.addEventListener("click", function(ev){
@@ -79,200 +110,6 @@ function pumpOnce(scope){
 })();
 </script>
 
-
-<script>
-(async function bootstrap() {
-  // 1. Navigation highlighting and href normalisation.
-    (function manageNavigation() {
-    var scriptUrl = "<?= scriptUrl ?>";
-    if (!scriptUrl) {
-      console.error('SCRIPT_URL not found in template.');
-      return;
-    }
-
-    function syncNavHeights(){
-      var docEl = document.documentElement;
-      if (!docEl) return;
-      var g = document.getElementById('gNav');
-      var p = document.getElementById('pNav');
-      if (g && g.getBoundingClientRect) {
-        var gHeight = String(Math.round(g.getBoundingClientRect().height)) + 'px';
-        docEl.style.setProperty('--header-height', gHeight);
-        docEl.style.setProperty('--gnav-height', gHeight);
-      }
-      if (p && p.getBoundingClientRect) {
-        var pHeight = String(Math.round(p.getBoundingClientRect().height)) + 'px';
-        docEl.style.setProperty('--pnav-height', pHeight);
-      }
-    }
-
-    var entityToPage = {
-      shot: 'Shots',
-      asset: 'Assets',
-      task: 'Tasks',
-      member: 'ProjectMembers',
-      user: 'Users'
-    };
-
-    function updateNavLinks() {
-      var anchors = document.querySelectorAll('#gNav a, #pNav a');
-      for (var i = 0; i < anchors.length; i++) {
-        var anchor = anchors[i];
-        var match = anchor.href && anchor.href.match(/[?&]page=([^&]+)/);
-        var pageAttr = anchor.getAttribute('data-page');
-        var page = pageAttr || (match ? match[1] : '');
-        anchor.href = page ? scriptUrl + '?page=' + page : scriptUrl;
-      }
-    }
-
-    function resolveCurrentPage() {
-      var body = document.body;
-      var dataPage = body && body.dataset ? body.dataset.navPage : '';
-      if (dataPage) return dataPage;
-
-      var searchParams = new URLSearchParams(window.location.search || '');
-      var qsPage = searchParams.get('page');
-      if (qsPage) return qsPage;
-
-      if (window.PAGE) return String(window.PAGE);
-
-      var entity = body && body.dataset ? body.dataset.navEntity : '';
-      if (!entity && window.STATE && window.STATE.entity) {
-        entity = window.STATE.entity;
-      }
-      var key = String(entity || '').toLowerCase();
-      return entityToPage[key] || '';
-    }
-
-    function highlightActiveNav() {
-      var current = resolveCurrentPage().toLowerCase();
-      var anchors = document.querySelectorAll('#pNav a');
-      for (var i = 0; i < anchors.length; i++) {
-        var anchor = anchors[i];
-        var target = (anchor.getAttribute('data-page') || '').toLowerCase();
-        var isActive = current && target === current;
-        if (isActive) {
-          anchor.classList.add('active');
-          anchor.setAttribute('aria-current', 'page');
-        } else {
-          anchor.classList.remove('active');
-          anchor.removeAttribute('aria-current');
-        }
-      }
-    }
-
-    function initNav() {
-      updateNavLinks();
-      highlightActiveNav();
-      syncNavHeights();
-    }
-
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', function(){
-        initNav();
-        syncNavHeights();
-      }, { once: true });
-    } else {
-      initNav();
-      syncNavHeights();
-    }
-    window.addEventListener('resize', syncNavHeights);
-  })();
-
-  // 2. Detail page helpers.
-  var detailBar = document.getElementById('detailBar');
-  if (detailBar) {
-    var dataObj = window.data || {};
-    var recordKeys = Object.keys(dataObj);
-    var recordId = recordKeys.length ? dataObj[recordKeys[0]] : '';
-    var shotCodeEl = document.getElementById('shotCode');
-    var codeLabel = dataObj.fi_0002 || dataObj.fi_0016 || dataObj.fi_0026 || '';
-    if (shotCodeEl && codeLabel) {
-      shotCodeEl.textContent = codeLabel;
-    }
-
-    initPathMenu(dataObj);
-    initLayoutSelector(dataObj);
-    initModeToggle();
-  }
-
-  function gas(cmd) {
-    var args = Array.prototype.slice.call(arguments, 1);
-    return new Promise(function (resolve, reject) {
-      if (typeof google === 'undefined' || !google.script || !google.script.run) {
-        reject(new Error('google.script.run not available'));
-        return;
-      }
-      google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[cmd].apply(null, args);
-    });
-  }
-
-  function escapeHTML(str) {
-    if (typeof str !== 'string') return str;
-    return str.replace(/[&<>\'"]/g, function (tag) {
-      switch (tag) {
-        case '&': return '&amp;';
-        case '<': return '&lt;';
-        case '>': return '&gt;';
-        case '"': return '&quot;';
-        default: return '&#39;';
-      }
-    });
-  }
-
-  var prevBtn = document.getElementById('prevBtn');
-  if (prevBtn) {
-    prevBtn.addEventListener('click', function () {
-      nav(-1);
-    });
-  }
-  var nextBtn = document.getElementById('nextBtn');
-  if (nextBtn) {
-    nextBtn.addEventListener('click', function () {
-      nav(1);
-    });
-  }
-
-  async function nav(offset) {
-    try {
-      var scriptUrl = window.SCRIPT_URL || "<?= scriptUrl ?>";
-      var rows = await gas('listRows', 'Shots');
-      var dataObj = window.data || {};
-      var recordId = dataObj.fi_0001;
-      if (!recordId) return;
-      var idx = -1;
-      for (var i = 0; i < rows.length; i++) {
-        if (String(rows[i][0]) === String(recordId)) {
-          idx = i;
-          break;
-        }
-      }
-      if (idx > -1 && rows[idx + offset]) {
-        location.href = scriptUrl + '?entity=shot&id=' + rows[idx + offset][0];
-      }
-    } catch (err) {
-      console.error('Navigation failed:', err);
-    }
-  }
-
-  // 3. Fallback detail view rendering.
-  var listBox = document.getElementById('fallbackList');
-  if (listBox && window.data) {
-    listBox.classList.remove('hidden');
-    var parts = [];
-    var keys = Object.keys(window.data);
-    for (var i = 0; i < keys.length; i++) {
-      var key = keys[i];
-      parts.push('<div style="margin:4px 0;"><b>' + key + '</b>: ' + escapeHTML(String(window.data[key])) + '</div>');
-    }
-    listBox.innerHTML = parts.join('');
-    var gridNode = document.getElementById('grid');
-    if (gridNode) {
-      gridNode.classList.add('hidden');
-    }
-  }
-})();
-</script>
 
 <!-- ===== 12.detail-popover-dom ===== -->
 <script>
@@ -307,37 +144,49 @@ function pumpOnce(scope){
 (function(){
   "use strict";
 
-  function applyEditSaturation(on){
-    try{ document.body.style.filter = on ? 'saturate(0.5)' : ''; }catch(_){}
+  // push grid below toolbar by applying margin to actual grid element
+  function applyTopOffset(){
+    var bar = document.getElementById('detailBar');
+    var h = bar && bar.getBoundingClientRect ? Math.round(bar.getBoundingClientRect().height) : 0;
+    var gridEl = document.querySelector('#grid') || document.querySelector('#gridstackWrap') || document.querySelector('.grid-stack');
+    if (gridEl){ gridEl.style.marginTop = h ? (h+'px') : ''; }
+    var tableHost = document.getElementById('tableHost');
+    if (tableHost){ tableHost.style.marginTop = h ? (h+'px') : ''; }
   }
 
-  // GridStack を「存在確認後」にのみ参照する安全版
+  // debounce init to avoid thrash
+  var __gs_pending = false;
   function ensureGridstack(){
-    var el = document.querySelector('#grid') ||
-             document.querySelector('#gridstackWrap') ||
-             document.querySelector('.grid-stack');
-    var GS = (window && window.GridStack) || null;
+    if (__gs_pending) return;
+    __gs_pending = true;
+    requestAnimationFrame(function(){
+      __gs_pending = false;
 
-    // ライブラリ未読込 or 対象要素なし → 触れない
-    if (!el || !GS || typeof GS.init !== 'function') return;
+      var el = document.querySelector('#grid') || document.querySelector('#gridstackWrap') || document.querySelector('.grid-stack');
+      var GS = (window && window.GridStack) || null;
+      if (!el || !GS || typeof GS.init !== 'function') return;
 
-    var opts = {
-      float: true,
-      margin: 0,
-      cellHeight: 8,
-      disableOneColumnMode: false,
-      minRow: 1
-    };
+      // make CSS unit match GS cellHeight to remove 1-cell bounce
+      var CELL = 24; // px
+      var opts = { float:true, margin:0, cellHeight:CELL, disableOneColumnMode:false, minRow:1 };
 
-    // 既存インスタンス再利用
-    var gs = el.gridstack || GS.init(opts, el);
-    if (!el.gridstack) el.gridstack = gs;
+      try{
+        var gs = el.gridstack || GS.init(opts, el);
+        if (!el.gridstack) el.gridstack = gs;
 
-    // プレースホルダのはみ出し防止
-    try{
-      var ph = el.querySelector('.grid-stack-placeholder');
-      if (ph){ ph.style.margin = '0'; ph.style.top = '0'; ph.style.left = '0'; }
-    }catch(_){}
+        // CSS snap alignment
+        if (!document.getElementById('motk-gs-style')){
+          var st=document.createElement('style'); st.id='motk-gs-style';
+          st.textContent = [
+            '.grid-stack{--gs-cell:'+CELL+'px;}',
+            '.grid-stack-item{margin:0 !important;}',
+            '.grid-stack-item-content{min-height:var(--gs-cell); height:100%;}',
+            '.grid-stack-placeholder{margin:0 !important; top:0 !important; left:0 !important;}'
+          ].join('');
+          document.head.appendChild(st);
+        }
+      }catch(e){ console.error(e); }
+    });
   }
 
   function bindToolbar(){
@@ -364,8 +213,6 @@ function pumpOnce(scope){
         badge.style.display = isEdit ? "inline-flex" : "none";
       }
       if (footer){ footer.textContent = isEdit ? 'Edit' : 'View'; }
-
-      applyEditSaturation(isEdit);
     }
 
     if (tl){
@@ -374,118 +221,224 @@ function pumpOnce(scope){
         if(!window.STATE) window.STATE = {};
         window.STATE.edit = !window.STATE.edit;
         applyMode();
-        // GridStack は存在時のみ初期化
         ensureGridstack();
       }, {passive:false});
     }
 
     applyMode();
-    window.bindToolbar = bindToolbar;
-
-    // リサイズ時も「存在確認→初期化」
-    window.addEventListener('resize', function(){
-      requestAnimationFrame(ensureGridstack);
-    }, {passive:true});
+    window.addEventListener('resize', function(){ applyTopOffset(); ensureGridstack(); }, {passive:true});
   }
 
-  if (document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', function(){
-      bindToolbar();
-      ensureGridstack();
-    }, {once:true});
-  } else {
+  function isDetailPage(){
+    return !!document.querySelector('#detailBar, .detail-page, #detail-root, main[data-detail-root]');
+  }
+
+  function start(){
+    if (!isDetailPage()) return;
+    applyTopOffset();
     bindToolbar();
     ensureGridstack();
   }
+
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', start, {once:true});
+  } else {
+    start();
+  }
 })();
 </script>
-<!-- ===== 13. End =====02 -->
+<!-- ===== 13. End ===== -->
+
+
 
 <!-- ===== 14.modal-center-init ===== -->
 <script>
-/* center any existing "Cards" modal in viewport without changing its structure */
+/* Modal: cards を確実に表示。外側クリックで閉じる。Cancel類も閉じる。 */
 (function(){
   "use strict";
 
-  // heuristics to find the Cards modal element
-  function findCardsModal(){
-    return document.getElementById('cardsModal')
-        || document.querySelector('.cards-modal')
-        || document.querySelector('[data-modal="cards"]')
-        || null;
-  }
+  var BD_ID = 'motk-modal-backdrop';
 
-  function ensureBackdrop(modal){
-    if (!modal) return null;
-    var id = 'motk-cards-backdrop';
-    var bd = document.getElementById(id);
-    if (!bd){
-      bd = document.createElement('div');
-      bd.id = id;
-      bd.className = 'motk-modal-backdrop';
-      bd.addEventListener('click', function(){ hideModal(modal, bd); }, {passive:true});
-      document.body.appendChild(bd);
-    }
+  function $(s, r){ return (r||document).querySelector(s); }
+  function $all(s, r){ return Array.prototype.slice.call((r||document).querySelectorAll(s)); }
+  function isDetail(){ return !!document.querySelector('#detailBar, .detail-page, #detail-root, main[data-detail-root]'); }
+
+  function ensureStyle(){
+    if (document.getElementById('motk-modal-style')) return;
+    var st=document.createElement('style'); st.id='motk-modal-style';
+    st.textContent = [
+      '.motk-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10001;display:none;pointer-events:none;}',
+      'body.motk-modal-open .motk-modal-backdrop{display:block;pointer-events:auto;}',
+      '.motk-center-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10003;max-width:90vw;max-height:85vh;overflow:auto;}',
+      'body.motk-modal-open{overflow:hidden;}'
+    ].join('');
+    document.head.appendChild(st);
+  }
+  function ensureBackdrop(){
+    var bd = document.getElementById(BD_ID);
+    if (!bd){ bd=document.createElement('div'); bd.id=BD_ID; bd.className='motk-modal-backdrop'; document.body.appendChild(bd); }
     return bd;
   }
-
-  function centerModal(modal){
-    if (!modal) return;
-    modal.classList.add('motk-center-modal');
+  function guardInsideClick(m){
+    if(!m || m.__motk_guarded) return;
+    m.__motk_guarded = true;
+    m.addEventListener('click', function(e){ e.stopPropagation(); }, true);
   }
-
-  function showModal(modal, bd){
-    if (!modal) return;
-    centerModal(modal);
-    if (bd) bd.style.display = '';
-    modal.style.display = '';
-    modal.removeAttribute('aria-hidden');
-  }
-
-  function hideModal(modal, bd){
-    if (!modal) return;
-    modal.style.display = 'none';
-    modal.setAttribute('aria-hidden','true');
-    if (bd) bd.style.display = 'none';
-  }
-
-  function wireCardsButton(){
-    var btn = document.getElementById('cardsBtn');
-    var modal = findCardsModal();
-    var bd = ensureBackdrop(modal);
-
-    if (modal){
-      // keep centered on resize
-      window.addEventListener('resize', function(){
-        window.requestAnimationFrame(function(){ centerModal(modal); });
-      }, {passive:true});
-
-      // if modal visibility changes elsewhere, keep class
-      var mo = new MutationObserver(function(){ centerModal(modal); });
-      mo.observe(modal, {attributes:true, attributeFilter:['style','class','aria-hidden']});
+  function hoistToBody(m){
+    if (!m) return m;
+    if (m.parentElement !== document.body){
+      var ph = document.createComment('hoisted:'+ (m.id||m.getAttribute('data-modal')||'modal'));
+      m.__motk_placeholder = ph;
+      m.parentElement && m.parentElement.insertBefore(ph, m);
+      document.body.appendChild(m);
     }
+    return m;
+  }
+  function center(m){
+    if(!m) return;
+    m.classList.add('motk-center-modal');
+    // 最低限の視認サイズ（ゼロ寸対策）
+    if (!m.style.minWidth)  m.style.minWidth  = '320px';
+    if (!m.style.minHeight) m.style.minHeight = '160px';
+    // 面積0なら一時的に内容包む
+    var r=m.getBoundingClientRect();
+    if ((r.width<2 || r.height<2) && !m.__motk_wrap){
+      var wrap=document.createElement('div'); wrap.style.padding='16px';
+      while(m.firstChild) wrap.appendChild(m.firstChild);
+      m.appendChild(wrap); m.__motk_wrap=wrap;
+    }
+  }
+  function show(m){
+    if(!m) return false;
+    ensureStyle(); ensureBackdrop(); hoistToBody(m); center(m); guardInsideClick(m);
+    m.setAttribute('aria-hidden','false'); m.style.display='';
+    document.body.classList.add('motk-modal-open');
+    return true;
+  }
+  function hide(m){
+    if(m){ m.setAttribute('aria-hidden','true'); m.style.display='none'; }
+    if (!$('.motk-center-modal[aria-hidden="false"]')) document.body.classList.remove('motk-modal-open');
+  }
 
-    if (btn){
-      btn.addEventListener('click', function(e){
+  // Cards候補を網羅的に探索
+  function resolveCards(){
+    var cands = [
+      '[data-modal="cards"]','#cardsModal','.cards-modal',
+      '.modal#cards','.modal.cards',
+      '.modal[aria-label*="cards" i]','.modal [data-role="cards-modal"]'
+    ];
+    for (var i=0;i<cands.length;i++){ var n=$(cands[i]); if(n) return n; }
+    // 最後の保険: ボタンの data-target / aria-controls 参照
+    var b = $('#cardsBtn'); if (b){
+      var sel = b.getAttribute('data-modal-target') || b.getAttribute('data-target') || b.getAttribute('aria-controls');
+      if (sel){ var n = $(sel); if(n) return n; }
+    }
+    return null;
+  }
+
+  function wire(){
+    if(!isDetail()) return;
+
+    var bd = ensureBackdrop();
+    bd.onclick = function(){
+      var m = $('.motk-center-modal[aria-hidden="false"], .modal[aria-hidden="false"]');
+      hide(m);
+    };
+
+    // Cards
+    var btnCards = $('#cardsBtn');
+    if (btnCards){
+      btnCards.addEventListener('click', function(e){
         e.preventDefault();
-        modal = modal || findCardsModal();
-        bd = bd || ensureBackdrop(modal);
-        if (!modal) return;
-        // toggle
-        var hidden = modal.style.display === 'none' || modal.getAttribute('aria-hidden') === 'true';
-        if (hidden) showModal(modal, bd); else hideModal(modal, bd);
+        var m = resolveCards();
+        if (!m){ document.body.classList.remove('motk-modal-open'); return; }
+        var hidden = (m.getAttribute('aria-hidden')!=='false') && (getComputedStyle(m).display==='none');
+        if (hidden) show(m); else hide(m);
       }, {passive:false});
     }
+
+    // Save/その他: [data-modal-target="#sel"]
+    document.addEventListener('click', function(e){
+      var t = e.target.closest('[data-modal-target]');
+      if (!t) return;
+      e.preventDefault();
+      var sel = t.getAttribute('data-modal-target'); if (!sel) return;
+      var m = $(sel); if (!m){ document.body.classList.remove('motk-modal-open'); return; }
+      var hidden = (m.getAttribute('aria-hidden')!=='false') && (getComputedStyle(m).display==='none');
+      if (hidden) show(m); else hide(m);
+    }, false);
+
+    // Cancel/Close: 代表的シグナルをすべて閉じるに割当
+    document.addEventListener('click', function(e){
+      var t = e.target.closest('[data-modal-close], [data-dismiss="modal"], .modal .close, .btn-cancel, .js-cancel, button[name="cancel"]');
+      if(!t) return;
+      e.preventDefault();
+      var m = t.closest('.motk-center-modal, .modal');
+      hide(m);
+    }, false);
+
+    // 内側クリックで閉じる古いハンドラに勝つ
+    $all('.modal,.motk-center-modal').forEach(guardInsideClick);
+
+    // リサイズで再センター
+    window.addEventListener('resize', function(){
+      var m=$('.motk-center-modal[aria-hidden="false"]'); if(m) center(m);
+    }, {passive:true});
   }
 
-  if (document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', wireCardsButton, {once:true});
-  } else {
-    wireCardsButton();
-  }
+  if (document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', wire, {once:true}); }
+  else { wire(); }
 })();
 </script>
 <!-- ===== 14. End ===== -->
+
+
+
+
+<!-- ===== 14b.backdrop-safety ===== -->
+<script>
+(function(){
+  "use strict";
+  // detail遷移直後や戻り時に残る全画面オーバーレイを定期的に無効化
+  var T=null;
+  function sweep(){
+    try{
+      var maxZ = -1, culprit=null;
+      document.querySelectorAll('body > *').forEach(function(n){
+        var cs = getComputedStyle(n);
+        if (!cs) return;
+        var z = parseInt(cs.zIndex||'0',10);
+        var full = cs.position==='fixed' && cs.left==='0px' && cs.top==='0px' && cs.right==='0px' && cs.bottom==='0px';
+        var opaque = parseFloat(cs.opacity||'1')>0.01 && (cs.display!=='none' && cs.visibility!=='hidden');
+        if (full && opaque && z>maxZ){
+          maxZ = z; culprit = n;
+        }
+      });
+      // 既知のモーダル以外で、全画面を覆っていたら無効化
+      if (culprit && !culprit.classList.contains('motk-center-modal') && !culprit.classList.contains('motk-modal-backdrop')){
+        culprit.style.pointerEvents='none';
+        // 透過だけして視覚崩れを避ける
+        culprit.style.opacity='0';
+      }
+    }catch(_){}
+  }
+  function start(){
+    if (T) return;
+    T = setInterval(sweep, 500);
+  }
+  function stop(){
+    if (!T) return;
+    clearInterval(T); T=null;
+  }
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState==='visible') start(); else stop();
+  });
+  // 初回
+  start();
+})();
+</script>
+<!-- ===== 14b. End ===== -->
+
 
 <!-- ===== 41.detail-dom-normalize ===== -->
 <script>

@@ -547,7 +547,7 @@ body.detail-page .chip{
 </style>
 
 
-/* ===== 91.modal-aria-contract ===== */
+<!-- ===== 91.modal-aria-contract ===== -->
 <style>
 /* center modal in viewport */
 .motk-center-modal {
@@ -569,13 +569,13 @@ body.detail-page .chip{
 }
 </style>
 
-/* ===== 91. End ===== */
+<!-- ===== 91. End ===== -->
 
 
 
 
 
-/* ===== 92.modal-legacy-saveas ===== */
+<!-- ===== 92.modal-legacy-saveas ===== -->
 <style>
   #pgSaveAsMask{
     display:none; position:fixed; inset:0;
@@ -591,16 +591,16 @@ body.detail-page .chip{
   #pgSaveAsMask.show{ display:block !important; }
   #pgSaveAs.show{ display:block !important; }
 </style>
-/* ===== 92.modal-legacy-saveas ===== */
+<!-- ===== 92.modal-legacy-saveas ===== -->
 
-/* ===== 93.modal-compat ===== */
+<!-- ===== 93.modal-compat ===== -->
 <style>
   html body .modal[aria-hidden="false"]{ display:flex !important; pointer-events:auto !important; z-index:4000 !important; }
   html body .modal[aria-hidden="false"] .panel{ z-index:4001 !important; }
 </style>
-/* ===== 93.modal-compat ===== */
+<!-- ===== 93.modal-compat ===== -->
 
-/* ===== 94.detail-grid-offset ===== */
+<!-- ===== 94.detail-grid-offset ===== -->
 <style>
   .detail-page .spacer-top{
     height:calc(var(--gnav-height,0px) + var(--pnav-height,0px));
@@ -614,12 +614,77 @@ body.detail-page .chip{
     min-height:70vh;
   }
 </style>
-/* ===== 94.detail-grid-offset ===== */
+<!-- ===== 94.detail-grid-offset ===== -->
+
+<!-- ===== 95.modal-and-detail-guards ===== -->
+<style>
+#detailBar{ position:sticky; top:0; z-index:2147483600; }
+.detail-root,.table-host,.gs-host{ position:relative; }
+
+/* modal helpers for legacy markup too */
+.modal-backdrop{ display:none !important; } /* 旧バックドロップは抑止。新バックドロップのみ使用 */
+</style>
+<!-- ===== 95. End ===== -->
+
+<!-- ===== 96.modal-override ===== -->
+<style>
+/* kill legacy full-screen overlay on .modal itself. use backdrop instead */
+html body .modal{
+  position:fixed !important;
+  inset: auto !important;          /* no full-screen cover */
+  width:auto !important;
+  height:auto !important;
+  background: transparent !important;
+  display:none !important;
+  pointer-events:auto !important;
+  z-index: 10002;                  /* under our center class if併用 */
+}
+html body .modal[aria-hidden="false"]{ display:flex !important; }
+html body .modal[aria-hidden="true"]{  display:none !important; }
+
+/* our backdrop is the only thing that darkens */
+.motk-modal-backdrop{
+  position:fixed; inset:0;
+  background: rgba(0,0,0,0.45);
+  z-index: 10001;
+  display:none;
+  pointer-events:none;
+}
+body.motk-modal-open .motk-modal-backdrop{
+  display:block; pointer-events:auto;
+}
+
+/* keep centered modal on top */
+.motk-center-modal{ z-index:10003; }
+</style>
+<!-- ===== 96. End ===== -->
+
+<!-- ===== 97.detail-grid-offset-fix ===== -->
+<style>
+/* remove negative offsets and push content below toolbar height */
+.detail-page #grid,
+.detail-page #gridstackWrap,
+.detail-page .grid-stack{
+  margin-top: calc(
+    var(--gnav-height, 40px) +
+    var(--pnav-height, 40px) +
+    var(--toolbar-h, 32px)
+  ) !important;
+}
+
+/* safety: never negative */
+.detail-page #grid,
+.detail-page #gridstackWrap,
+.detail-page .grid-stack{
+  top: 0 !important;
+}
+
+/* card snap stability helpers stay intact */
+</style>
+<!-- ===== 97. End ===== -->
 
 
-
-
-/* ===== 41.field-chip-thumb ===== */
+<!-- ===== 41.field-chip-thumb ===== -->
 <style>
   .chip{ display:inline-block; padding:2px 8px; border-radius:12px; text-decoration:none; border:1px solid #ddd; font-size:12px; margin:0 4px 4px 0; }
   .chip:hover{ background:#f5f5f5; }
@@ -627,7 +692,7 @@ body.detail-page .chip{
   .thumbs{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
   .thumb{ width:64px; height:36px; object-fit:cover; border-radius:6px; border:1px solid #eee; }
 </style>
-/* ===== 41. End ===== */
+<!-- ===== 41. End ===== -->
 
 
 <!-- ===== COMMON_styles.html End ===== -->
