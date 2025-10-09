@@ -597,49 +597,129 @@ function isDetailLinkField(canon, fieldId){
   return false;
 }
 
+<script>
 /* ===== 10.start ===== */
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',onDom,{once:true}); else onDom();
-function onDom(){
-  adjustNavOffset(); window.addEventListener('resize',adjustNavOffset,{passive:true});
-  var obs=new MutationObserver(adjustNavOffset); if(document.body) obs.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['style','class']});
-  enableSpaNav(); readUrlState(); start();
+(function(){
+  "use strict";
 
-  var qs=document.getElementById('quickSearch');
-  if(qs){
-    qs.addEventListener('keydown',function(e){
-      if(e.key==='Enter'){
-        e.preventDefault();
-        var q=qs.value.trim();
-        if(q){ serverSearch(q); } else { fetchAndRenderPage(1); }
-      }
+  // Compute CSS offset for stacked navbars
+  function adjustNavOffset(){
+    try{
+      var g=document.getElementById('gNav'), p=document.getElementById('pNav');
+      var h=(g?g.offsetHeight:0)+(p?p.offsetHeight:0);
+      document.documentElement.style.setProperty('--nav-offset', (h||0)+'px');
+    }catch(e){}
+  }
+
+  // SPA page nav click binding
+  function enableSpaNav(){
+    var pnav=document.getElementById('pNav'); if(!pnav)return;
+    pnav.addEventListener('click',function(e){
+      var a=e.target.closest?e.target.closest('a[href]'):null; if(!a)return;
+      var label=(a.textContent||'').trim(); if(!label)return;
+      e.preventDefault();
+      var links=pnav.querySelectorAll('a'); for(var i=0;i<links.length;i++){links[i].classList.remove('active');}
+      a.classList.add('active'); navigateTo(label);
     });
   }
-}
-function enableSpaNav(){
-  var pnav=document.getElementById('pNav'); if(!pnav)return;
-  pnav.addEventListener('click',function(e){
-    var a=e.target.closest?e.target.closest('a[href]'):null; if(!a)return;
-    var label=(a.textContent||'').trim(); if(!label)return;
-    e.preventDefault();
-    var links=pnav.querySelectorAll('a'); for(var i=0;i<links.length;i++){links[i].classList.remove('active');}
-    a.classList.add('active'); navigateTo(label);
-  });
-}
-function navigateTo(label){
-  var usp=new URLSearchParams(location.search); usp.set('page',label); if(STATE.pageId) usp.set('pid',STATE.pageId);
-  writeUrlState(usp); history.replaceState(null,'',location.pathname+'?'+usp.toString());
-  STATE.sheetName=label; STATE.page=1; STATE._prevRowForGroup=null; STATE._dataReady=false; STATE._cfgReady=false;
-  showStatus('loading '+label+'…');
-  loadPagesFromCacheThenNetwork();
-  loadPageConfigFromCacheThenNetwork(STATE.pageId,function(){ STATE._cfgReady=true; maybeRender(); });
-  fetchPageOnlyFromCacheThenNetwork(1,function(){ STATE._dataReady=true; maybeRender(); });
-  prefetchProxyIndex();
-  prefetchEntityMap('Assets',pickAssetName,'assets');
-  prefetchEntityMap('Shots', pickShotCode,'shots');
-  prefetchEntityMap('Tasks', pickTaskName,'tasks');
-  prefetchEntityMap('Users', pickUserName,'users');
-  prefetchEntityMap('ProjectMembers', pickMemberName,'members');
-}
+
+  // Resolve initial page label, never return empty
+  function detectSheetNameFromDOM(){
+    // Priority: active link -> first link -> URL ?page -> fallback 'Shots'
+    var a=document.querySelector('#pNav a.active'); var label=a?(a.textContent||'').trim():'';
+    if(!label){
+      var first=document.querySelector('#pNav a[href]'); label=first?(first.textContent||'').trim():'';
+    }
+    if(!label){
+      try{
+        var usp=new URLSearchParams(location.search); label=(usp.get('page')||'').trim();
+      }catch(_){ }
+    }
+    if(!label){ label='Shots'; } // hard fallback
+    return label;
+  }
+
+  // Guarded localStorage read/write: skip when sheetName is empty
+  function lsGet(ns, page){
+    if(!page){ return null; }
+    try{ return localStorage.getItem('motk:'+ns+':'+page); }catch(_){ return null; }
+  }
+  function lsSet(ns, page, val){
+    if(!page){ return; }
+    try{ localStorage.setItem('motk:'+ns+':'+page, val); }catch(_){ }
+  }
+
+  function onDom(){
+    adjustNavOffset(); window.addEventListener('resize',adjustNavOffset,{passive:true});
+    var obs=new MutationObserver(adjustNavOffset);
+    if(document.body) obs.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['style','class']});
+
+    enableSpaNav();
+
+    // Decide initial page (never empty) and normalize URL state
+    STATE.sheetName = detectSheetNameFromDOM();
+    try{
+      var usp=new URLSearchParams(location.search);
+      if(!usp.get('page')){ usp.set('page', STATE.sheetName); history.replaceState(null,'',location.pathname+'?'+usp.toString()); }
+    }catch(_){ }
+
+    // Pager/UI bindings (existing functions)
+    bindPagerControls();
+    updatePagerUI();
+
+    // Load config and page data; rendering waits for both gates
+    loadPagesFromCacheThenNetwork();
+    loadPageConfigFromCacheThenNetwork(STATE.pageId,function(){ STATE._cfgReady=true; maybeRender(); });
+    fetchPageOnlyFromCacheThenNetwork(1,function(){ STATE._dataReady=true; maybeRender(); });
+
+    // Prefetch light indices (unchanged interfaces)
+    prefetchProxyIndex();
+    prefetchEntityMap('Assets',pickAssetName,'assets');
+    prefetchEntityMap('Shots', pickShotCode,'shots');
+    prefetchEntityMap('Tasks', pickTaskName,'tasks');
+    prefetchEntityMap('Users', pickUserName,'users');
+    prefetchEntityMap('ProjectMembers', pickMemberName,'members');
+
+    // Quick search enter-to-exec
+    var qs=document.getElementById('quickSearch');
+    if(qs){
+      qs.addEventListener('keydown',function(e){
+        if(e.key==='Enter'){
+          e.preventDefault();
+          var q=qs.value.trim();
+          if(q){ serverSearch(q); } else { fetchAndRenderPage(1); }
+        }
+      });
+    }
+  }
+
+  // SPA navigate: update URL and reload page-level data
+  function navigateTo(label){
+    var usp=new URLSearchParams(location.search);
+    usp.set('page',label); if(STATE.pageId) usp.set('pid',STATE.pageId);
+    writeUrlState(usp); history.replaceState(null,'',location.pathname+'?'+usp.toString());
+
+    STATE.sheetName=label; STATE.page=1; STATE._prevRowForGroup=null; STATE._dataReady=false; STATE._cfgReady=false;
+
+    showStatus('loading '+label+'…');
+
+    loadPagesFromCacheThenNetwork();
+    loadPageConfigFromCacheThenNetwork(STATE.pageId,function(){ STATE._cfgReady=true; maybeRender(); });
+    fetchPageOnlyFromCacheThenNetwork(1,function(){ STATE._dataReady=true; maybeRender(); });
+
+    prefetchProxyIndex();
+    prefetchEntityMap('Assets',pickAssetName,'assets');
+    prefetchEntityMap('Shots', pickShotCode,'shots');
+    prefetchEntityMap('Tasks', pickTaskName,'tasks');
+    prefetchEntityMap('Users', pickUserName,'users');
+    prefetchEntityMap('ProjectMembers', pickMemberName,'members');
+  }
+
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',onDom,{once:true}); else onDom();
+})();
+/* ===== 10.start End ===== */
+</script>
+
 function start(){
   STATE.sheetName = detectSheetNameFromDOM() || (window.ALL_DATA && ALL_DATA.sheetName) || '';
   bindPagerControls();
