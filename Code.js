@@ -18,7 +18,18 @@ function include(filename) {
 }
 /* ===== 2. End ===== */
 
-/* ===== 3. doGet Router（差し替え・全文） ===== */function doGet(e){var p=(e&&e.parameter&&e.parameter.page)||'Shots';var scriptUrl=ScriptApp.getService().getUrl();var dataJson="'[]'";__VIEW_CTX.page=p;__VIEW_CTX.scriptUrl=scriptUrl;__VIEW_CTX.dataJson=dataJson;var viewerTpl=HtmlService.createTemplateFromFile('viewer');viewerTpl.page=p;viewerTpl.scriptUrl=scriptUrl;viewerTpl.dataJson=dataJson;var viewerHtml=viewerTpl.evaluate().getContent();var headMatch=viewerHtml.match(/<head[^>]*>([\s\S]*?)<\/head>/i);var headScripts=headMatch?(headMatch[1].match(/<script[\s\S]*?<\/script>/gi)||[]).join('\n'):'';var bodyMatch=viewerHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);var t=HtmlService.createTemplateFromFile('index');t.page=p;t.scriptUrl=scriptUrl;t.dataJson=dataJson;t.viewerHtml=(headScripts?headScripts+'\n':'')+(bodyMatch?bodyMatch[1]:viewerHtml);var out=t.evaluate().setTitle('MOTK Viewer').setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);return out;}/* ===== 3. End ===== */
+/* ===== 3. doGet Router ===== */
+function doGet(e){
+  var p = (e && e.parameter) || {};
+  var page = String(p.page || "index");
+  var t = HtmlService.createTemplateFromFile("index");
+  t.page = page;
+  t.scriptUrl = ScriptApp.getService().getUrl();
+  t.dataJson = JSON.stringify([]);
+  t.viewerHtml = "";
+  return t.evaluate().setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+/* ===== 3. End ===== */
 
 
 

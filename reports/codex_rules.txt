@@ -1,0 +1,1 @@
+AFTER_EACH_EDIT: append JSON line with ts, branch, head, touched_files, summary to src/reports/codex_session_report.txt

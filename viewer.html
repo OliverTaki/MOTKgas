@@ -1,24 +1,9 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8" />
-  <title>Viewer</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <?!= include('COMMON_styles'); ?>
-  <script>
-    (function(){
-      try{ window.scriptUrl = "<?= ScriptApp.getService().getUrl() ?>"; }
-      catch(e){ window.scriptUrl = location.pathname; }
-    })();
-  </script>
-</head>
-<body>
+<!-- viewer fragment -->
 <div id="table-view-container">
   <!-- Toolbar -->
   <div id="toolbar">
     <select id="presetSelect" aria-label="Pages"></select>
     <span id="presetStatus" class="muted"></span>
-    <!-- Save dropdown（Save / Save as… / Revert） -->
     <div class="dropdown" id="saveDD">
       <button id="saveDDBtn" class="btn">Save ▾</button>
       <div class="dd-menu" id="saveDDMenu">
@@ -27,7 +12,6 @@
         <div class="dd-item" data-act="revert">Revert</div>
       </div>
     </div>
-    <!-- 旧ボタンは撤去（機能はドロップダウンに集約） -->
     <!-- <button id="saveCfgBtn" class="btn" disabled>Save</button> -->
     <!-- <button id="revertCfgBtn" class="btn" disabled>Revert</button> -->
     <button id="sortBtn" class="btn">Sort</button>
@@ -68,8 +52,6 @@
   <div class="row"><label style="min-width:72px;">Shared</label><label><input id="npShared" type="checkbox"> share with team</label></div>
   <div class="row" style="justify-content:flex-end;gap:8px;"><button id="npCancel" class="btn">Cancel</button><button id="npSave" class="btn">Save</button></div>
 </div>
-<?!= include('COMMON_renderer'); ?> <!-- FieldsAPI集約 (インライン挿入でMIMEエラー回避) -->
-<?!= include('Scripts'); ?> <!-- Router/Bootstrap (インライン挿入でMIMEエラー回避) -->
 <script>
 ;(function(){
   "use strict";
@@ -105,7 +87,7 @@ function copy(o){
   return r;
 }
 /* ===== 2B.global closers ===== */
-// 任意の「メニュー/パネル」を、外クリック or ESC で閉じられるようにする共通ヘルパ
+
 function addGlobalClosers(popupEl, anchorEl, onClose){
   function onDocMouseDown(ev){
     if(!popupEl) return;
@@ -121,11 +103,11 @@ function addGlobalClosers(popupEl, anchorEl, onClose){
       onClose && onClose();
     }
   }
-  // コメントで管理しやすいように属性を付与（デバッグ補助）
+
   popupEl.setAttribute('data-global-closer','1');
   document.addEventListener('mousedown', onDocMouseDown);
   document.addEventListener('keydown', onKey);
-  // 後片付け用
+
   popupEl._closerteardown = function(){
     document.removeEventListener('mousedown', onDocMouseDown);
     document.removeEventListener('keydown', onKey);
@@ -139,15 +121,15 @@ function removeGlobalClosers(popupEl){
     }
   }catch(e){}
 }
-/* ===== 2C.entity name normalizer (server向け) ===== */
+/* ===== 2C.entity name normalizer  ===== */
 function entityForServer(){
-  // UI のラベルや大小・スペースの揺れを吸収して、サーバ既定の識別子に正規化
+
   var c = _canon(STATE.sheetName);
-  // 「Members」表示でも厳格に ProjectMembers を使う
+
   if (c === 'members' || c === 'projectmembers' || c === 'projectmember' || c === 'project members'){
     return 'ProjectMembers';
   }
-  // 既定はそのまま（既存と互換）
+
   return STATE.sheetName;
 }
   /* ===== 3.localStorage ===== */
@@ -323,11 +305,9 @@ var STATE={
   dirty:false,
   perPage:DEFAULT_PER_PAGE, page:1,
   sort:[],
-  /* ---- Filter groups only（flat filterは使わない） ---- */
   filterSets:{}, // { groupName: { name, mode:'all'|'any', rules:[...] } }
-  selectedGroups:{}, // { groupName: true/false } 適用対象
-  groupCombine:'all', // 右上のグループ同士の結合
-  /* グループ見出しの有効フラグ（未定義だと無効化されるため既定で true） */
+  selectedGroups:{},
+  groupCombine:'all',
   groupEnabled:true,
   dataSource:'',
   _dataReady:false, _cfgReady:false,
@@ -346,14 +326,13 @@ var KNOWN_LINK_FIELD_IDS={
   fi_0063:'shot', fi_0064:'task',
   fi_0065:'asset'
 };
-/* 小ヘルパ（このセクション内だけで使う） */
 function _idxOf(a,v){ if(!Array.isArray(a)) return -1; for(var i=0;i<a.length;i++){ if(a[i]===v) return i; } return -1; }
 function prefetchEntityMap(entity, pickNameFn, bucketKey){
   if(!hasGoogle())return;
   var key='map:'+entity; if(prefetchEntityMap[key])return; prefetchEntityMap[key]=true;
   google.script.run.withSuccessHandler(function(res){
     try{
-      // DataHub 形式/オブジェクト形式の双方に対応
+
       var ids = (res && Array.isArray(res.ids)) ? res.ids
                 : (Array.isArray(res) && Array.isArray(res[0]) ? res[0] : []);
       var header= (res && Array.isArray(res.header)) ? res.header
@@ -371,7 +350,6 @@ function prefetchEntityMap(entity, pickNameFn, bucketKey){
     }catch(e){}
   }).withFailureHandler(function(){/* ignore */}).listRowsPage({entity:entity,offset:0,limit:50000});
 }
-/* 以下 pick系は (ids, header, row) 署名に統一 */
 function pickAssetName(ids, header, row){
   var i = header.findIndex(function(h){return String(h).toLowerCase().includes('asset name')});
   if(i<0) i=1;
@@ -392,13 +370,12 @@ function pickUserName(ids, header, row){
   if(i<0) i=1;
   return String(row[i]||'').trim();
 }
-/* ★ ProjectMembers は「fi_0035 を最優先」して名前を決める（Role ヘッダの表記揺れに依存しない） */
 function pickMemberName(ids, header, row){
   var i = _idxOf(ids,'fi_0035');
-  if(i<0){ // フォールバック：header 表記が Role のとき
+  if(i<0){
     i = header.findIndex(function(h){return /^role$/i.test(String(h))});
   }
-  if(i<0) i=1; // それでも無ければ2列目
+  if(i<0) i=1;
   return String(row[i]||'').trim();
 }
   /* ===== 6.Proxy index ===== */
@@ -410,7 +387,7 @@ function pickMemberName(ids, header, row){
         try{
           var latest=(idx&&idx.latestByShotId)?idx.latestByShotId:{};
           for(var k in latest){ PROXY_CACHE[String(k)]=latest[k]||null; }
-          // 可視セルの再判定（スクロール/カスタムイベントの両方を飛ばす）
+
           var wrap=document.getElementById('tableWrap');
           if(wrap){
             try{
@@ -418,7 +395,7 @@ function pickMemberName(ids, header, row){
             }catch(e){
               var ev2=document.createEvent('Event'); ev2.initEvent('scroll',true,true); wrap.dispatchEvent(ev2);
             }
-            // shotview 再評価用の独自イベント
+
             try{ wrap.dispatchEvent(new Event('proxies:ready')); }catch(_){}
           }
         }catch(e){}
@@ -447,9 +424,9 @@ function pickMemberName(ids, header, row){
       if(String(ppParam).toLowerCase()===PER_PAGE_ALL){ STATE.perPage=PER_PAGE_ALL; }
       else { var pp=parseInt(ppParam,10); if(PER_PAGE_ALLOWED.indexOf(pp)>=0) STATE.perPage=pp; }
     }
-    // sort はそのまま維持
+
     var s=usp.get('s')||''; STATE.sort=parseSortParam(s);
-    // 旧フィルタは使わない（互換維持のため読みはするが送らない）
+
     // var f=usp.get('f')||''; STATE.filter=parseFilterParam(f);
     // var fm=(usp.get('fm')||'all').toLowerCase(); STATE.filterMode=(fm==='any'?'any':'all');
   }
@@ -461,7 +438,7 @@ function pickMemberName(ids, header, row){
     else if(STATE.perPage!==DEFAULT_PER_PAGE) usp.set('pp',String(STATE.perPage));
     else usp.delete('pp');
     var s=serializeSort(STATE.sort.filter(function(x){return x&&x.on!==false;})); if(s)usp.set('s',s); else usp.delete('s');
-    // f/fm は書かない（groupベースに移行）
+
     return usp;
   }
   function parseSortParam(s){if(!s)return[];return s.split(',').map(function(x){return x.match(/^([^.]+)\.(asc|desc)$/i)}).filter(Boolean).map(function(m){return({id:m[1],dir:m[2].toLowerCase(),on:true})})}
@@ -494,7 +471,7 @@ function wirePresetSelectAfterLoad(){
     var x=STATE.pageList[i]; var id=getPageId(x), nm=getPageName(x);
     if(!id)continue; var opt=document.createElement('option'); opt.value=id; opt.textContent=nm; sel.appendChild(opt);
   }
-  // 「+ New Page」は出さない
+
   if(!STATE.pageId || !hasId(STATE.pageList,STATE.pageId)){
     var def=findById(STATE.pageList,'pg_default');
     STATE.pageId=def?'pg_default':(STATE.pageList.length?getPageId(STATE.pageList[0]):'');
@@ -528,11 +505,11 @@ function applyLoadedConfig(cfg){
   STATE.filterSets=copy(STATE.pageCfgRaw.filterSets||{});
   STATE.filterGroups=Array.isArray(STATE.pageCfgRaw.filterGroups)?deepCopy(STATE.pageCfgRaw.filterGroups):[];
   STATE.groupCombine=(cfg&&cfg.groupCombine==='any')?'any':'all';
-  // 旧 filterSets は互換保持（未使用でも空で作る）
+
   if(Object.keys(STATE.filterSets).length===0){
     STATE.filterSets['Group 1']={name:'Group 1',mode:'any',rules:[]};
   }
-  // filterGroups が空なら「empty ルール1本入り」のグループを初期投入
+
   if(!Array.isArray(STATE.filterGroups) || STATE.filterGroups.length===0){
     STATE.filterGroups=[{
       id:rid(),
@@ -541,7 +518,7 @@ function applyLoadedConfig(cfg){
       rules:[{ id:'', op:'isempty', value:'', values:[] }]
     }];
   }else{
-    // 先頭グループにルールが1つも無ければ empty ルールを追加
+
     var g0=STATE.filterGroups[0];
     if(!g0.rules || g0.rules.length===0){
       g0.rules=[{ id:'', op:'isempty', value:'', values:[] }];
@@ -582,11 +559,10 @@ function loadPageConfigFromCacheThenNetwork(pid,done){
 /* 将来的には ProjectMeta から取得する想定の“詳細リンク化フィールド”の定義。
    いまは固定マップで運用し、後で差し替えやすい形にしておく。 */
 var DETAIL_LINK_FIELDS = {
-  // canon（小文字・末尾s吸収） → FieldID の配列
-  projectmembers: ['fi_0035'] // Role だけを詳細リンク化
-  // 例）users: ['fi_00xx'], tasks: ['fi_00yy'] ... と後で増やす
+
+  projectmembers: ['fi_0035']
+
 };
-/* 補助: 表示ラベルから canon を得て、リンク対象かどうか判定 */
 function isDetailLinkField(canon, fieldId){
   var c = _canon(canon);
   var arr = DETAIL_LINK_FIELDS[c];
@@ -751,14 +727,13 @@ function normalizeRowsPayload(arr){
   return {ids:[],header:[],rows:[],total:0};
 }
 
-/* --- 11.A: エンティティ名の候補生成（DataHub 既知マップ → バリアント） --- */
 function titleCase(s){ s=String(s||''); return s? (s[0].toUpperCase()+s.slice(1).toLowerCase()) : s; }
 function pascalCase(s){ s=String(s||'').replace(/[_\s-]+/g,' '); return s.split(' ').map(function(w){return titleCase(w);}).join(''); }
 function entityCandidatesFromSheet(sheetCanon){
-  // DataHub 既知エンティティ → サービス側の厳密キーを先に試す
+
   var knownMap = {
     projectmembers: ['ProjectMembers'],
-    members       : ['ProjectMembers'],   // ★ 追加
+    members       : ['ProjectMembers'],
     shots         : ['Shots'],
     assets        : ['Assets'],
     tasks         : ['Tasks'],
@@ -768,13 +743,13 @@ function entityCandidatesFromSheet(sheetCanon){
   var c = String(sheetCanon||'').toLowerCase();
   var cand = knownMap[c] ? knownMap[c].slice() : [];
 
-  // バリアント（サービス実装差の吸収）
+
   var raw = String(sheetCanon||'');
   cand.push(
     raw, c, titleCase(c), pascalCase(c), pascalCase(raw)
   );
 
-  // 重複除去
+
   var seen={}, out=[];
   for(var i=0;i<cand.length;i++){
     var k=String(cand[i]||'').trim();
@@ -785,7 +760,6 @@ function entityCandidatesFromSheet(sheetCanon){
 }
 
 
-/* --- 11.B: サーバ呼び出しを「候補を順に試す」方式に --- */
 function fetchFirstAvailable(payloadBase, onOk, onFail){
   var cands = entityCandidatesFromSheet(_canon(STATE.sheetName));
   var i = 0;
@@ -802,7 +776,7 @@ function fetchFirstAvailable(payloadBase, onOk, onFail){
       payload,
       function(res){
         var p = normalizeRowsPayload(res);
-        // 何も無い場合は次候補へ（空ヒットを弾く）
+
         if(!p.rows || p.rows.length===0){
           tryNext();
           return;
@@ -815,7 +789,6 @@ function fetchFirstAvailable(payloadBase, onOk, onFail){
   tryNext();
 }
 
-/* --- 11.C: 同上の1件取得（前ページ末尾用） --- */
 function fetchPrevForGrouping(offset, base, onOk, onFail){
   var cands = entityCandidatesFromSheet(_canon(STATE.sheetName));
   var i = 0;
@@ -838,7 +811,6 @@ function fetchPrevForGrouping(offset, base, onOk, onFail){
 
 /* ===== 11.data fetch ===== */
 
-/* 11.0: 共通ユーティリティ（DataHub/Sheet 判定を強化：ids が空でも header を見る） */
 function detectSourceByIds(ids, header){
   try{
     function hasFi(arr){
@@ -855,9 +827,8 @@ function detectSourceByIds(ids, header){
   return 'Sheet';
 }
 
-/* 11.1: DataHub っぽい「余計な先頭行」やパイプ区切りを吸収して正規化する */
 function normalizeRowsPayload(arr){
-  // 形式1: オブジェクト { ids, header, rows, total }
+
   if(arr && typeof arr==='object' && !Array.isArray(arr)){
     var ids2   = Array.isArray(arr.ids)?arr.ids:[];
     var head2  = Array.isArray(arr.header)?arr.header:[];
@@ -866,9 +837,9 @@ function normalizeRowsPayload(arr){
     return { ids:ids2, header:head2, rows:rows2, total:total2 };
   }
 
-  // 形式2: 2次元配列（DataHub/Sheet混在）
+
   if(Array.isArray(arr)){
-    // 行が「パイプ1セル」でも配列でも受けられるように補助関数
+
     function toArrayRow(r){
       if(Array.isArray(r)){
         if(r.length===1 && typeof r[0]==='string' && r[0].indexOf('|')>=0) return r[0].split('|');
@@ -884,11 +855,11 @@ function normalizeRowsPayload(arr){
       for(var i=0;i<a.length;i++){
         if(/^fi_\d{4}$/i.test(String(a[i]||''))) hits++;
       }
-      // fi_* が 60% 以上、かつ 3 個以上で fi 行とみなす
+
       return hits>=3 && hits>=Math.ceil(a.length*0.6);
     }
 
-    // 先頭から fi 行を探す（先頭1行に "ProjectMembers" などが来るケースを吸収）
+
     var k=-1;
     for(var i=0;i<arr.length;i++){
       if(isFiRow(arr[i])){ k=i; break; }
@@ -901,11 +872,11 @@ function normalizeRowsPayload(arr){
       for(var r=k+2; r<arr.length; r++){
         data.push( toArrayRow(arr[r]) );
       }
-      var total = data.length; // total が来ない場合は件数で代用
+      var total = data.length;
       return { ids:ids, header:names, rows:data, total:total };
     }
 
-    // 旧来フォーマット（0:ids, 1:header, 2..:rows）
+
     var ids0   = Array.isArray(arr[0])?arr[0]:[];
     var head0  = Array.isArray(arr[1])?arr[1]:[];
     var rows0  = arr.slice(2).map(toArrayRow);
@@ -913,13 +884,11 @@ function normalizeRowsPayload(arr){
     return { ids:ids0, header:head0, rows:rows0, total:total0 };
   }
 
-  // それ以外は空
+
   return { ids:[], header:[], rows:[], total:0 };
 }
 
-/* 11.2: 既存 GAS 呼び（sv_* → gs* フォールバック）はセクション 7 の callFirst を使用 */
 
-/* 11.3: フィルタの列存在チェック（存在しない fi_* は送らない） */
 function pruneFiltersForIds(filterGroups, validIdsSet){
   if(!Array.isArray(filterGroups)) return [];
   function keepRule(r){
@@ -932,7 +901,6 @@ function pruneFiltersForIds(filterGroups, validIdsSet){
   }).filter(function(g){ return g.rules && g.rules.length>0; });
 }
 
-/* 11.4: まず「無フィルタ・limit=1」でヘッダだけプローブ → 列存在でフィルタ剪定 */
 function headerProbe(entityLabel, cbOk, cbFail){
   var payload = {
     entity: entityLabel,
@@ -949,12 +917,11 @@ function headerProbe(entityLabel, cbOk, cbFail){
   );
 }
 
-/* 11.5: サーバペイロード（STATE.filterGroups はそのまま、後段で剪定） */
 function buildServerPayload(offset, limit){
   var activeSort = STATE.sort.filter(function(s){ return s && s.on !== false; });
   var groups = Array.isArray(STATE.filterGroups) ? STATE.filterGroups : [];
   return {
-    entity: STATE.sheetName,   // ★ DataHub は名前解決で OK（D 列に従う）
+    entity: STATE.sheetName,
     offset: Math.max(0, offset|0), limit: Math.max(1, Number(limit)||DEFAULT_PER_PAGE),
     sort: activeSort,
     filterGroups: groups,
@@ -962,7 +929,6 @@ function buildServerPayload(offset, limit){
   };
 }
 
-/* 11.6: 実データ取得（ヘッダ→剪定→本フェッチ→必要ならノーフィルタ再試行） */
 function fetchAndRenderPage(page){
   STATE.page = Math.max(1, page|0||1);
   if(STATE.perPage===PER_PAGE_ALL) STATE.page = 1;
@@ -982,7 +948,7 @@ function fetchAndRenderPage(page){
   showStatus('loading data…');
 
   headerProbe(STATE.sheetName, function(headP){
-    // valid fi_* セットを作る
+
     var valid = Object.create(null);
     for(var i=0;i<headP.ids.length;i++){ valid[ headP.ids[i] ] = 1; }
 
@@ -995,7 +961,7 @@ function fetchAndRenderPage(page){
       function(res){
         var p = normalizeRowsPayload(res);
 
-        // 0件 & 何かしらフィルタを掛けていた → ノーフィルタで再試行（“まず出す”）
+
         if((!p.rows || p.rows.length===0) && pruned.length>0){
           var noFilter = Object.assign({}, base, { filterGroups: [] });
           callFirst(['listRowsPage','sv_listRowsPage','gsListRowsPage'],
@@ -1025,7 +991,7 @@ function fetchAndRenderPage(page){
           return;
         }
 
-        // 通常ルート
+
         STATE.dataSource = detectSourceByIds(p.ids, p.header);
         applyData(p);
         if(STATE.group && STATE.group.length && STATE.page>1){
@@ -1047,7 +1013,7 @@ function fetchAndRenderPage(page){
       function(){ showStatus('no data'); }
     );
   }, function(){
-    // プローブ失敗時は素直に 1 回だけ試す
+
     var base = buildServerPayload(offset, limit);
     callFirst(['listRowsPage','sv_listRowsPage','gsListRowsPage'],
       base,
@@ -1061,7 +1027,6 @@ function fetchAndRenderPage(page){
   });
 }
 
-/* 11.7: キャッシュ→ネット更新（ネット更新は上と同じ 2 段階） */
 function fetchPageOnlyFromCacheThenNetwork(page, cb){
   STATE.page = Math.max(1, page|0||1);
   if(STATE.perPage===PER_PAGE_ALL) STATE.page = 1;
@@ -1122,7 +1087,6 @@ function fetchPageOnlyFromCacheThenNetwork(page, cb){
   }, function(){ if(cb) cb(); });
 }
 
-/* 11.8: クイックサーチは常に無フィルタ */
 function serverSearch(q){
   showStatus('searching "'+q+'" …');
   callFirst(['sv_quickSearch'],
@@ -1138,7 +1102,6 @@ function serverSearch(q){
   );
 }
 
-/* 11.9: STATE 反映（total が 0 でも行があれば件数優先で補正） */
 function applyData(data){
   STATE.fieldIds = Array.isArray(data.ids)   ? data.ids.slice()   : [];
   STATE.header   = Array.isArray(data.header)? data.header.slice(): [];
@@ -1164,7 +1127,7 @@ function applyData(data){
         groups.push({ name:name, mode:(g.mode==='any'?'any':'all'), rules:rules });
       }
     });
-    // 1つも選ばれていなければ、最初のグループを自動適用（起動時空回避）
+
     if(groups.length===0){
       var first=Object.keys(STATE.filterSets||{})[0];
       if(first){
@@ -1203,7 +1166,7 @@ function resolveOrder(){
   var ids=STATE.fieldIds.slice();
   var order=(STATE.pageCfgRaw&&Array.isArray(STATE.pageCfgRaw.order))?STATE.pageCfgRaw.order.slice():[];
   if(!order || !order.length) return ids;
-  // order に無い列は末尾に足す
+
   var inOrder={}, out=[];
   for(var i=0;i<order.length;i++){
     var id=order[i]; if(id && indexOf(ids,id)!==-1 && !inOrder[id]){ inOrder[id]=1; out.push(id); }
@@ -1217,7 +1180,7 @@ function resolveOrder(){
 function renderCurrentPage(){
   var wrap=document.getElementById('tableWrap'); if(!wrap)return;
   wrap.innerHTML='';
-  groupHeaderHTML._last=null; // ページごとにリセット
+  groupHeaderHTML._last=null;
 
   var cols=visibleCols();
   var colIdx=[]; for(var i=0;i<cols.length;i++){ colIdx[i]=indexOf(STATE.fieldIds,cols[i]); }
@@ -1236,19 +1199,19 @@ function renderCurrentPage(){
     th.className='draggable';
     th.style.width=(colW[i])+'px';
 
-    // リサイズハンドル
+
     var h=document.createElement('span');
     h.className='resize-h';
     hr.appendChild(th);
     th.appendChild(h);
 
-    // 並べ替え用（ドラッグ）
+
     th.setAttribute('draggable','true');
     th.addEventListener('dragstart',onDragStart);
     th.addEventListener('dragover',function(e){e.preventDefault(); e.dataTransfer.dropEffect='move';});
     th.addEventListener('drop',onDropHeader);
 
-    // リサイズ
+
     h.addEventListener('mousedown', startResize(th, colId), {passive:false});
     h.addEventListener('touchstart', startResize(th, colId), {passive:false});
   }
@@ -1269,12 +1232,12 @@ function renderCurrentPage(){
     for(var r=from;r<to;r++){
       var row=rowsSlice[r]; var rowId=String(row && row[0] || '').trim();
 
-      // グループ見出し
+
       if(useGrouping){
         var curKeys=[];
         for(var g=0;g<STATE.group.length;g++){
           var gid=STATE.group[g]; var gidx=indexOf(STATE.fieldIds,gid);
-          curKeys.push(row[gidx]); // 空でも見出し対象
+          curKeys.push(row[gidx]);
         }
         if(!prevGrpKeys){
           var same=false;
@@ -1299,11 +1262,11 @@ function renderCurrentPage(){
       for(var c=0;c<cols.length;c++){
         var id=cols[c], idx=colIdx[c]; var raw=row[idx]; var txt=(raw==null)?'':String(raw); var headTxt=STATE.header[idx]||id;
 
-        // shot/asset view 埋め込みセル
+
         if(id===vCol){
           html+='<td data-col-id="'+id+'" data-viewcell="1" data-rowid="'+escapeHTML(rowId)+'"></td>';
         }
-        // Originals 系：URL化
+
         else if(oriCols[id]){
           var url=toOriginalsUrl(txt);
           if(url){
@@ -1314,34 +1277,34 @@ function renderCurrentPage(){
             html+='<td data-col-id="'+id+'">'+escapeHTML(txt)+'</td>';
           }
         }
-        // ID列はそのまま
+
         else if(isIdColumn(headTxt,id)){
           html+='<td data-col-id="'+id+'">'+escapeHTML(txt)+'</td>';
         }
-        // IDトークン → 各エンティティのディテールリンクに分解（Assignee 等）
+
         else if(isLinkish(id, headTxt) || tokenExistsInAnyMap(txt)){
           var parts=splitTokens(txt);
           var rendered=parts.map(function(pid){ return renderLinkId(pid); }).join(', ');
           html+='<td data-col-id="'+id+'">'+(rendered||escapeHTML(txt))+'</td>';
         }
-        // ★ ProjectMembers: Role(fi_0035) → “その行の詳細”リンク（Members ラベルも含める）
+
         else if( (canon==='projectmembers' || canon==='projectmember' || canon==='members' || canon==='member')
                  && (id==='fi_0035') && isRowIdLike(rowId) ){
           var urlPM=(window.scriptUrl||'')+'?entity=projectmember&id='+encodeURIComponent(rowId);
           html+='<td data-col-id="'+id+'"><a href="'+urlPM+'">'+escapeHTML(txt||'(role)')+'</a></td>';
         }
-        // 既定：NAME 系は “その行の詳細”リンク（セクション15の判定に委ねる）
+
         else if(shouldNameCellLinkToDetail(canon, headTxt, rowId)){
           var ent=singularEntityFor(canon);
           var url2=(window.scriptUrl||'')+'?entity='+ent+'&id='+encodeURIComponent(rowId);
           html+='<td data-col-id="'+id+'"><a href="'+url2+'">'+escapeHTML(txt)+'</a></td>';
         }
-        // ShotCode → 予備の詳細リンク（既存踏襲）
+
         else if(/shotcode/i.test(headTxt) && isRowIdLike(rowId)){
           var url3=(window.scriptUrl||'')+'?entity=shot&id='+encodeURIComponent(rowId);
           html+='<td data-col-id="'+id+'"><a href="'+url3+'">'+escapeHTML(txt)+'</td>';
         }
-        // 通常
+
         else{
           html+='<td data-col-id="'+id+'">'+escapeHTML(txt)+'</td>';
         }
@@ -1354,7 +1317,7 @@ function renderCurrentPage(){
   function groupHeaderHTML(keys){
     var out=''; var lastKeys=groupHeaderHTML._last||[];
     for(var lv=0;lv<keys.length;lv++){
-      var v = keys[lv]; // 空でも出す
+      var v = keys[lv];
       if(lastKeys[lv]===v) continue;
       var cls=(lv===0)?'grp1':'grp2';
       var label = (v==null || v==='') ? '(empty)' : String(v);
@@ -1401,7 +1364,7 @@ function buildRowsHTML(from, to){
     var rowId = String(row[0]||'').trim();
     var canon = _canon(STATE.sheetName);
 
-    // グループ見出し（必要なときだけ）
+
     if(STATE.groupEnabled && STATE.group && STATE.group.length){
       var curKeys=[];
       for(var gi=0; gi<STATE.group.length; gi++){
@@ -1428,7 +1391,7 @@ function buildRowsHTML(from, to){
       if(id===vCol){
         html+='<td data-col-id="'+id+'" data-viewcell="1" data-rowid="'+escapeHTML(rowId)+'"></td>';
       }
-      // Originals 系リンク化
+
       else if(oriCols[id]){
         var url=toOriginalsUrl(txt);
         if(url){
@@ -1439,28 +1402,28 @@ function buildRowsHTML(from, to){
           html+='<td data-col-id="'+id+'">'+escapeHTML(txt)+'</td>';
         }
       }
-      // ID列はそのまま
+
       else if(isIdColumn(headTxt,id)){
         html+='<td data-col-id="'+id+'">'+escapeHTML(txt)+'</td>';
       }
-      // IDトークン→リンク（Assets/Shots/Tasks/Users/Members）…従来のまま維持
+
       else if(isLinkish(id, headTxt) || tokenExistsInAnyMap(txt)){
         var parts=splitTokens(txt);
         var rendered=parts.map(function(pid){ return renderLinkId(pid); }).join(', ');
         html+='<td data-col-id="'+id+'">'+(rendered||escapeHTML(txt))+'</td>';
       }
-      // ★ 設定に基づく「明確に FieldID だけ」詳細リンク
+
       else if( isDetailLinkField(canon, id) && isRowIdLike(rowId) ){
-        var ent = singularEntityFor(canon);  // canon→単数（projectmembers → projectmember）
+        var ent = singularEntityFor(canon);
         var url=(window.scriptUrl||'')+'?entity='+ent+'&id='+encodeURIComponent(rowId);
         html+='<td data-col-id="'+id+'"><a href="'+url+'">'+escapeHTML(txt||'detail')+'</a></td>';
       }
-      // ShotCode → 詳細リンク（保険は温存）
+
       else if(/shotcode/i.test(headTxt) && isRowIdLike(rowId)){
         var url3=(window.scriptUrl||'')+'?entity=shot&id='+encodeURIComponent(rowId);
         html+='<td data-col-id="'+id+'"><a href="'+url3+'">'+escapeHTML(txt)+'</td>';
       }
-      // 通常テキスト
+
       else{
         html+='<td data-col-id="'+id+'">'+escapeHTML(txt)+'</td>';
       }
@@ -1471,7 +1434,7 @@ function buildRowsHTML(from, to){
 }
 
 
-/* ===== 13C. Column resize & reorder handlers (real impl) ===== */
+/* ===== 13C. Column resize & reorder handlers  ===== */
 (function(){
   var MIN_W = 56, MAX_W = 720;
 
@@ -1494,10 +1457,10 @@ function buildRowsHTML(from, to){
   }
 
   // ==== Resize ====
-  // 使い方： h.addEventListener('mousedown', startResize(th, colId))
+
   window.startResize = function(th, colId){
     return function onDown(ev){
-      // Fields 等がドラッグ扱いにならないように抑止
+
       ev.preventDefault();
       ev.stopPropagation();
 
@@ -1505,7 +1468,7 @@ function buildRowsHTML(from, to){
       var startW = (STATE.widths[colId]|0) || Math.round(th.getBoundingClientRect().width);
       var moving = true;
 
-      // ヘッダーのD&Dは一時無効化（ドラッグ判定が拾われないように）
+
       var wasDraggable = th.getAttribute('draggable');
       th.setAttribute('draggable','false');
 
@@ -1516,13 +1479,13 @@ function buildRowsHTML(from, to){
         var w = Math.max(MIN_W, Math.min(MAX_W, startW + dx));
         applyColumnWidth(colId, w);
 
-        // フッター潜り防止：パディング再計算
+
         if(typeof window.updateFooterPad === 'function') window.updateFooterPad();
       }
 
       function onUp(){
         moving = false;
-        // 元のドラッガブル状態を復帰
+
         if(wasDraggable != null) th.setAttribute('draggable', wasDraggable);
         else th.removeAttribute('draggable');
 
@@ -1539,7 +1502,7 @@ function buildRowsHTML(from, to){
     };
   };
 
-  // ==== Drag & Drop（列の並べ替え） ====
+
   window.onDragStart = function(ev){
     try{
       var th = ev.target.closest('th[data-col-id]');
@@ -1588,7 +1551,7 @@ function buildRowsHTML(from, to){
     }
   };
 
-  // D&D中の見た目
+
   document.addEventListener('dragover', function(ev){
     var th = ev.target && ev.target.closest && ev.target.closest('th[data-col-id]');
     if(!th) return;
@@ -1597,7 +1560,6 @@ function buildRowsHTML(from, to){
   }, {passive:false});
 
 
-  /* ===== フッター高さに応じて下パディングを調整 ===== */
   window.updateFooterPad = function(){
     try{
       var bar  = document.getElementById('statusBar');
@@ -1606,29 +1568,29 @@ function buildRowsHTML(from, to){
 
       var h = Math.ceil(bar.getBoundingClientRect().height || 0);
 
-      // 横スクロールが出ている場合のスクロールバー厚み（12px想定）
+
       var sb = (wrap.scrollWidth > wrap.clientWidth) ? 12 : 0;
 
-      // 余白を多めに（行高・画像遅延・フォント差での誤差を吸収）
-      var buffer = 72; // ← ここを増やすと更に安全側
+
+      var buffer = 72;
 
       var pad = Math.max(48, h + sb + buffer);
-      // body や #tableWrap にインライン padding が無い想定で CSS 変数だけで反映
+
       document.documentElement.style.setProperty('--footer-pad', pad + 'px');
     }catch(e){}
   };
 
-  // 初期＆サイズ変化で反映（数回リトライ）
+
   window.addEventListener('resize', window.updateFooterPad, {passive:true});
   window.addEventListener('orientationchange', window.updateFooterPad);
-  // レイアウトが落ち着いた段階で再評価
+
   requestAnimationFrame(window.updateFooterPad);
   setTimeout(window.updateFooterPad, 120);
   setTimeout(window.updateFooterPad, 360);
 })();
 
 
-/* ===== 14.view (shotview/assetview) ===== */
+/* ===== 14.view  ===== */
 function findViewColId(cands){
   var ids=visibleCols();
   for(var i=0;i<ids.length;i++){
@@ -1663,7 +1625,7 @@ function prepareViewLazy(tableElem){
     var tr=tbody.rows[i]; var td=tr.querySelector('td[data-col-id="'+vCol+'"]'); if(!td)continue;
     td.setAttribute('data-viewcell','1');
     if(!td.getAttribute('data-rowid')) td.setAttribute('data-rowid', tr.getAttribute('data-row-id')||'');
-    // vdone は「描画が完了したときだけ」付ける（未キャッシュでは付けない）
+
     td.removeAttribute('data-vdone');
     cells.push(td);
   }
@@ -1681,7 +1643,7 @@ function prepareViewLazy(tableElem){
     var sid=td.getAttribute('data-rowid')||'';
     var file=PROXY_CACHE[sid]||null;
 
-    // キャッシュ未着：プレースホルダは出さず、確定マークもしない（後で再評価）
+
     if(!file) return;
 
     renderViewCell(td, file);
@@ -1692,20 +1654,20 @@ function prepareViewLazy(tableElem){
     for(var i=0;i<cells.length;i++) renderIfInView(cells[i]);
   }
 
-  // 可視域スクロールで判定
+
   wrap.addEventListener('scroll', function(){ requestAnimationFrame(paint); }, {passive:true});
 
-  // プロキシが後から来たとき（2-Aで発火）
+
   wrap.addEventListener('proxies:ready', function(){ requestAnimationFrame(paint); });
 
-  // 初期描画
+
   requestAnimationFrame(paint);
   setTimeout(paint, 250);
 }
 
 function renderViewCell(td,file){
   td.innerHTML='';
-  if(!file){ return; } // プレースホルダは表示しない
+  if(!file){ return; }
   var thumb='https://drive.google.com/thumbnail?id='+encodeURIComponent(file.id)+'&sz=w320';
   var preview='https://drive.google.com/file/d/'+encodeURIComponent(file.id)+'/view';
   var img=document.createElement('img');
@@ -1753,7 +1715,6 @@ function isIdColumn(header, fid){
 
 function _norm(h){return String(h||'').toLowerCase().replace(/[\s_-]/g,'');}
 
-/* ★ “Members” ラベルでも ProjectMembers として扱う（将来 ProjectMeta に移せるよう最小限の別名吸収） */
 function singularEntityFor(canon){
   if(canon==='shots')  return 'shot';
   if(canon==='assets') return 'asset';
@@ -1763,12 +1724,11 @@ function singularEntityFor(canon){
   return canon;
 }
 
-/* ★ PM は Role を “名前列”として詳細へリンク。他は従来どおり Name 系だけ */
 function shouldNameCellLinkToDetail(canon, header, rowId){
   if(!rowId) return false;
   var h=_norm(header);
   if(canon==='projectmembers'||canon==='projectmember'||canon==='member'||canon==='members'){
-    if(h==='role') return true; // PM=Role(fi_0035) を名前扱い
+    if(h==='role') return true;
   }
   return /name$/.test(h);
 }
@@ -1795,10 +1755,9 @@ function guessEntityFromId(id){
 }
 
 
-/* ===== 16.Columns（Fields） ===== */
 document.getElementById('columnsBtn').addEventListener('click', function(){ openPanel('colPanel', this, buildColsPanel); });
 function buildColsPanel(panel){
-  // パネル幅をさらに狭く
+
   panel.style.minWidth='240px';
   panel.style.maxWidth='480px';
 
@@ -1819,7 +1778,6 @@ function buildColsPanel(panel){
   }
 }
 
-/* ===== 17.Sort（+add/Apply/Resetは下1行、各行にEnableと横並びGroup。Applyまで未反映だが Reset は“即適用（ユニバーサル）”） ===== */
 document.getElementById('sortBtn').addEventListener('click', function(){
   openPanel('sortPanel', this, buildSortPanel);
 });
@@ -1829,14 +1787,14 @@ function buildSortPanel(panel){
   panel.style.maxWidth = '640px';
   panel.innerHTML='';
 
-  // Apply まで STATE へ反映しないローカルコピー
+
   var localSort = [];
   var src = Array.isArray(STATE.sort) ? STATE.sort : [];
   for(var i=0;i<src.length;i++){
     var it=src[i]||{};
     localSort.push({ id:(it.id||''), dir:(it.dir==='desc'?'desc':'asc'), on:(it.on!==false), group:false });
   }
-  // 既存 STATE.group を group フラグへ
+
   var gset = {};
   if(Array.isArray(STATE.group)){ for(var gi=0;gi<STATE.group.length;gi++){ gset[String(STATE.group[gi]||'')]=1; } }
   for(i=0;i<localSort.length;i++){ if(localSort[i].id && gset[localSort[i].id]) localSort[i].group = true; }
@@ -1846,14 +1804,14 @@ function buildSortPanel(panel){
   function body(){
     wrap.innerHTML='';
 
-    // ルール一覧
+
     var rulesBox=document.createElement('div'); wrap.appendChild(rulesBox);
     for(var r=0;r<localSort.length;r++){
       (function(idx){
         var it=localSort[idx];
         var row=document.createElement('div'); row.className='row';
 
-        // Enable / Group（横並び・同レイアウト）
+
         var eg=document.createElement('div'); eg.style.display='flex'; eg.style.alignItems='center'; eg.style.gap='10px';
         var enLab=document.createElement('label');
         var en=document.createElement('input'); en.type='checkbox'; en.checked=(it.on!==false);
@@ -1867,7 +1825,7 @@ function buildSortPanel(panel){
 
         eg.appendChild(enLab); eg.appendChild(gpLab);
 
-        // Field セレクト（ラベル文言は出さない）
+
         var sel=document.createElement('select');
         var cols=STATE.fieldIds.slice();
         for(var k=0;k<cols.length;k++){
@@ -1878,13 +1836,13 @@ function buildSortPanel(panel){
         }
         sel.value=it.id||''; sel.onchange=function(){ it.id=this.value; };
 
-        // Dir 切替
+
         var dirBtn=document.createElement('button'); dirBtn.className='btn';
         function paintDir(){ dirBtn.textContent=(it.dir==='desc'?'↓':'↑'); }
         paintDir();
         dirBtn.onclick=function(){ it.dir=(it.dir==='desc'?'asc':'desc'); paintDir(); };
 
-        // 削除
+
         var del=document.createElement('button'); del.className='btn'; del.textContent='×';
         del.onclick=function(){ localSort.splice(idx,1); body(); };
 
@@ -1896,7 +1854,7 @@ function buildSortPanel(panel){
       })(r);
     }
 
-    // 下1行：+ add / Apply / Reset
+
     var bar=document.createElement('div'); bar.className='row'; bar.style.marginTop='6px';
     var add=document.createElement('button'); add.className='btn'; add.textContent='+ add';
     add.onclick=function(){ localSort.push({id:'',dir:'asc',on:true,group:false}); body(); };
@@ -1914,13 +1872,13 @@ function buildSortPanel(panel){
       fetchAndRenderPage(1);
     };
 
-    // ★ユニバーサル：Reset は即適用（Apply不要）
+
     var reset=document.createElement('button'); reset.className='btn'; reset.textContent='Reset';
     reset.onclick=function(){
-      STATE.sort=[];      // クリアを即適用
-      STATE.group=[];     // グルーピングも解除
+      STATE.sort=[];
+      STATE.group=[];
       fetchAndRenderPage(1);
-      localSort=[];       // 画面も空に
+      localSort=[];
       body();
     };
 
@@ -1934,7 +1892,6 @@ function buildSortPanel(panel){
 }
 
 
-/* ===== 18.Distinct 候補キャッシュ ===== */
 var DISTINCT_CACHE={}; // key: entity+'|'+fieldId -> Set
 function addDistinctSamples(fieldId, rows){
   try{
@@ -1966,7 +1923,7 @@ function buildFilterPanelV2(panel){
   panel.style.maxWidth = '640px';
   panel.innerHTML='';
 
-  // Header（文言なし、右側に ALL/ANY トグルのみ）
+
   var head=document.createElement('div'); head.className='head';
   var left=document.createElement('div'); left.innerHTML='<strong>Filter</strong>';
   var right=document.createElement('div'); right.className='row';
@@ -1987,9 +1944,8 @@ function buildFilterPanelV2(panel){
 
   head.appendChild(left); head.appendChild(right); panel.appendChild(head);
 
-  // 以下は既存の body() ロジック（Apply 押さずとも各操作で即時 fetch）
+
   var wrap=document.createElement('div'); panel.appendChild(wrap);
-  function body(){ /* 既存の buildRuleRow / renderGroupRules を流用 */
     wrap.innerHTML='';
     STATE.filterGroups.forEach(function(g, gi){
       var box=document.createElement('div'); box.className='fg-item';
@@ -2035,7 +1991,6 @@ function buildFilterPanelV2(panel){
   body();
 }
 
-/* ===== 19.Filter（下1行に +add group / ALL / ANY / Apply / Reset、Applyまで未適用、Resetは即適用） ===== */
 document.getElementById('filterBtn').addEventListener('click', function(){
   openPanel('filterPanel', this, buildFilterPanelV3);
 });
@@ -2052,12 +2007,12 @@ function buildFilterPanelV3(panel){
     return { id:rid(), name:'Group 1', mode:'any', rules:[ defaultEmptyRule() ] };
   }
 
-  // ローカルコピー（ApplyまでSTATEに反映しない）
+
   var localFG = [];
   if(Array.isArray(STATE.filterGroups) && STATE.filterGroups.length){
     for(var i=0;i<STATE.filterGroups.length;i++){
       var g = deepCopy(STATE.filterGroups[i]||{});
-      // 既存にルールが無ければ空ルールを1本だけ入れておく
+
       if(!Array.isArray(g.rules) || g.rules.length===0) g.rules = [ defaultEmptyRule() ];
       localFG.push(g);
     }
@@ -2106,7 +2061,7 @@ function buildFilterPanelV3(panel){
     function rebuildValueUI(){
       var t=guessType(sel.value);
       setOpsForType(op,t);
-      // 既存がなければ "is empty" を優先
+
       op.value = r.op || 'isempty';
       valWrap.innerHTML='';
       if(t==='date'){
@@ -2118,7 +2073,7 @@ function buildFilterPanelV3(panel){
           a.onchange=b.onchange=function(){ r.value=(a.value||'')+'..'+(b.value||''); };
           valWrap.appendChild(a); valWrap.appendChild(document.createTextNode(' .. ')); valWrap.appendChild(b);
         }else if(op.value==='isempty' || op.value==='isnotempty'){
-          // 入力なし
+
         }else{
           var d=document.createElement('input'); d.type='date'; d.value=(r.value||'');
           d.onchange=function(){ r.value=this.value; };
@@ -2157,7 +2112,7 @@ function buildFilterPanelV3(panel){
           }
           valWrap.appendChild(box);
         }else if(op.value==='isempty' || op.value==='isnotempty'){
-          // 入力なし
+
         }else{
           var inp2=document.createElement('input'); inp2.type='text'; inp2.placeholder='value'; inp2.value=(r.value||'');
           inp2.onchange=function(){ r.value=this.value; };
@@ -2238,7 +2193,7 @@ function buildFilterPanelV3(panel){
       })(gi);
     }
 
-    // 下1行に + add group / ALL / ANY / Apply / Reset
+
     var bottom=document.createElement('div'); bottom.className='row'; bottom.style.marginTop='8px';
     var addg=document.createElement('button'); addg.className='btn'; addg.textContent='+ add group';
     addg.onclick=function(){ localFG.push( defaultGroup() ); body(); };
@@ -2262,11 +2217,11 @@ function buildFilterPanelV3(panel){
 
     var reset=document.createElement('button'); reset.className='btn'; reset.textContent='Reset';
     reset.onclick=function(){
-      // リセットは即適用
+
       STATE.filterGroups = [];
       STATE.groupCombine = 'all';
       fetchAndRenderPage(1);
-      // 画面側は初期（空ルール入り1グループ）へ
+
       localFG=[ defaultGroup() ];
       localCombine='all';
       body();
@@ -2286,12 +2241,11 @@ function buildFilterPanelV3(panel){
 
 
 
-/* ===== 20.Panel 共通 openPanel ===== */
 function openPanel(id, anchorEl, builder){
   var panel=document.getElementById(id);
   if(!panel) return;
 
-  // すべて一旦閉じる
+
   var panels=document.querySelectorAll('.panel');
   panels.forEach(function(p){
     if(p!==panel){
@@ -2300,17 +2254,17 @@ function openPanel(id, anchorEl, builder){
     }
   });
 
-  // 中身を構築
+
   panel.innerHTML='';
   builder(panel);
 
-  // 位置調整
+
   var rc=anchorEl.getBoundingClientRect();
   panel.style.display='block';
   panel.style.left=rc.left+'px';
   panel.style.top=(rc.bottom+6)+'px';
 
-  // 外クリック/ESCで閉じる
+
   function close(){
     if(panel._closerCleanup){ panel._closerCleanup(); panel._closerCleanup=null; }
     panel.style.display='none';
@@ -2332,12 +2286,11 @@ function setDirty(flag){
 }
 
 
-/* ===== 22.Panels（open時にサイズ調整を追加で適用） ===== */
 (function(){
   var _open=openPanel;
   openPanel=function(id, anchorEl, builder){
     _open(id, anchorEl, function(panel){
-      // ここでも再度セーフティで狭める
+
       try{
         panel.style.minWidth = '320px';
         panel.style.maxWidth = '640px';
@@ -2368,7 +2321,7 @@ function removeGlobalClosers(panelEl){
   panelEl._closers = null;
 }
 
-/* ===== 22A.global closers (outside-click/Esc) ===== */
+/* ===== 22A.global closers  ===== */
 function addGlobalClosers(panelEl, anchorEl, close){
   function onDown(ev){
     if(panelEl && !panelEl.contains(ev.target) && ev.target!==anchorEl){
@@ -2391,7 +2344,6 @@ function removeGlobalClosers(panelEl){
 }
 
 
-/* ===== 23. Save ドロップダウン（Save / Save as… / Revert） ===== */
 (function(){
 function ready(fn){
 if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', fn, {once:true});
@@ -2406,7 +2358,7 @@ var npName = document.getElementById('npName');
 var npCancel= document.getElementById('npCancel');
 var npSave = document.getElementById('npSave');
 
-if(!ddBtn || !ddMenu) return;  // HTML 側のIDは既存どおり（Save ▾ のボタンとメニュー）:contentReference[oaicite:1]{index=1}
+if(!ddBtn || !ddMenu) return;
 
 function closeMenu(){
   ddMenu.classList.remove('open');
@@ -2435,7 +2387,7 @@ ddMenu.addEventListener('click', function(e){
 });
 
 function openNewPagePopover(){
-  if(!popover) return; // 小ポップオーバーを使う構成の場合のみ
+  if(!popover) return;
   var r = ddBtn.getBoundingClientRect();
   popover.style.left    = (r.left + window.scrollX) + 'px';
   popover.style.top     = (r.bottom + window.scrollY + 8) + 'px';
@@ -2452,12 +2404,12 @@ if(npCancel) npCancel.addEventListener('click', closeNewPagePopover);
 if(npSave)   npSave.addEventListener('click', function(){
   var name = (npName && npName.value || '').trim();
   if(!name){ npName && npName.focus(); return; }
-  // Save As 実行（shared は必要に応じてUI側で取得）
+
   if(window.saveAsPage) saveAsPage(name, undefined, closeNewPagePopover);
   else closeNewPagePopover();
 });
 
-// 明示的な初期化フック（必要なら他所から呼べる）
+
 window.initSaveDropdown = function(){ /* no-op */ };
 
 
@@ -2466,11 +2418,10 @@ window.initSaveDropdown = function(){ /* no-op */ };
 /* ===== 23. End ===== */
 
 
-/* ===== 24.fetch をグループ対応版に差し替え（サーバは Code.js 最小修正版が必要） ===== */
 function buildServerPayload(offset, limit){
   var activeSort = STATE.sort.filter(function(s){ return s && s.on !== false; });
 
-  // UI ラベル → サーバが期待する正式エンティティ名の解決
+
   function resolveEntityKey(label){
     var c = _canon(label);
     if(c==='members'||c==='member'||c==='projectmember'||c==='projectmembers'||c==='pm') return 'ProjectMembers';
@@ -2478,10 +2429,10 @@ function buildServerPayload(offset, limit){
     if(c==='assets'||c==='asset') return 'Assets';
     if(c==='tasks'||c==='task')   return 'Tasks';
     if(c==='users'||c==='user')   return 'Users';
-    return label; // 既定は素通し
+    return label;
   }
 
-  // filterGroups（空グループは送らない）
+
   var groups = (STATE.filterGroups || []).map(function(g){
     var rules = (Array.isArray(g.rules) ? g.rules : []).map(function(r){
       var values = Array.isArray(r.values) ? r.values.slice()
@@ -2492,7 +2443,7 @@ function buildServerPayload(offset, limit){
   }).filter(function(g){ return Array.isArray(g.rules) && g.rules.length > 0; });
 
   var payload = {
-    entity: resolveEntityKey(STATE.sheetName),   // ← ここが肝
+    entity: resolveEntityKey(STATE.sheetName),
     offset: offset|0, limit: limit|0||100,
     sort: activeSort,
     filterGroups: groups,
@@ -2502,7 +2453,7 @@ function buildServerPayload(offset, limit){
   return payload;
 }
 
-// 既存の fetch 関数をオーバーライド
+
 function fetchAndRenderPage(page){
   STATE.page = Math.max(1, page|0||1);
   if(STATE.perPage===PER_PAGE_ALL) STATE.page = 1;
@@ -2562,7 +2513,7 @@ function fetchPageOnlyFromCacheThenNetwork(page, cb){
 
   var payload = buildServerPayload(offset, limit);
 
-  // キャッシュキー（filterGroups も含めてエンティティ別に）
+
   var key = 'motk:rows:'+[ 
     _canon(payload.entity),
     limit,
@@ -2594,7 +2545,6 @@ function fetchPageOnlyFromCacheThenNetwork(page, cb){
 }
 
 
-<!-- ===== 25. Save ハンドラ（Save / Save as… / Revert の実装） ===== -->
 (function(){
   function ensureFn(f){ return (typeof f === "function") ? f : function(){}; }
   function deepCopy(v){ try{ return JSON.parse(JSON.stringify(v)); }catch(_){ return v; } }
@@ -2606,7 +2556,7 @@ function fetchPageOnlyFromCacheThenNetwork(page, cb){
   }
   function LSC_setSafe(k,v){ try{ if(typeof LSC_set==="function") LSC_set(k,v);}catch(_){} }
 
-  // 現在のテーブル表示から保存用 config を構築
+
   function buildCurrentConfig(){
     var S = window.STATE || {};
     var order = (S.pageCfgRaw && Array.isArray(S.pageCfgRaw.order)) ? S.pageCfgRaw.order.slice()
@@ -2625,7 +2575,7 @@ function fetchPageOnlyFromCacheThenNetwork(page, cb){
     };
   }
 
-  // DataHub / 既存サーバが期待する entity 名の決定
+
   function canonicalEntity(){
     try{
       if (typeof entityForServer === 'function') return entityForServer();
@@ -2633,7 +2583,7 @@ function fetchPageOnlyFromCacheThenNetwork(page, cb){
     return (window.STATE && STATE.sheetName) || '';
   }
 
-  // Save（上書き）
+
   window.saveCurrentPageConfig = function(){
     if(!window.STATE || !STATE.pageId){
       openSaveAsUI();
@@ -2658,7 +2608,7 @@ function fetchPageOnlyFromCacheThenNetwork(page, cb){
     );
   };
 
-  // Save As UI の値取得（複数UIに対応：saveAsName/pgName/npName と saveAsShared/pgShared/npShared）
+
   function readSaveAsControls(){
     var nameEl = document.getElementById('saveAsName')
               || document.getElementById('pgName')
@@ -2673,7 +2623,7 @@ function fetchPageOnlyFromCacheThenNetwork(page, cb){
     return { name:name, shared:shared };
   }
 
-  // 既存の Save As ダイアログを開く
+
   function openSaveAsUI(){
     try{
       if (typeof openSaveAsModal === 'function'){ openSaveAsModal(); return; }
@@ -2682,19 +2632,19 @@ function fetchPageOnlyFromCacheThenNetwork(page, cb){
       if(ddBtn && menu){
         menu.classList.add('open');
       }
-      // 別実装のモーダル（60系）を持っている場合は見せる
+
       var m = document.getElementById('pgSaveAs'); var mask = document.getElementById('pgSaveAsMask');
       if(m){ m.style.display='block'; if(mask) mask.style.display='block'; }
     }catch(_){}
   }
 
-  // Save As（新規）
-  // PagesConfig 側の期待キー名は「pageName」「shared」。
-  // GAS 側に新規を示すため pageId:'pg_new' を必ず渡す。
+
+
+
   window.saveAsPage = function(name, shared, done){
     done = ensureFn(done);
 
-    // 引数未指定なら UI から読む
+
     var ui = readSaveAsControls();
     if(typeof name   === 'undefined') name   = ui.name;
     if(typeof shared === 'undefined') shared = ui.shared;
@@ -2710,8 +2660,8 @@ function fetchPageOnlyFromCacheThenNetwork(page, cb){
     callFirst(['sv_savePageConfig','gsSavePageConfig','savePageLayout'],
       {
         pageId  : 'pg_new',
-        pageName: String(name).trim(),   // ← ここが重要
-        shared  : !!shared,              // ← チェックボックス反映
+        pageName: String(name).trim(),
+        shared  : !!shared,
         entity  : canonicalEntity(),
         pageType: 'table',
         config  : cfg
@@ -2724,14 +2674,14 @@ function fetchPageOnlyFromCacheThenNetwork(page, cb){
             STATE.pageId = newId;
             LSC_setSafe('motk:cfg:'+newId, cfg);
 
-            // プリセット再取得と選択更新
+
             if(typeof loadPagesFromCacheThenNetwork==='function'){
               loadPagesFromCacheThenNetwork();
             }
             var sel=document.getElementById('presetSelect');
             if(sel) sel.value = newId;
           }
-          // UI の Shared 同期
+
           var sEl = document.getElementById('saveAsShared') || document.getElementById('pgShared') || document.getElementById('npShared');
           if(sEl) sEl.checked = !!shared;
 
@@ -2747,7 +2697,7 @@ function fetchPageOnlyFromCacheThenNetwork(page, cb){
     );
   };
 
-  // Revert（保存状態へ戻す）
+
   window.revertCurrentPageConfig = function(){
     if(!window.STATE || !STATE.pageId){ showStatus('nothing to revert'); return; }
     showStatus('reverting…');
@@ -2772,7 +2722,7 @@ function fetchPageOnlyFromCacheThenNetwork(page, cb){
     );
   };
 
-  // Save ドロップダウンの配線（存在時のみ）
+
   (function wireSaveDropdown(){
     var root = document.getElementById('saveDD');
     var btn  = document.getElementById('saveDDBtn');
@@ -2797,7 +2747,6 @@ function fetchPageOnlyFromCacheThenNetwork(page, cb){
 
 
 
-/* ===== 26.ちょいユーティリティ ===== */
 function rid(){ return 'g'+Math.random().toString(36).slice(2,8); }
 
 /* ===== 27.helpers ===== */
@@ -2809,7 +2758,6 @@ function labelForFieldId(fid){
 })(); 
 </script>
 
-<!-- ===== 60.saveas-modal (UI: Shared付き) ===== -->
 <div id="pgSaveAsMask"></div>
 <div id="pgSaveAs" role="dialog" aria-modal="true" aria-labelledby="pgSaveAsTitle">
   <div class="hd" id="pgSaveAsTitle">Save as Page View</div>
@@ -2833,10 +2781,9 @@ function labelForFieldId(fid){
 </div>
 <!-- ===== 60. End ===== -->
 
-<!-- ===== 61.local_cache (Config/Labels TTLキャッシュ) ===== -->
 <script>
 (function(){
-  var TTL_MS = 15000; // 15秒
+  var TTL_MS = 15000;
   function k(ns, id){ return "MOTK."+ns+"."+id; }
   function now(){ return Date.now(); }
   window.MOTKCache = {
@@ -2871,16 +2818,16 @@ function labelForFieldId(fid){
     try{ localStorage.setItem(k(ns,id), JSON.stringify({t:now(), v:val})); }catch(e){}
   }
 
-  // ページ初期化時に呼ぶ： entity='shot' など
+
   window.prefetchPagesForEntity = function(entity, pageType){
     entity = entity || 'shot';
     pageType = pageType || 'table';
     google.script.run.withSuccessHandler(function(list){
       if(!Array.isArray(list)||!list.length) return;
       var ids = list.map(function(x){ return x.id; });
-      // メタをキャッシュ
+
       list.forEach(function(p){ cacheSet('page.meta', p.id, p); });
-      // Config を一括ロード
+
       google.script.run.withSuccessHandler(function(map){
         map = map || {};
         Object.keys(map).forEach(function(pid){ cacheSet('page.cfg', pid, map[pid]); });
@@ -2888,7 +2835,7 @@ function labelForFieldId(fid){
     }).gsListPagePresets({ entity: entity, pageType: pageType });
   };
 
-  // ビュー切替時に呼ぶ：キャッシュ優先でConfig取得
+
   window.getPageConfigCached = function(pageId, onReady){
     var cfg = cacheGet('page.cfg', pageId);
     if(cfg){ if(onReady) onReady(cfg); return; }
@@ -2902,7 +2849,6 @@ function labelForFieldId(fid){
 <!-- ===== 62. End ===== -->
 
 
-<!-- ===== 63.link_labels (安定ラベル置換: 一括API + キャッシュ) ===== -->
 <script>
 (function(){
   function uniq(arr){ var s={}, o=[]; for(var i=0;i<arr.length;i++){ var v=String(arr[i]||''); if(!v) continue; if(s[v]) continue; s[v]=1; o.push(v);} return o; }
@@ -2930,7 +2876,7 @@ function labelForFieldId(fid){
     return out;
   }
 
-  // テーブル描画後に呼ぶユーティリティ。container 内のテキストIDをラベル化。
+
   window.applyEntityLinkLabels = async function(container){
     var root = (typeof container==='string') ? document.querySelector(container) : container;
     if(!root) return;
@@ -2947,8 +2893,3 @@ function labelForFieldId(fid){
 })();
 </script>
 <!-- ===== 63. End ===== -->
-
-
-
-</body>
-</html>
