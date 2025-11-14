@@ -2037,6 +2037,23 @@
       payload,
       function(res){
         var p = normalizeRowsPayload(res);
+        var totalCount = Number(p && p.total) || 0;
+        var rowCount = Array.isArray(p && p.rows) ? p.rows.length : 0;
+        if(totalCount > 0 && rowCount === 0){
+          var basePayload = buildServerPayload(0, resolveFetchLimit ? resolveFetchLimit() : pageWindow);
+          callFirst(['listRowsPage','sv_listRowsPage','gsListRowsPage','dp_listRowsPage'],
+            basePayload,
+            function(res0){
+              var p0 = normalizeRowsPayload(res0);
+              STATE.dataSource = detectSourceByIds(p0.ids, p0.header);
+              applyData(p0);
+              refreshDistinctCache();
+              if(cb) cb();
+            },
+            function(){ if(cb) cb(); }
+          );
+          return;
+        }
         STATE.dataSource = detectSourceByIds(p.ids, p.header);
         applyData(p);
         refreshDistinctCache();
