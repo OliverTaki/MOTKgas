@@ -261,7 +261,7 @@
     if(s==='assets'||s==='asset') return 'asset';
     if(s==='tasks'||s==='task') return 'task';
     if(s==='users'||s==='user') return 'user';
-    if(s==='projectmembers'||s==='projectmember'||s==='members'||s==='member') return 'projectmember';
+    if(s==='projectmembers'||s==='projectmember'||s==='members'||s==='member') return 'member';
     return s||'shot';
   }
 
@@ -271,7 +271,7 @@
     if(s==='asset') return 'Assets';
     if(s==='task') return 'Tasks';
     if(s==='user') return 'Users';
-    if(s==='projectmember') return 'ProjectMembers';
+    if(s==='member') return 'ProjectMembers';
     return 'Shots';
   }
 
@@ -1022,7 +1022,7 @@
             (canon==='projectmembers'||canon==='projectmember'||canon==='member'||canon==='members') &&
             (id==='fi_0035') && isRowIdLike(rowId)
           ){
-            var urlPM=(window.scriptUrl||'')+'?entity=projectmember&id='+encodeURIComponent(rowId);
+            var urlPM=(window.scriptUrl||'')+'?entity=member&id='+encodeURIComponent(rowId);
             html+='<td data-col-id="'+id+'"><a href="'+urlPM+'">'+escapeHTML(txt||'(role)')+'</a></td>';
           }
           else if(shouldNameCellLinkToDetail(canon, headTxt, rowId)){
@@ -1326,7 +1326,7 @@
   function shouldNameCellLinkToDetail(canon, header, rowId){
     if(!rowId) return false;
     var h=_norm(header);
-    if(canon==='projectmembers'||canon==='projectmember'||canon==='member'||canon==='members'){
+        if(canon==='projectmembers'||canon==='projectmember'||canon==='member'||canon==='members'){
       if(h==='role') return true;
     }
     return /name$/.test(h);
