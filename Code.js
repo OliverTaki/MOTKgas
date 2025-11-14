@@ -81,6 +81,37 @@ function _resolveTemplateName_(page, entity, id) {
   return 'index';
 }
 
+function _normalizePageAndEntity_(page, entity) {
+  var pageRaw = String(page || '').trim().toLowerCase();
+  var entRaw = String(entity || '').trim().toLowerCase();
+  function normEntity(x) {
+    if (x === 'assets' || x === 'asset') return 'asset';
+    if (x === 'tasks'  || x === 'task')  return 'task';
+    if (x === 'users'  || x === 'user')  return 'user';
+    if (x === 'members'|| x === 'member' || x === 'projectmembers' || x === 'projectmember') return 'member';
+    if (x === 'shots'  || x === 'shot' || x === 'table' || x === 'index' || x === '') return 'shot';
+    return entRaw || 'shot';
+  }
+
+  if (pageRaw === 'debugpanel' || pageRaw === 'debug' || pageRaw === 'debugpanelpage') {
+    return { page: 'DebugPanelPage', entity: entRaw || 'shot' };
+  }
+  if (/^detail[a-z]+$/.test(pageRaw)) {
+    return { page: page || 'DetailShot', entity: entRaw || 'shot' };
+  }
+  if (pageRaw === 'assets')  return { page: 'assets',  entity: entRaw || 'asset' };
+  if (pageRaw === 'shots')   return { page: 'shots',   entity: entRaw || 'shot' };
+  if (pageRaw === 'tasks')   return { page: 'tasks',   entity: entRaw || 'task' };
+  if (pageRaw === 'users')   return { page: 'users',   entity: entRaw || 'user' };
+  if (pageRaw === 'members' || pageRaw === 'projectmembers') {
+    return { page: 'members', entity: entRaw || 'member' };
+  }
+  if (pageRaw === '' || pageRaw === 'table' || pageRaw === 'index' || pageRaw === 'list' || pageRaw === 'viewer') {
+    return { page: 'index', entity: normEntity(entRaw || 'shot') };
+  }
+  return { page: page || 'index', entity: normEntity(entRaw) };
+}
+
 // ルーター本佁E
 function doGet(e) {
   var params = (e && e.parameter) || {};
@@ -136,6 +167,9 @@ function doGet(e) {
   var page   = params.page   || 'Shots';
   var entity = (params.entity || '').toLowerCase();
   var id     = params.id     || '';
+  var normalized = _normalizePageAndEntity_(page, entity);
+  page   = normalized.page;
+  entity = normalized.entity;
 
   var templateName = _resolveTemplateName_(page, entity, id);
 
@@ -394,11 +428,11 @@ function _normalizeEntityParams_(params) {
     shot:   'Shots',
     asset:  'Assets',
     task:   'Tasks',
-    member: 'Members',
+    member: 'ProjectMembers',
     user:   'Users',
     page:   'Pages'
   };
-  var sheetName = sheetNameMap[entityKey] || entRaw || 'Shots';
+  var sheetName = sheetNameMap[entityKey] || 'Shots';
 
   // limit
   var limitFromParams = Number(params.limit);
