@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+  <head>
+    <base target="_top" />
+    <meta charset="utf-8" />
+    <title>MOTKsheets G-Viewer</title>
+    <?!= include('COMMON_styles'); ?>
+  </head>
+  <body data-nav-page="<?= page ?>">
+<!-- ===== 1.gnav ===== -->
+<nav id="gNav" class="gnavi" aria-label="Global Navigation">
+  <span class="logo">MOTK</span>
+  <a class="mi" data-page="Dashboard" href="<?= scriptUrl ?>?page=Dashboard">Dashboard</a>
+  <a class="mi" data-page="Settings" href="<?= scriptUrl ?>?page=Settings">Settings</a>
+  <span class="spacer"></span>
+  <a class="mi debug" data-page="DebugPanelPage" href="<?= scriptUrl ?>?page=DebugPanelPage" target="_blank" rel="noopener" title="Debug Panel">&#x1F41E; Debug</a>
+</nav>
+<!-- ===== 1.End ===== -->
+<nav id="pNav" aria-label="Entity Navigation">
+  <a data-page="Shots" href="<?= scriptUrl ?>?page=Shots">Shots</a>
+  <a data-page="Assets" href="<?= scriptUrl ?>?page=Assets">Assets</a>
+  <a data-page="Tasks" href="<?= scriptUrl ?>?page=Tasks">Tasks</a>
+  <a data-page="ProjectMembers" href="<?= scriptUrl ?>?page=ProjectMembers">Members</a>
+  <a data-page="Users" href="<?= scriptUrl ?>?page=Users">Users</a>
+</nav>
+    <?!= include('Scripts'); ?>
+
+    <main id="main-content">
+      <div class="loader">Loading...</div>
+    </main>
+
+    <script>
+      const PAGE = "<?= page ?>";
+      window.SCRIPT_URL = "<?= scriptUrl ?>";
+
+
+      const raw = JSON.parse(<?= dataJson ?>);
+      const ids      = raw.length > 0 ? raw[0] : [];
+      const header   = raw.length > 1 ? raw[1] : [];
+      const dataRows = raw.length > 2 ? raw.slice(2) : [];
+
+      // viewer.html
+      const ALL_DATA = {
+        pageType: "table",
+        sheetName: PAGE,
+        ids: ids,
+        header: header,
+        total: dataRows.length,
+        rows: dataRows,
+        fieldMeta: [],
+        idMaps: {},
+      };
+    </script>
+
+    
+    <script src="<?= scriptUrl ?>?action=app-bundle"></script>
+
+    <?!= include('viewer'); ?>
+
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        const loader = document.querySelector('.loader');
+        if (loader) loader.style.display = 'none';
+      });
+    </script>
+  </body>
+</html>
+

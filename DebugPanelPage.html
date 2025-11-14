@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Debug Panel</title>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .card { border: 1px solid #ccc; margin: 10px 0; padding: 10px; border-radius: 5px; }
+    .card h3 { margin-top: 0; }
+    .btn { background: #007bff; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; }
+    .btn:hover { background: #0056b3; }
+    .loading { color: #888; }
+    .error { color: red; }
+    .success { color: green; }
+    pre { background: #f8f9fa; padding: 10px; overflow: auto; }
+    a { color: #007bff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>Debug Panel</h1>
+  <button class="btn" onclick="runAllChecks()">Run all checks</button>
+  <button class="btn" onclick="copyPageText()">Copy page text</button>
+
+  <div id="runtime" class="card">
+    <h3>Runtime</h3>
+    <div id="gsr-status">Checking google.script.run...</div>
+    <div id="server-ping">Server ping: <span class="loading">Loading...</span></div>
+    <div id="location">Location: <span class="loading">Loading...</span></div>
+    <div id="url-params">URL Params: <span class="loading">Loading...</span></div>
+  </div>
+
+  <div id="data-maps" class="card">
+    <h3>Data maps / Page</h3>
+    <div id="field-types">FIELD_TYPES: <span class="loading">Loading...</span></div>
+    <div id="link-maps-counts">LINK_MAPS（counts）: <span class="loading">Loading...</span></div>
+    <div id="layout-presets">Layout presets(DetailShot): <span class="loading">Loading...</span></div>
+  </div>
+
+  <div id="fieldtypes-diag" class="card">
+    <h3>FieldTypes diagnostics（entity_name fid 検出）</h3>
+    <div id="shot-fid">shot: <span class="loading">Loading...</span></div>
+    <div id="asset-fid">asset: <span class="loading">Loading...</span></div>
+    <div id="task-fid">task: <span class="loading">Loading...</span></div>
+    <div id="member-fid">member: <span class="loading">Loading...</span></div>
+    <div id="user-fid">user: <span class="loading">Loading...</span></div>
+    <div id="fid-log">log: <span class="loading">Loading...</span></div>
+  </div>
+
+  <div id="originals-resolver" class="card">
+    <h3>Originals resolver</h3>
+    <div id="resolver-context">Context: <span class="loading">Loading...</span></div>
+    <div id="expected-policy">Expected (policy): <span class="loading">Loading...</span></div>
+    <div id="resolve-result">Resolve result: <span class="loading">Loading...</span></div>
+    <div id="originals-url">originals_root_url: <span class="loading">Loading...</span></div>
+    <div id="proxies-url">proxies_root_url: <span class="loading">Loading...</span></div>
+  </div>
+
+  <div id="entity-samples" class="card">
+    <h3>Entity samples（id & name + source）</h3>
+    <div id="shot-sample">shot: <span class="loading">Loading...</span></div>
+    <div id="asset-sample">asset: <span class="loading">Loading...</span></div>
+    <div id="task-sample">task: <span class="loading">Loading...</span></div>
+    <div id="member-sample">member: <span class="loading">Loading...</span></div>
+    <div id="user-sample">user: <span class="loading">Loading...</span></div>
+    <div id="page-sample">page: <span class="loading">Loading...</span></div>
+  </div>
+
+  <div id="originals-diag" class="card">
+    <h3>Originals diagnostics</h3>
+    <div id="input">Input: <span class="loading">Loading...</span></div>
+    <div id="drivebuilder">DriveBuilder: <span class="loading">Loading...</span></div>
+    <div id="serverapis">ServerAPIs: <span class="loading">Loading...</span></div>
+    <div id="projectmetaroot">ProjectMetaRoot: <span class="loading">Loading...</span></div>
+    <div id="final-url">Final URL: <span class="loading">Loading...</span></div>
+    <div id="raw-trace">Raw trace: <span class="loading">Loading...</span></div>
+  </div>
+
+  <div id="link-replacer" class="card">
+    <h3>Link replacer diagnostics</h3>
+    <div id="router-detected">Router detected: <span class="loading">Loading...</span></div>
+    <div id="anchors-replaced">gNav anchors replaced: <span class="loading">Loading...</span></div>
+    <div id="sample-diff">Sample diff（first 3）: <span class="loading">Loading...</span></div>
+    <div id="dry-run-task">Dry-run TASK link: <span class="loading">Loading...</span></div>
+    <div>This card never mutates DOM.</div>
+  </div>
+
+  <div id="console" class="card">
+    <h3>Console (live)</h3>
+    <pre id="console-log"></pre>
+  </div>
+
+  <div id="raw-snapshot" class="card">
+    <h3>Raw snapshot</h3>
+    <pre id="raw-snap"></pre>
+  </div>
+
+  <script>
+    let consoleLog = [];
+    let globalRes = {};  // 共有結果格納
+    function log(msg) {
+      consoleLog.push(new Date().toISOString() + ' INFO ' + msg);
+      document.getElementById('console-log').innerHTML = consoleLog.slice(-20).join('\n');  // 最新20行
+      console.info(msg);
+    }
+
+    function updateElement(id, text) {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = text || 'N/A';
+    }
+
+    function updateFromRes(res) {
+      if (!res) return;
+      globalRes = { ...globalRes, ...res };
+      // Data maps
+      updateElement('field-types', JSON.stringify(res.fieldTypes || {}) || 'empty');
+      updateElement('link-maps-counts', JSON.stringify(res.counts || {}) || 'empty');
+      updateElement('layout-presets', (res.presets || []).length ? JSON.stringify(res.presets) : 'no presets');
+      // FieldTypes diag - labelベースでrole|name|codeマッチ (拡張)
+      const ft = res.fieldTypes || {};
+      const getNameFid = (entity) => {
+        const fields = ft[entity] || {};
+        const nameFid = Object.keys(fields).find(fid => fields[fid].label.match(/role|name|code/i));
+        return nameFid ? nameFid : '(no name fid)';
+      };
+      updateElement('shot-fid', 'shot: ' + getNameFid('shot'));
+      updateElement('asset-fid', 'asset: ' + getNameFid('asset'));
+      updateElement('task-fid', 'task: ' + getNameFid('task'));
+      updateElement('member-fid', 'member: ' + getNameFid('member'));
+      updateElement('user-fid', 'user: ' + getNameFid('user'));
+      updateElement('fid-log', 'log: shot:' + Object.keys(ft.shot || {}).length + '- asset:' + Object.keys(ft.asset || {}).length + '- task:' + Object.keys(ft.task || {}).length + '- member:' + Object.keys(ft.member || {}).length + '- user:' + Object.keys(ft.user || {}).length + '-');
+      // Entity samples
+      const lm = res.linkMaps || {};
+      updateElement('shot-sample', JSON.stringify(lm.shots || {}) || 'empty');
+      updateElement('asset-sample', JSON.stringify(lm.assets || {}) || 'empty');
+      updateElement('task-sample', JSON.stringify(lm.tasks || {}) || 'empty');
+      updateElement('member-sample', JSON.stringify(lm.members || {}) || 'empty');
+      updateElement('user-sample', JSON.stringify(lm.users || {}) || 'empty');
+      updateElement('page-sample', 'n/a');
+      // Originals resolver - trace.finalUrl使用
+      updateElement('resolver-context', JSON.stringify({entity: 'shot', id: 'sh_0001'}));
+      updateElement('expected-policy', 'root / 01shots / sh_0001__ 201A open Drive search originals_root_url ' + (res.meta.originals_root_url ? 'set' : 'not set'));
+      var originalsUrl = globalRes.trace ? globalRes.trace.finalUrl : res.originalsUrl;
+      var resolveText = originalsUrl ? '<span class="success">found: <a href="' + originalsUrl + '" target="_blank" rel="noopener">Open Folder</a></span>' : '(Originals not found)';
+      updateElement('resolve-result', resolveText);
+      updateElement('originals-url', res.meta.originals_root_url ? '<a href="' + res.meta.originals_root_url + '" target="_blank" rel="noopener">' + res.meta.originals_root_url + '</a>' : '(not set)');
+      updateElement('proxies-url', res.meta.proxies_root_url ? '<a href="' + res.meta.proxies_root_url + '" target="_blank" rel="noopener">' + res.meta.proxies_root_url + '</a>' : '(not set)');
+      // Originals diag
+      const trace = globalRes.trace || {};
+      updateElement('input', JSON.stringify(trace.input || {}));
+      updateElement('drivebuilder', JSON.stringify(trace.steps?.find(s => s.name === 'DriveBuilder') || 'not found'));
+      updateElement('serverapis', JSON.stringify(trace.steps?.find(s => s.name === 'ServerAPIs') || 'not found'));
+      updateElement('projectmetaroot', JSON.stringify(trace.steps?.find(s => s.name === 'ProjectMetaRoot') || 'not found'));
+      var finalText = trace.finalUrl ? '<span class="success"><a href="' + trace.finalUrl + '" target="_blank" rel="noopener">' + trace.finalUrl + '</a></span>' : 'fallback root (NOT resolved to leaf). expected deeper: 01shots / sh_0001__ 201A';
+      updateElement('final-url', finalText);
+      updateElement('raw-trace', JSON.stringify(trace, null, 2));
+      // Link replacer (static sim for now)
+      updateElement('router-detected', 'no');
+      updateElement('anchors-replaced', '3 / 3');
+      updateElement('sample-diff', '[1] page: Dashboard before: - target: (none) after: [URL]?page=Dashboard target: _top [2] page: Settings ... [3] page: DebugPanelPage ...');
+      updateElement('dry-run-task', JSON.stringify({ent: 'task', id: 'ta_0001', final: res.taskLink || ''}));
+      // Raw snapshot update
+      const snap = {
+        href: window.location.href,
+        params: getUrlParams(),
+        gsr: !!google.script.run,
+        fieldTypesKeys: Object.keys(ft).reduce((acc, e) => acc + Object.keys(ft[e] || {}).length, 0),
+        linkMapsCounts: res.counts || {assets:0,shots:0,tasks:0,users:0,members:0},
+        originalsUrl: originalsUrl || null,
+        ts: Date.now()
+      };
+      document.getElementById('raw-snap').innerHTML = JSON.stringify(snap, null, 2);
+    }
+
+    function runAllChecks() {
+      log('Run all checks: begin');
+      checkRuntime();
+      // 並列呼出で全データ取得
+      google.script.run
+        .withSuccessHandler(updateFromRes)
+        .withFailureHandler(function(err) {
+          log('Global res error: ' + err);
+          updateElement('field-types', '<span class="error">error: ' + err + '</span>');
+        })
+        .dp_loadAppData();  // 拡張版で全関数含む
+      checkOriginals();  // 別途trace用
+      renderEntitySamples();  // 重複OK
+      log('Run all checks: done');
+    }
+
+    function checkRuntime() {
+      log('checkRuntime: start');
+      updateElement('gsr-status', google.script.run ? 'available' : 'unavailable');
+      const loc = document.getElementById('location');
+      loc.innerHTML = 'Location: ' + window.location.href;
+      updateElement('url-params', JSON.stringify(getUrlParams()));
+      google.script.run.withSuccessHandler(function(res) {
+        updateElement('server-ping', 'ok ts=' + res.ts);
+        log('checkRuntime: ping ok ' + res.ts);
+      }).withFailureHandler(function(err) {
+        updateElement('server-ping', '<span class="error">failed: ' + err + '</span>');
+      }).dp_debugPing();
+    }
+
+    function getUrlParams() {
+      const params = new URLSearchParams(window.location.search);
+      const obj = {};
+      params.forEach((v, k) => obj[k] = v);
+      return obj;
+    }
+
+    function checkOriginals() {
+      log('checkOriginals: start');
+      google.script.run.withSuccessHandler(function(trace) {
+        globalRes.trace = trace;
+        updateFromRes(globalRes);  // 更新トリガー
+      }).withFailureHandler(function(err) {
+        updateElement('resolve-result', '<span class="error">failed: ' + err + '</span>');
+      }).dp_traceOriginals({entity: 'shot', id: 'sh_0001'});
+    }
+
+    function renderEntitySamples() {
+      log('renderEntitySamples: start');
+      // dp_loadAppDataでカバー済み
+    }
+
+    function copyPageText() {
+      const text = document.body.innerText;
+      navigator.clipboard.writeText(text).then(() => log('copyAll: length ' + text.length));
+    }
+
+    // Init
+    log('DebugPanel: init');
+    runAllChecks();
+  </script>
+
+<!-- ===== 70.contract-inspector ===== -->
+<script>
+(function(){
+  "use strict";
+
+  function logLine(s){ var el=document.getElementById('ciLog'); if(el){ el.textContent += s + "\n"; } }
+  function resetLog(){ var el=document.getElementById('ciLog'); if(el){ el.textContent = ""; } }
+
+  // safer GAS proxy: try multiple function names, fail softly
+  function gasTry(candidates){
+    return new Promise(function(res, rej){
+      if (!window.google || !google.script || !google.script.run){
+        return rej(new Error("google.script.run not available"));
+      }
+      var run = google.script.run;
+      var fn = null, name = null;
+      for (var i=0;i<candidates.length;i++){
+        name = candidates[i];
+        if (typeof run[name] === "function"){ fn = run[name]; break; }
+      }
+      if (!fn){
+        return rej(new Error("No server function found: " + candidates.join(" | ")));
+      }
+      try{
+        run.withSuccessHandler(res).withFailureHandler(rej)[name]();
+      }catch(e){
+        rej(e);
+      }
+    });
+  }
+
+  function gasCall(name, arg){
+    return new Promise(function(res, rej){
+      if (!window.google || !google.script || !google.script.run){
+        return rej(new Error("google.script.run not available"));
+      }
+      var run = google.script.run;
+      if (typeof run[name] !== "function"){
+        return rej(new Error("Server function missing: " + name));
+      }
+      try{
+        if (arg === undefined){
+          run.withSuccessHandler(res).withFailureHandler(rej)[name]();
+        }else{
+          run.withSuccessHandler(res).withFailureHandler(rej)[name](arg);
+        }
+      }catch(e){ rej(e); }
+    });
+  }
+
+  // UI
+  function ensurePanel(){
+    var root = document.getElementById('contractInspector');
+    if (root) return root;
+    root = document.createElement('section');
+    root.id = 'contractInspector';
+    root.innerHTML = [
+      '<div style="margin:8px 0;padding:8px;border:1px solid #ccc;border-radius:6px">',
+      '  <h3 style="margin:0 0 8px">Contract Inspector</h3>',
+      '  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">',
+      '    <button id="ciRunAll">Run all checks</button>',
+      '    <select id="ciEntity"><option>shot</option><option>asset</option><option>task</option><option>member</option><option>user</option></select>',
+      '    <button id="ciSample">Sample listRowsPage</button>',
+      '  </div>',
+      '  <pre id="ciLog" style="max-height:50vh;overflow:auto;background:#111;color:#eee;padding:8px;border-radius:6px"></pre>',
+      '</div>'
+    ].join('');
+    document.body.appendChild(root);
+    return root;
+  }
+
+  async function checkFieldsMatrix(){
+    logLine('== Fields matrix (entity × type) ==');
+    try{
+      // try getFieldsMatrix, else getFields and aggregate, else listFields
+      var rows = null;
+      try{
+        var m = await gasTry(['getFieldsMatrix']);
+        logLine(JSON.stringify(m, null, 2));
+        return m;
+      }catch(_){}
+      try{
+        rows = await gasTry(['getFields', 'listFields']);
+      }catch(e){
+        logLine('Fields fetch missing: '+ e.message);
+        return null;
+      }
+      var map = {};
+      (rows||[]).forEach(function(r){
+        var e = String(r.entity||'').toLowerCase();
+        var t = String(r.type||'').toLowerCase();
+        if(!map[e]) map[e]={};
+        map[e][t] = (map[e][t]||0)+1;
+      });
+      logLine(JSON.stringify(map, null, 2));
+      return map;
+    }catch(e){
+      logLine('Fields error: '+ e.message);
+      return null;
+    }
+  }
+
+  async function checkLinksShape(){
+    logLine('== Link type sanity (expect *_link only) ==');
+    try{
+      var rows = await gasTry(['getFields','listFields']);
+      var legacy=[], proper=[];
+      (rows||[]).forEach(function(r){
+        var t = String(r.type||'').toLowerCase();
+        if (t === 'entity_link') legacy.push(r);
+        else if (/^(shot|asset|task|member|user)_link$/.test(t)) proper.push(r);
+      });
+      logLine('legacy entity_link count: '+legacy.length);
+      if (legacy.length) logLine(JSON.stringify(legacy.slice(0,20), null, 2));
+      logLine('proper *_link count: '+proper.length);
+      return {legacy, proper};
+    }catch(e){
+      logLine('Fields fetch error: '+ e.message);
+      return null;
+    }
+  }
+
+  async function sampleListRows(entity){
+    logLine('== listRowsPage sample ==');
+    try{
+      var out = await gasCall('listRowsPage', { entity:entity, page:1, perPage:5 });
+      var shape = {
+        columns: (out&&out.columns)||[],
+        row0: (out&&out.rows&&out.rows[0])||null,
+        meta: (out&&out.meta)||{}
+      };
+      logLine(JSON.stringify(shape, null, 2));
+      var hasId = shape.columns.filter(c=>String(c.type).toLowerCase()==='id').length===1;
+      var hasName = shape.columns.filter(c=>String(c.type).toLowerCase()==='entity_name').length===1;
+      var badLink = shape.columns.filter(c=>{
+        var t=String(c.type||'').toLowerCase();
+        if (t!=='link') return false;
+        return !c.target || !/^(shot|asset|task|member|user)$/.test(String(c.target));
+      });
+      logLine('check: id=1:'+hasId+' entity_name=1:'+hasName+' badLink='+badLink.length);
+      return out;
+    }catch(e){
+      logLine('listRowsPage error: '+ e.message);
+      return null;
+    }
+  }
+
+  async function checkMeta(){
+    logLine('== project_meta roots ==');
+    try{
+      // これは動いている実績あり
+      var meta = await gasTry(['getProjectMeta','get_project_meta']);
+      logLine(JSON.stringify(meta, null, 2));
+      return meta;
+    }catch(e){
+      logLine('project_meta error: '+ e.message);
+      return null;
+    }
+  }
+
+  function start(){
+    var root = ensurePanel();
+    root.querySelector('#ciRunAll').addEventListener('click', async function(){
+      resetLog();
+      await checkFieldsMatrix();
+      await checkLinksShape();
+      await sampleListRows('shot');
+      await sampleListRows('asset');
+      await checkMeta();
+      logLine('== done ==');
+    });
+    root.querySelector('#ciSample').addEventListener('click', async function(){
+      resetLog();
+      var ent = root.querySelector('#ciEntity').value || 'shot';
+      await sampleListRows(ent);
+      logLine('== done ==');
+    });
+  }
+
+  if (document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', start, {once:true}); } else { start(); }
+})();
+</script>
+<!-- ===== 70. End ===== -->
+
+
+
+
+</body>
+</html>

@@ -1,0 +1,383 @@
+<!-- ===== FieldsAPI (strict, type-driven, full file) ===== -->
+<script>
+(function(){
+  "use strict";
+
+  /* ========= 0. helpers ========= */
+  function gsr(){ return (window.google && google.script && google.script.run) || null; }
+  function tryCall(names, args){
+    return new Promise(function(resolve,reject){
+      var r=gsr(); if(!r) return reject(new Error("gsr missing"));
+      (function next(i){
+        if(i>=names.length) return reject(new Error("no api"));
+        var fn=names[i]; if(typeof r[fn]!=="function") return next(i+1);
+        r.withSuccessHandler(resolve).withFailureHandler(function(){ next(i+1); })[fn](args);
+      })(0);
+    });
+  }
+  function el(tag, cls, text){
+    var n=document.createElement(tag);
+    if(cls) n.className=cls;
+    if(text!=null) n.textContent=String(text);
+    return n;
+  }
+  function chip(href, label, newTab){
+    var a=el("a","chip",label || href || "");
+    if(href){ a.href=href; if(newTab){ a.target="_blank"; a.rel="noopener"; } }
+    return a;
+  }
+  function parseList(val){
+    if(Array.isArray(val)) return val;
+    var s = (val==null?"":String(val));
+    return s.split(/[,;\s/|]+/).map(function(t){return t.trim();}).filter(Boolean);
+  }
+  function driveUrlFromId(id, kind){
+    if(!id) return "";
+    if(kind==="file")   return "https://drive.google.com/file/d/"+id+"/view";
+    return "https://drive.google.com/drive/folders/"+id;
+  }
+  function extractDriveId(s){
+    if(!s) return "";
+    var m = String(s).match(/[a-zA-Z0-9_-]{25,}/);
+    return m ? m[0] : "";
+  }
+  function isoDateOnly(s){
+    if(!s) return "";
+    var d = (s instanceof Date) ? s : new Date(s);
+    if(isNaN(d.getTime())) return String(s);
+    var y=d.getFullYear(), m=("0"+(d.getMonth()+1)).slice(0-2), da=("0"+d.getDate()).slice(0-2);
+    return y+"-"+m+"-"+da;
+  }
+  function bucketOf(entity){
+    return entity==="asset" ? "assets" :
+           entity==="task"  ? "tasks"  :
+           entity==="user"  ? "users"  :
+           entity==="member"? "members": "shots";
+  }
+  function fidToEntity(fid, fallbackId){
+    if (window.KNOWN_LINK_FIELD_IDS && window.KNOWN_LINK_FIELD_IDS[fid]) return window.KNOWN_LINK_FIELD_IDS[fid];
+    if (/asset/i.test(fid)) return "asset";
+    if (/task/i.test(fid))  return "task";
+    if (/user/i.test(fid))  return "user";
+    if (/member/i.test(fid))return "member";
+    if (/shot/i.test(fid))  return "shot";
+    if (/^as[_-]/i.test(fallbackId||"")) return "asset";
+    if (/^ta[_-]/i.test(fallbackId||"")) return "task";
+    if (/^us[_-]/i.test(fallbackId||"")) return "user";
+    if (/^mb[_-]/i.test(fallbackId||"")) return "member";
+    if (/^sh[_-]/i.test(fallbackId||"")) return "shot";
+    return "shot";
+  }
+
+  /* NOTE: legacy comment removed */
+  window.FIELD_TYPES = Object.assign({
+    // Core defaults
+    fi_0001: "id",
+    fi_0002: "entity_name", // shot code
+    fi_0010: "originals",
+    fi_0016: "entity_name", // asset name
+    fi_0026: "entity_name", // task name
+    fi_0035: "entity_name", // member role
+    fi_0045: "entity_name", // user name
+    fi_0053: "text",
+    // Link fields (ID to detail navigation)
+    fi_0061: "entity_link", // asset
+    fi_0062: "entity_link", // task
+    fi_0063: "entity_link", // shot
+    fi_0064: "entity_link", // task
+    fi_0065: "entity_link"  // asset
+  }, window.FIELD_TYPES || {});
+
+  window.KNOWN_LINK_FIELD_IDS = Object.assign({
+    fi_0061: "asset", fi_0062: "task", fi_0063: "shot", fi_0064: "task", fi_0065: "asset"
+  }, window.KNOWN_LINK_FIELD_IDS || {});
+
+  window.LINK_MAPS = Object.assign({assets:{},shots:{},tasks:{},users:{},members:{}}, window.LINK_MAPS || {});
+
+  var Router = (window.__Router__ || {
+    buildEntityUrl: function(ent,id){ var u=new URL(location.href); u.searchParams.set("entity",ent); u.searchParams.set("id",id); return u.toString(); }
+  });
+
+  async function ensureLinkMaps(){
+    var need = ["assets","shots","tasks","users","members"].some(function(k){
+      return !window.LINK_MAPS[k] || !Object.keys(window.LINK_MAPS[k]).length;
+    });
+    if(!need) return window.LINK_MAPS;
+    try{
+      var maps = await tryCall(["sv_getLinkMaps","getLinkMaps"], null);
+      if(maps && typeof maps==="object"){
+        ["assets","shots","tasks","users","members"].forEach(function(k){
+          if(!window.LINK_MAPS[k]) window.LINK_MAPS[k] = {};
+          Object.assign(window.LINK_MAPS[k], maps[k]||{});
+        });
+      }
+    }catch(_){}
+    return window.LINK_MAPS;
+  }
+
+  /* ========= 2. Originals resolver ========= */
+  async function resolveOriginalsUrl(ctx){
+    var apis = [
+      "sv_getOriginalsFolderUrl","getOriginalsFolderUrl",
+      "sv_getOriginalsUrl","getOriginalsUrl",
+      "sv_findOriginalsFolder","findOriginalsFolder",
+      "sv_resolveOriginals","resolveOriginals"
+    ];
+    for (var i=0;i<apis.length;i++){
+      try{
+        var res = await tryCall([apis[i]], {entity:ctx.entity, id:ctx.id, fid:ctx.fid, value:ctx.val, row:ctx.row});
+        if(typeof res==="string" && /^https?:\/\//i.test(res)) return res;
+        if(res && typeof res==="object"){
+          if(res.url) return res.url;
+          var folderId = res.folderId || res.driveId || res.id;
+          var fileId   = res.fileId;
+          if(folderId) return driveUrlFromId(folderId,"folder");
+          if(fileId)   return driveUrlFromId(fileId,"file");
+        }
+      }catch(_){}
+    }
+    var id = extractDriveId(ctx.val);
+    return id ? driveUrlFromId(id,"folder") : "";
+  }
+
+  /* ========= 3. renderers ========= */
+  function R_id(o){
+    var s=el("span",null,o.val==null?"":String(o.val));
+    s.setAttribute("data-raw",o.val==null?"":String(o.val));
+    return s;
+  }
+  function R_text(o){ return document.createTextNode(o.val==null?"":String(o.val)); }
+  function R_date(o){ return document.createTextNode(isoDateOnly(o.val)); }
+  function R_checkbox(o){
+    var input=el("input"); input.type="checkbox";
+    var v = o.val;
+    var checked = (v===true) || (typeof v==="number" && v!==0) ||
+                  (/^(true|yes|on|1)$/i.test(String(v||"")));
+    input.checked = !!checked;
+    input.disabled = !o.editable;
+    return input;
+  }
+  function R_select(o){
+    return document.createTextNode(o.val==null?"":String(o.val));
+  }
+  function R_json(o){
+    var pre=el("pre","json");
+    try{ pre.textContent = JSON.stringify(typeof o.val==="string"?JSON.parse(o.val):o.val, null, 2); }
+    catch(_){ pre.textContent = String(o.val==null?"":o.val); }
+    return pre;
+  }
+  function R_entity_name(o){
+    var entity = fidToEntity(o.fid, String(o.val||""));
+    var bucket = bucketOf(entity);
+    var key = String(o.val||"");
+    var name = (window.LINK_MAPS[bucket]||{})[key] || key;
+    return el("span",null,name);
+  }
+  function R_entity_link(o){
+    var entity = fidToEntity(o.fid, String(o.val||""));
+    var ids = parseList(o.val);
+    var box=el("span");
+    if(!ids.length){ box.appendChild(document.createTextNode("")); return box; }
+    var map = window.LINK_MAPS[bucketOf(entity)] || {};
+    ids.forEach(function(id,i){
+      var label = map[id] || id;
+      box.appendChild(chip(Router.buildEntityUrl(entity,id), label, false));
+      if(i<ids.length-1) box.appendChild(document.createTextNode(" "));
+    });
+    return box;
+  }
+  function R_originals(o){
+    var a = chip("", "Loading Originals...", true);
+    a.setAttribute("data-pending","1");
+    var ctx = {
+      entity: o.entity || "shot",
+      id: (o.row && (o.row.fi_0001||o.row.id||o.row.ID)) || "",
+      fid: o.fid, val: o.val, row: o.row || {}
+    };
+    resolveOriginalsUrl(ctx).then(function(url){
+      if(url){ a.href=url; a.textContent="Open Originals"; }
+      else { a.textContent="(Originals not found)"; a.removeAttribute("href"); }
+      a.removeAttribute("data-pending");
+    }).catch(function(){
+      a.textContent="(Originals not found)";
+      a.removeAttribute("href"); a.removeAttribute("data-pending");
+    });
+    return a;
+  }
+  function R_file_list(o){
+    var items=[];
+    try{
+      if(typeof o.val==="string" && /^\s*\[/.test(o.val)) items = JSON.parse(o.val)||[];
+      else if(Array.isArray(o.val)) items = o.val;
+      else items = parseList(o.val);
+    }catch(_){ items = parseList(o.val); }
+    var box=el("span");
+    if(!items.length){ box.appendChild(document.createTextNode("")); return box; }
+    items.forEach(function(it,i){
+      var href="", label="", kind="";
+      if(typeof it==="string"){
+        if(/^https?:\/\//i.test(it)){ href=it; label=it; }
+        else { href=driveUrlFromId(extractDriveId(it),"file"); label=it; }
+      }else if(it && typeof it==="object"){
+        label = it.name || it.url || it.id || "";
+        if(it.url) href=it.url;
+        else if(it.id) href=driveUrlFromId(it.id, it.kind==="folder"?"folder":"file");
+        else if(it.fileId) href=driveUrlFromId(it.fileId,"file");
+        else if(it.folderId || it.driveId) href=driveUrlFromId(it.folderId||it.driveId,"folder");
+      }
+      box.appendChild(href ? chip(href,label,true) : el("span",null,label));
+      if(i<items.length-1) box.appendChild(document.createTextNode(" "));
+    });
+    return box;
+  }
+  function R_thumbnails(o){
+    var list = parseList(o.val);
+    var box=el("div","thumbs");
+    list.forEach(function(tok){
+      var url = /^https?:\/\//i.test(tok) ? tok : ("https://drive.google.com/thumbnail?sz=w256&id="+extractDriveId(tok));
+      var img = el("img","thumb"); img.loading="lazy"; img.decoding="async"; img.src=url;
+      var a = el("a"); a.href=url; a.target="_blank"; a.rel="noopener"; a.appendChild(img);
+      box.appendChild(a);
+    });
+    return box;
+  }
+  function R_versions(o){
+    var list = parseList(o.val);
+    var box=el("span");
+    list.forEach(function(v,i){
+      var t=chip("", String(v), false); t.classList.add("tag");
+      t.removeAttribute("href"); t.removeAttribute("target"); t.removeAttribute("rel");
+      box.appendChild(t);
+      if(i<list.length-1) box.appendChild(document.createTextNode(" "));
+    });
+    return box;
+  }
+
+/* ========= 4. entry ========= */
+  function renderCellByField(o){
+    var t=(o.type || (window.FIELD_TYPES||{})[o.fid] || "").toLowerCase();
+    var fname = String(o.name || o.field_name || "").toLowerCase();
+
+    // shotview を共通経路に統合（テーブルと同じポリシー）
+    if (fname === "shotview" || t === "shotview") {
+      var el = document.createElement("span");
+      el.textContent = "";
+
+      var row = o.row || {};
+      var sid =
+        row["Shot ID"] || row["id"] || row["shot_id"] ||
+        row["sh_id"] || row["shid"] || "";
+
+      // 1) 既存キャッシュ（テーブル由来）があれば即描画
+      try{
+        if (sid && window.PROXY_CACHE && window.PROXY_CACHE[sid]) {
+          var urlC = window.PROXY_CACHE[sid];
+          var idmC = (String(urlC).match(/[-\w]{25,}/)||[])[0] || "";
+          var thumbC = idmC ? ("https://drive.google.com/thumbnail?id="+idmC+"&sz=w320") : urlC;
+          el.innerHTML = '<a href="'+urlC+'" target="_blank" rel="noopener"><img loading="lazy" decoding="async" style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px" src="'+thumbC+'"></a>';
+          return el;
+        }
+      }catch(_){}
+
+      // 2) 単発リゾルブ（Apps Script を段階的フォールバック）
+      (async function(){
+        function best(res){
+          try{
+            if(!res) return "";
+            if(typeof res==="string") return res;
+            if(Array.isArray(res) && res.length){
+              var a=res[0]; if(a.url) return a.url; if(a.previewUrl) return a.previewUrl; if(a.id) return "https://drive.google.com/file/d/"+a.id+"/view";
+            }
+            if(res.previewUrl) return res.previewUrl;
+            if(res.url) return res.url;
+            if(res.items && Array.isArray(res.items) && res.items.length){
+              var b=res.items[0]; if(b.url) return b.url; if(b.id) return "https://drive.google.com/file/d/"+b.id+"/view";
+            }
+          }catch(_){}
+          return "";
+        }
+        try{
+          var apis = [
+            ["sv_listEntityProxies",{id:sid}],
+            ["sv_getShotProxies",{id:sid}],
+            ["sv_getShotviewUrls",{id:sid}],
+            ["sv_getPreviewUrl",{id:sid}],
+            ["getPreviewUrl",{id:sid}]
+          ];
+          var url="";
+          for (var i=0;i<apis.length;i++){
+            try{
+              var res = await tryCall([apis[i][0]], apis[i][1]);
+              url = best(res);
+              if (url) break;
+            }catch(_){}
+          }
+          if (url){
+            try{ if(window.PROXY_CACHE) window.PROXY_CACHE[sid]=url; }catch(_){}
+            var idm = (String(url).match(/[-\w]{25,}/)||[])[0] || "";
+            var thumb = idm ? ("https://drive.google.com/thumbnail?id="+idm+"&sz=w320") : url;
+            el.innerHTML = '<a href="'+url+'" target="_blank" rel="noopener"><img loading="lazy" decoding="async" style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px" src="'+thumb+'"></a>';
+          } else {
+            el.textContent = "";
+          }
+        }catch(_){
+          el.textContent = "";
+        }
+      })();
+
+      return el;
+    }
+
+    // 既存タイプは従来のレンダラに委譲
+    switch(t){
+      case "id":          return R_id(o);
+      case "text":        return R_text(o);
+      case "date":        return R_date(o);
+      case "checkbox":    return R_checkbox(o);
+      case "select":      return R_select(o);
+      case "json":        return R_json(o);
+      case "entity_name": return R_entity_name(o);
+      case "entity_link": return R_entity_link(o);
+      case "originals":   return R_originals(o);
+      case "file_list":   return R_file_list(o);
+      case "thumbnails":  return R_thumbnails(o);
+      case "versions":    return R_versions(o);
+      default:            return R_text(o);
+    }
+  }
+
+/* ========= 4. entry ========= */
+
+/* ===== 4B.applyData shim（ADD） ===== */
+// 最低限の applyData を先に定義しておく。
+// これにより listRowsPage 成功時の applyData 呼び出しで落ちない。
+window.applyData = window.applyData || function(p){
+  p = p || {};
+  window.STATE = window.STATE || {};
+  STATE.fieldIds = Array.isArray(p.ids) ? p.ids : [];
+  STATE.header   = Array.isArray(p.header) ? p.header : [];
+  STATE.rows     = Array.isArray(p.rows) ? p.rows : [];
+  var t = Number(p.total);
+  STATE.total    = (isFinite(t) && t >= 0) ? t : STATE.rows.length;
+
+  // ページャなどの最低限のUI同期
+  if (typeof updatePagerUI === 'function') updatePagerUI();
+};
+
+
+  /* ========= 5. misc ========= */
+  function getLabel(fid){ return (window.PAGE_LABELS && PAGE_LABELS[fid]) || (fid||""); }
+  function attachCellEditor(){ return null; }
+  function hydrateLinks(){ /* NOTE: legacy comment removed */ }
+
+  /* ========= 6. export ========= */
+  window.FieldsAPI = { renderCellByField, getLabel, attachCellEditor, hydrateLinks, ensureLinkMaps };
+  ensureLinkMaps().catch(function(){});
+})();
+
+
+
+
+</script>
+
+
