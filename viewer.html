@@ -2267,7 +2267,17 @@
   }
 
   function resolveEntityFromContext(){
-    var raw=(getUrlParam('entity')||STATE.sheetName||'').trim();
+    var raw = (getUrlParam('entity') || '').trim();
+    if(!raw){
+      var pageParam = (getUrlParam('page') || '').trim();
+      var pageLc = pageParam.toLowerCase();
+      if(pageLc && /^(shots|assets|tasks|users|members|projectmembers)$/.test(pageLc)){
+        raw = pageParam;
+      }
+    }
+    if(!raw){
+      raw = STATE.sheetName || '';
+    }
     var s = singularEntityFor(raw);
     STATE.sheetName = s;
     return s;
