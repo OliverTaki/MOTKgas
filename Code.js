@@ -463,7 +463,17 @@ function _readEntitySheet_(sheetName) {
   }
 
   var header = sh.getRange(1, 1, 1, lastCol).getValues()[0];
-  var dataRange = sh.getRange(2, 1, lastRow - 1, lastCol);
+
+  var dataStartRow = 3; // row1: field IDs, row2: labels
+  if (lastRow < dataStartRow) {
+    return { header: header, rows: [] };
+  }
+  var dataRowCount = lastRow - dataStartRow + 1;
+  if (dataRowCount < 1) {
+    return { header: header, rows: [] };
+  }
+
+  var dataRange = sh.getRange(dataStartRow, 1, dataRowCount, lastCol);
   var allValues = dataRange.getValues();
 
   var dataRows = [];
