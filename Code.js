@@ -1299,7 +1299,8 @@ function PG_findById(hdr, rows, idColName, idValue){
 }
 function PG_bool(v){
   var s = String(v).trim().toLowerCase();
-  return s==="true"||s==="1"||s==="yes"||s==="on"||s==="y"||s==="✁E;
+  if (s && s.charCodeAt && s.charCodeAt(0) === 0x2713) return true;
+  return s==="true"||s==="1"||s==="yes"||s==="on"||s==="y"||s==="ok";
 }
 function PG_idColName(hdr){
   var cands = ["Page ID","page_id","id"];
@@ -1483,7 +1484,7 @@ function _pg_all_(){
   return { sh:sh, fi:v[0], names:v[1], rows:v.slice(2) };
 }
 function _pg_idxBy(a,key){ key=String(key).trim().toLowerCase(); for(var i=0;i<a.length;i++){ if(String(a[i]).trim().toLowerCase()===key) return i; } return -1; }
-function _pg_bool(v){ var s=String(v).trim().toLowerCase(); return s==='true'||s==='1'||s==='yes'||s==='on'||s==='y'||s==='✁E; }
+function _pg_bool(v){ var s=String(v).trim().toLowerCase(); if (s && s.charCodeAt && s.charCodeAt(0) === 0x2713) return true; return s==='true'||s==='1'||s==='yes'||s==='on'||s==='y'||s==='ok'; }
 
 function _pg_findIdx(fi,names, fiKey, labelKey, altLabels){
   // FI優先�Eラベル→同義誁E
