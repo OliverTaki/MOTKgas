@@ -345,11 +345,14 @@ function _evalGroup_(row, group, ids, colTypes){
     }
     return false;
   } else {
+    var sawValid = false;
     for (var j=0;j<rules.length;j++){
       var g = rules[j]; if (!g || !g.id || !g.op) continue;
-      var k = ids.indexOf(g.id); if (k<0) return false;
+      var k = ids.indexOf(g.id); if (k<0) continue;
+      sawValid = true;
       if (!_testRule_(row[k], g, colTypes[k])) return false;
     }
+    if (!sawValid) return true;
     return true;
   }
 }
