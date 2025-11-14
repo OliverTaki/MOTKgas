@@ -1990,11 +1990,12 @@
       ? resolveEntityStrict()
       : (STATE.sheetName||'shot');
     var entSing   = singularEntityFor(entStrict);
-    var entPlural = pluralEntityFor(entStrict);
+    var entLabel  = pluralEntityFor(entStrict);
 
     return {
-      entity        : entSing,
-      entityPlural  : entPlural,
+      entity        : entLabel,
+      sheet         : entLabel,
+      entityPlural  : entLabel,
       sheetName     : entSing,
       pageType      : String(STATE.pageType||'table'),
       offset        : Math.max(0, offset|0),
