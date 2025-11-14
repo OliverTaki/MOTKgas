@@ -1,24 +1,24 @@
-// BUILD_STAMP: 2025-11-14 23:55 JST
+﻿// BUILD_STAMP: 2025-11-14 23:55 JST
 /** =========================================
- *  Code.gs (ナンバリング整琁E��)
- *  - doGet に DebugPanel ペ�Eジ追加
- *  - 他�E処琁E�E現状維持E
+ *  Code.gs (繝翫Φ繝舌Μ繝ｳ繧ｰ謨ｴ逅・沿)
+ *  - doGet 縺ｫ DebugPanel 繝壹・繧ｸ霑ｽ蜉
+ *  - 莉悶・蜃ｦ逅・・迴ｾ迥ｶ邯ｭ謖・
  * =========================================*/
 
 /* ===== Section Index =====
- *  1. グローバルコンチE��スチE
- *  2. include (HTML 部品読込)
+ *  1. 繧ｰ繝ｭ繝ｼ繝舌Ν繧ｳ繝ｳ繝・く繧ｹ繝・
+ *  2. include (HTML 驛ｨ蜩∬ｪｭ霎ｼ)
  *  3. doGet Router
- *  4. Data 読み取り�E�EataHub 優先！E
- *  5. 型推宁E補正ユーチE��リチE��
- *  6. フィルタ評価ユーチE��リチE��
+ *  4. Data 隱ｭ縺ｿ蜿悶ｊ・・ataHub 蜆ｪ蜈茨ｼ・
+ *  5. 蝙区耳螳・陬懈ｭ｣繝ｦ繝ｼ繝・ぅ繝ｪ繝・ぅ
+ *  6. 繝輔ぅ繝ｫ繧ｿ隧穂ｾ｡繝ｦ繝ｼ繝・ぅ繝ｪ繝・ぅ
  *  7. Sheet-backed row listing & fields
  *  8. FieldTypes-based Data API
  *  9. Entity Read/Write API (header)
  * 10. Entity utils
  * 11. entity_sheet_map
  * 12. fields_resolver
- * 13. label_resolver (entity_linkのみラベル匁E
+ * 13. label_resolver (entity_link縺ｮ縺ｿ繝ｩ繝吶Ν蛹・
  * 14. dp_getEntityRecord
  * 15. dp_updateEntityRecord (PATCH)
  * 16. page.header
@@ -36,12 +36,12 @@
  * =========================*/
 
 
-/* ===== 1. グローバルコンチE��スチE===== */
+/* ===== 1. 繧ｰ繝ｭ繝ｼ繝舌Ν繧ｳ繝ｳ繝・く繧ｹ繝・===== */
 var __VIEW_CTX = { scriptUrl:'', page:'', entity:'', id:'', dataJson:'[]' };
 /* ===== 1. End ===== */
 
 
-/* ===== 2. include (HTML 部品読込) ===== */
+/* ===== 2. include (HTML 驛ｨ蜩∬ｪｭ霎ｼ) ===== */
 function include(filename) {
   var t = HtmlService.createTemplateFromFile(filename);
   for (var k in __VIEW_CTX) if (__VIEW_CTX.hasOwnProperty(k)) t[k] = __VIEW_CTX[k];
@@ -52,7 +52,7 @@ function include(filename) {
 
 /* ===== 3. doGet Router ===== */
 
-// ペ�Eジ吁EↁEチE��プレート名
+// 繝壹・繧ｸ蜷・竊・繝・Φ繝励Ξ繝ｼ繝亥錐
 var PAGE_TEMPLATE_MAP = {
   '':          'index',
   'shots':     'index',
@@ -62,10 +62,10 @@ var PAGE_TEMPLATE_MAP = {
   'users':     'index',
   'dashboard': 'index',
   'settings':  'index',
-  'debugpanel':'DebugPanelPage'  // DebugPanel 専用チE��プレ
+  'debugpanel':'DebugPanelPage'  // DebugPanel 蟆ら畑繝・Φ繝励Ξ
 };
 
-// page / entity / id からチE��プレート名を決宁E
+// page / entity / id 縺九ｉ繝・Φ繝励Ξ繝ｼ繝亥錐繧呈ｱｺ螳・
 function _resolveTemplateName_(page, entity, id) {
   var p = String(page || '').toLowerCase();
 
@@ -77,7 +77,7 @@ function _resolveTemplateName_(page, entity, id) {
     return PAGE_TEMPLATE_MAP[p];
   }
 
-  // 想定外�E page はすべて index にフォールバック
+  // 諠ｳ螳壼､悶・ page 縺ｯ縺吶∋縺ｦ index 縺ｫ繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ
   return 'index';
 }
 
@@ -99,12 +99,12 @@ function _normalizePageAndEntity_(page, entity) {
   if (/^detail[a-z]+$/.test(pageRaw)) {
     return { page: page || 'DetailShot', entity: entRaw || 'shot' };
   }
-  if (pageRaw === 'assets')  return { page: 'assets',  entity: entRaw || 'asset' };
-  if (pageRaw === 'shots')   return { page: 'shots',   entity: entRaw || 'shot' };
-  if (pageRaw === 'tasks')   return { page: 'tasks',   entity: entRaw || 'task' };
-  if (pageRaw === 'users')   return { page: 'users',   entity: entRaw || 'user' };
+  if (pageRaw === 'assets')  return { page: 'index', entity: entRaw || 'asset' };
+  if (pageRaw === 'shots')   return { page: 'index', entity: entRaw || 'shot' };
+  if (pageRaw === 'tasks')   return { page: 'index', entity: entRaw || 'task' };
+  if (pageRaw === 'users')   return { page: 'index', entity: entRaw || 'user' };
   if (pageRaw === 'members' || pageRaw === 'projectmembers') {
-    return { page: 'members', entity: entRaw || 'member' };
+    return { page: 'index', entity: entRaw || 'member' };
   }
   if (pageRaw === '' || pageRaw === 'table' || pageRaw === 'index' || pageRaw === 'list' || pageRaw === 'viewer') {
     return { page: 'index', entity: normEntity(entRaw || 'shot') };
@@ -112,13 +112,13 @@ function _normalizePageAndEntity_(page, entity) {
   return { page: page || 'index', entity: normEntity(entRaw) };
 }
 
-// ルーター本佁E
+// 繝ｫ繝ｼ繧ｿ繝ｼ譛ｬ菴・
 function doGet(e) {
   var params = (e && e.parameter) || {};
   var action = String(params.action || '').toLowerCase();
 
-  // 3-0. 互換用 dataJson パラメータ�E�旧 doGet との互換�E�E
-  // 旧コードが dataJson を参照してぁE��めEReferenceError にならなぁE��ぁE��しておく
+  // 3-0. 莠呈鋤逕ｨ dataJson 繝代Λ繝｡繝ｼ繧ｿ・域立 doGet 縺ｨ縺ｮ莠呈鋤・・
+  // 譌ｧ繧ｳ繝ｼ繝峨′ dataJson 繧貞盾辣ｧ縺励※縺・※繧・ReferenceError 縺ｫ縺ｪ繧峨↑縺・ｈ縺・↓縺励※縺翫￥
   var dataJson = '[]';
   if (params.dataJson) {
     var rawParam = String(params.dataJson);
@@ -130,11 +130,11 @@ function doGet(e) {
     }
   }
 
-  // 3-1. 特殊エンド�Eイント！ESバンドル / スチE�Eタス�E�E
+  // 3-1. 迚ｹ谿翫お繝ｳ繝峨・繧､繝ｳ繝茨ｼ・S繝舌Φ繝峨Ν / 繧ｹ繝・・繧ｿ繧ｹ・・
 
-  // index.html 等から�E:
+  // index.html 遲峨°繧峨・:
   //   <script src="<?= scriptUrl ?>?action=app-bundle"></script>
-  // に対して JS を返す
+  // 縺ｫ蟇ｾ縺励※ JS 繧定ｿ斐☆
   if (action === 'app-bundle') {
     var js = [
       '/* MOTK app bundle shim */',
@@ -147,7 +147,7 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
 
-  // 簡易スチE�Eタス�E�忁E��なければ無視してよい�E�E
+  // 邁｡譏薙せ繝・・繧ｿ繧ｹ・亥ｿ・ｦ√↑縺代ｌ縺ｰ辟｡隕悶＠縺ｦ繧医＞・・
   if (action === 'status') {
     var payload = {
       ok: true,
@@ -162,7 +162,7 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // 3-2. 通常の HTML ペ�Eジ�E�Endex / DebugPanel など�E�E
+  // 3-2. 騾壼ｸｸ縺ｮ HTML 繝壹・繧ｸ・・ndex / DebugPanel 縺ｪ縺ｩ・・
 
   var page   = params.page   || 'Shots';
   var entity = (params.entity || '').toLowerCase();
@@ -173,12 +173,12 @@ function doGet(e) {
 
   var templateName = _resolveTemplateName_(page, entity, id);
 
-  // チE��プレート作�E
+  // 繝・Φ繝励Ξ繝ｼ繝井ｽ懈・
   var t;
   try {
     t = HtmlService.createTemplateFromFile(templateName);
   } catch (err) {
-    // チE��プレート名解決失敗時の簡易エラー
+    // 繝・Φ繝励Ξ繝ｼ繝亥錐隗｣豎ｺ螟ｱ謨玲凾縺ｮ邁｡譏薙お繝ｩ繝ｼ
     var msg = 'Template "' + String(templateName) + '" not found.\n\n' +
       (err && err.stack ? String(err.stack) : String(err));
 
@@ -199,7 +199,7 @@ function doGet(e) {
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
 
-  // チE��プレートに渡すコンチE��スト（ローカルのみ、グローバル関数は使わなぁE��E
+  // 繝・Φ繝励Ξ繝ｼ繝医↓貂｡縺吶さ繝ｳ繝・く繧ｹ繝茨ｼ医Ο繝ｼ繧ｫ繝ｫ縺ｮ縺ｿ縲√げ繝ｭ繝ｼ繝舌Ν髢｢謨ｰ縺ｯ菴ｿ繧上↑縺・ｼ・
   var viewCtx = {
     page: page,
     entity: entity,
@@ -207,19 +207,19 @@ function doGet(e) {
     scriptUrl: ScriptApp.getService().getUrl()
   };
 
-  // 個別に直接渡す（既存テンプレ互換用�E�E
+  // 蛟句挨縺ｫ逶ｴ謗･貂｡縺呻ｼ域里蟄倥ユ繝ｳ繝励Ξ莠呈鋤逕ｨ・・
   t.page      = viewCtx.page;
   t.entity    = viewCtx.entity;
   t.id        = viewCtx.id;
   t.scriptUrl = viewCtx.scriptUrl;
 
-  // 旧コード互換: dataJson をテンプレへ渡ぁE
+  // 譌ｧ繧ｳ繝ｼ繝我ｺ呈鋤: dataJson 繧偵ユ繝ｳ繝励Ξ縺ｸ貂｡縺・
   t.dataJson  = dataJson;
 
-  // まとめて欲しい場合用
+  // 縺ｾ縺ｨ繧√※谺ｲ縺励＞蝣ｴ蜷育畑
   t.viewCtx = viewCtx;
 
-  // HTML として返却
+  // HTML 縺ｨ縺励※霑泌唆
   return t.evaluate()
     .setTitle(viewCtx.page || 'MOTK')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -229,7 +229,7 @@ function doGet(e) {
 
 
 
-/* ===== 4. Data 読み取り�E�EataHub 優先！E===== */
+/* ===== 4. Data 隱ｭ縺ｿ蜿悶ｊ・・ataHub 蜆ｪ蜈茨ｼ・===== */
 function _readFromDataHubOrSheet_(sheetName){
   var dh = SpreadsheetApp.getActive().getSheetByName('DataHub');
   if (dh) {
@@ -261,7 +261,7 @@ function _readFromDataHubOrSheet_(sheetName){
 /* ===== 4. End ===== */
 
 
-/* ===== 5. 型推宁E補正ユーチE��リチE�� ===== */
+/* ===== 5. 蝙区耳螳・陬懈ｭ｣繝ｦ繝ｼ繝・ぅ繝ｪ繝・ぅ ===== */
 function _inferTypes_(rows, ids){
   var types = new Array(ids.length).fill('text');
   var sample = Math.min(rows.length, 200);
@@ -307,7 +307,7 @@ function _sameDay_(a,b){
 /* ===== 5. End ===== */
 
 
-/* ===== 6. フィルタ評価ユーチE��リチE�� ===== */
+/* ===== 6. 繝輔ぅ繝ｫ繧ｿ隧穂ｾ｡繝ｦ繝ｼ繝・ぅ繝ｪ繝・ぅ ===== */
 function _containsAny_(raw, valOrValues){
   var hay = String(raw==null?'':raw).toLowerCase();
   var arr = [];
@@ -398,9 +398,9 @@ function _evalGroup_(row, group, ids, colTypes){
 /* ===== 7. Sheet-backed row listing & fields ===== */
 
 /**
- * listRowsPage 用のパラメータ正規化
+ * listRowsPage 逕ｨ縺ｮ繝代Λ繝｡繝ｼ繧ｿ豁｣隕丞喧
  *
- * 受け入れる形:
+ * 蜿励￠蜈･繧後ｋ蠖｢:
  *   - "shot"
  *   - { entity: "shot" }
  *   - { entity: { entity: "shot", perPage: 5, page: 1 } }
@@ -423,7 +423,7 @@ function _normalizeEntityParams_(params) {
   var entLc = entRaw.toLowerCase();
   var entityKey = entLc || 'shot';
 
-  // entity ↁEシート名マッチE
+  // entity 竊・繧ｷ繝ｼ繝亥錐繝槭ャ繝・
   var sheetNameMap = {
     shot:   'Shots',
     asset:  'Assets',
@@ -440,7 +440,7 @@ function _normalizeEntityParams_(params) {
   var limit           = limitFromParams || limitFromObj || 100;
   if (!limit || limit < 1) limit = 100;
 
-  // page ↁEoffset
+  // page 竊・offset
   var pageFromParams = Number(params.page);
   var pageFromObj    = entObj && Number(entObj.page);
   var page           = pageFromParams || pageFromObj || 1;
@@ -463,7 +463,7 @@ function _normalizeEntityParams_(params) {
 }
 
 /**
- * シート名候補から最初に見つかったシートを返す
+ * 繧ｷ繝ｼ繝亥錐蛟呵｣懊°繧画怙蛻昴↓隕九▽縺九▲縺溘す繝ｼ繝医ｒ霑斐☆
  */
 function _findSheetByCandidates_(candidates) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -477,14 +477,14 @@ function _findSheetByCandidates_(candidates) {
 }
 
 /**
- * 持E��シートから�EチE���E�データ行を取征E
- *  - ヘッダ衁E 1行目
- *  - チE�Eタ衁E 2行目以降（完�E空行�EスキチE�E�E�E
+ * 謖・ｮ壹す繝ｼ繝医°繧峨・繝・ム・九ョ繝ｼ繧ｿ陦後ｒ蜿門ｾ・
+ *  - 繝倥ャ繝陦・ 1陦檎岼
+ *  - 繝・・繧ｿ陦・ 2陦檎岼莉･髯搾ｼ亥ｮ悟・遨ｺ陦後・繧ｹ繧ｭ繝・・・・
  */
 function _readEntitySheet_(sheetName) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  // シート候裁E "Shots", "shots", "SHOTS", "Shot"
+  // 繧ｷ繝ｼ繝亥呵｣・ "Shots", "shots", "SHOTS", "Shot"
   var base = String(sheetName || '').trim();
   var lc   = base.toLowerCase();
   var uc   = base.toUpperCase();
@@ -538,8 +538,8 @@ function _readEntitySheet_(sheetName) {
 }
 
 /**
- * listRowsPage のコア実裁E
- * 戻り値: { columns: [...], rows: [...], meta: {...} }
+ * listRowsPage 縺ｮ繧ｳ繧｢螳溯｣・
+ * 謌ｻ繧雁､: { columns: [...], rows: [...], meta: {...} }
  */
 function _listRowsPageCore_(params) {
   var conf = _normalizeEntityParams_(params);
@@ -585,7 +585,7 @@ function _listRowsPageCore_(params) {
 }
 
 /**
- * サーバ�E部用�E�Eontract Inspector など直接呼び出し！E*/
+ * 繧ｵ繝ｼ繝仙・驛ｨ逕ｨ・・ontract Inspector 縺ｪ縺ｩ逶ｴ謗･蜻ｼ縺ｳ蜃ｺ縺暦ｼ・*/
 function listRowsPage(params) {
   if (typeof params === 'string') {
     params = { entity: params };
@@ -594,7 +594,7 @@ function listRowsPage(params) {
 }
 
 /**
- * RPC エンド�Eイント！EI からはこれが呼ばれる想定！E*/
+ * RPC 繧ｨ繝ｳ繝峨・繧､繝ｳ繝茨ｼ・I 縺九ｉ縺ｯ縺薙ｌ縺悟他縺ｰ繧後ｋ諠ｳ螳夲ｼ・*/
 function sv_listRowsPage(params) {
   if (typeof params === 'string') {
     params = { entity: params };
@@ -603,8 +603,8 @@ function sv_listRowsPage(params) {
 }
 
 /**
- * FIELDS シートから、指宁Eentity のフィールド行を配�Eで返す
- * 戻り値は、E行目以降�E raw 行�E列、E
+ * FIELDS 繧ｷ繝ｼ繝医°繧峨∵欠螳・entity 縺ｮ繝輔ぅ繝ｼ繝ｫ繝芽｡後ｒ驟榊・縺ｧ霑斐☆
+ * 謌ｻ繧雁､縺ｯ縲・陦檎岼莉･髯阪・ raw 陦碁・蛻励・
  */
 function getFields(entity) {
   if (!entity) {
@@ -626,7 +626,7 @@ function getFields(entity) {
   var values = sh.getRange(1, 1, lastRow, lastCol).getValues();
   var header = values[0];
 
-  // "Entity" 列を探ぁE
+  // "Entity" 蛻励ｒ謗｢縺・
   var entityCol = -1;
   for (var c = 0; c < header.length; c++) {
     if (String(header[c]).toLowerCase() === 'entity') {
@@ -634,7 +634,7 @@ function getFields(entity) {
       break;
     }
   }
-  // ヘッダが無ぁE��合�E暫定で刁EめEEntity とみなぁE
+  // 繝倥ャ繝縺檎┌縺・ｴ蜷医・證ｫ螳壹〒蛻・繧・Entity 縺ｨ縺ｿ縺ｪ縺・
   if (entityCol === -1) {
     entityCol = 1;
   }
@@ -654,7 +654,7 @@ function getFields(entity) {
 }
 
 /**
- * チE��チE��用: ショチE��一覧をサーバ�Eログで確誁E
+ * 繝・ヰ繝・げ逕ｨ: 繧ｷ繝ｧ繝・ヨ荳隕ｧ繧偵し繝ｼ繝仙・繝ｭ繧ｰ縺ｧ遒ｺ隱・
  */
 function debug_listRowsPage_shot() {
   var res = listRowsPage('shot');
@@ -667,7 +667,7 @@ function debug_listRowsPage_shot() {
 }
 
 /**
- * チE��チE��用: アセチE��一覧をサーバ�Eログで確誁E
+ * 繝・ヰ繝・げ逕ｨ: 繧｢繧ｻ繝・ヨ荳隕ｧ繧偵し繝ｼ繝仙・繝ｭ繧ｰ縺ｧ遒ｺ隱・
  */
 function debug_listRowsPage_asset() {
   var res = listRowsPage('asset');
@@ -684,27 +684,27 @@ function debug_listRowsPage_asset() {
 
 /* ===== 8. FieldTypes-based Data API (sv_listRowsPage / getFields / listFields) =====
  *
- * 目皁E
- * - 既存�E listRowsPage(params) をそのまま利用しつつ、E
- *   Fields シート由来のメタ惁E��付き sv_listRowsPage(entity, options) を提供すめE
- * - DebugPanel Contract Inspector から呼ぶ getFields / listFields を提供すめE
+ * 逶ｮ逧・
+ * - 譌｢蟄倥・ listRowsPage(params) 繧偵◎縺ｮ縺ｾ縺ｾ蛻ｩ逕ｨ縺励▽縺､縲・
+ *   Fields 繧ｷ繝ｼ繝育罰譚･縺ｮ繝｡繧ｿ諠・ｱ莉倥″ sv_listRowsPage(entity, options) 繧呈署萓帙☆繧・
+ * - DebugPanel Contract Inspector 縺九ｉ蜻ｼ縺ｶ getFields / listFields 繧呈署萓帙☆繧・
  *
- * ポリシー:
- * - 行データの読み出し�Eフィルタ・ソート�Eペ�Eジングは既孁ElistRowsPage に一本匁E
- *   �E�ロジチE��の二重実裁E�E重褁E��ープを避ける�E�E
- * - 列メタ惁E��は Fields シート！EetFieldTypes�E�から引き、FI�E�Eield id�E�で結合
- *   �E�Eabel/name では判別しなぁE��E
+ * 繝昴Μ繧ｷ繝ｼ:
+ * - 陦後ョ繝ｼ繧ｿ縺ｮ隱ｭ縺ｿ蜃ｺ縺励・繝輔ぅ繝ｫ繧ｿ繝ｻ繧ｽ繝ｼ繝医・繝壹・繧ｸ繝ｳ繧ｰ縺ｯ譌｢蟄・listRowsPage 縺ｫ荳譛ｬ蛹・
+ *   ・医Ο繧ｸ繝・け縺ｮ莠碁㍾螳溯｣・・驥崎､・Ν繝ｼ繝励ｒ驕ｿ縺代ｋ・・
+ * - 蛻励Γ繧ｿ諠・ｱ縺ｯ Fields 繧ｷ繝ｼ繝茨ｼ・etFieldTypes・峨°繧牙ｼ輔″縲：I・・ield id・峨〒邨仙粋
+ *   ・・abel/name 縺ｧ縺ｯ蛻､蛻･縺励↑縺・ｼ・
  */
 
 /**
- * サーバ�E側チE�Eブル API (契紁E��査用)
+ * 繧ｵ繝ｼ繝舌・蛛ｴ繝・・繝悶Ν API (螂醍ｴ・､懈渊逕ｨ)
  * - entity: 'shot' / 'asset' / 'task' / 'member' / 'user' / 'page'
  * - options: { limit, offset, sort, filter, filterMode, filterGroups, groupCombine, sheet? }
  *
- * 戻り値:
+ * 謌ｻ繧雁､:
  * {
  *   columns: [ {id,fieldId,name,label,type,editable,required,index,meta}, ... ],
- *   row0:    [... 先頭衁E...] また�E null,
+ *   row0:    [... 蜈磯ｭ陦・...] 縺ｾ縺溘・ null,
  *   rows:    [[...], [...], ...],
  *   meta:    { total, sheet, offset, limit, entity }
  * }
@@ -715,7 +715,7 @@ function sv_listRowsPage(entity, options) {
     throw new Error('sv_listRowsPage: entity is required.');
   }
 
-  // 既存�E listRowsPage をそのまま利用して、行データと ids/header を取征E
+  // 譌｢蟄倥・ listRowsPage 繧偵◎縺ｮ縺ｾ縺ｾ蛻ｩ逕ｨ縺励※縲∬｡後ョ繝ｼ繧ｿ縺ｨ ids/header 繧貞叙蠕・
   var params = {
     entity: entity,
     sheet:  options.sheet || '',
@@ -742,7 +742,7 @@ function sv_listRowsPage(entity, options) {
     total = rows.length;
   }
 
-  // Fields シートからフィールド定義を取得！EI ベ�Eス�E�E
+  // Fields 繧ｷ繝ｼ繝医°繧峨ヵ繧｣繝ｼ繝ｫ繝牙ｮ夂ｾｩ繧貞叙蠕暦ｼ・I 繝吶・繧ｹ・・
   var ftAll  = getFieldTypes(entity) || {}; // { [ent]: { [fid]: {label,type,editable,required} } }
   var entKey = String(entity || '').toLowerCase();
   var fieldDefs = ftAll[entKey] || {};
@@ -792,16 +792,16 @@ function sv_listRowsPage(entity, options) {
 
 /**
  * getFields(entity)
- * - DebugPanel Contract Inspector 用、E
- * - entity が渡されたらそ�E entity だけ、E
- *   未持E��なら�E entity の定義を返す、E
- * - 判別は entity の斁E���E�E�Eshot" 等！E FI ベ�Eス、E
+ * - DebugPanel Contract Inspector 逕ｨ縲・
+ * - entity 縺梧ｸ｡縺輔ｌ縺溘ｉ縺昴・ entity 縺縺代・
+ *   譛ｪ謖・ｮ壹↑繧牙・ entity 縺ｮ螳夂ｾｩ繧定ｿ斐☆縲・
+ * - 蛻､蛻･縺ｯ entity 縺ｮ譁・ｭ怜・・・shot" 遲会ｼ・ FI 繝吶・繧ｹ縲・
  */
 function getFields(entity) {
-  // getFieldTypes は entity を省略すると全エンチE��チE��を返す実裁E
+  // getFieldTypes 縺ｯ entity 繧堤怐逡･縺吶ｋ縺ｨ蜈ｨ繧ｨ繝ｳ繝・ぅ繝・ぅ繧定ｿ斐☆螳溯｣・
   var all = getFieldTypes(entity || null) || {};
 
-  // entity 未持E��ならそのまま返す�E�Eields matrix 用�E�E
+  // entity 譛ｪ謖・ｮ壹↑繧峨◎縺ｮ縺ｾ縺ｾ霑斐☆・・ields matrix 逕ｨ・・
   if (!entity) {
     return all;
   }
@@ -813,11 +813,11 @@ function getFields(entity) {
 
 /**
  * listFields()
- * - 全 entity のフィールド定義をまとめて取得、E
- * - 返却形弁E { shot:{fi_0001:{...},...}, asset:{...}, ... }
+ * - 蜈ｨ entity 縺ｮ繝輔ぅ繝ｼ繝ｫ繝牙ｮ夂ｾｩ繧偵∪縺ｨ繧√※蜿門ｾ励・
+ * - 霑泌唆蠖｢蠑・ { shot:{fi_0001:{...},...}, asset:{...}, ... }
  */
 function listFields() {
-  // getFieldTypes に entity を渡さなぁE��また�E空�E�と、�E entity を返す実裁E��なってぁE��前提、E
+  // getFieldTypes 縺ｫ entity 繧呈ｸ｡縺輔↑縺・ｼ医∪縺溘・遨ｺ・峨→縲∝・ entity 繧定ｿ斐☆螳溯｣・↓縺ｪ縺｣縺ｦ縺・ｋ蜑肴署縲・
   return getFieldTypes(null) || {};
 }
 
@@ -826,12 +826,12 @@ function listFields() {
 
 /* ===== 9. Entity Read/Write API (header) ===== */
 /**
- * 目皁E
- * - DETAIL_entity.html からのレコード読込/差刁E��込APIを提侁E
- * 前提:
- * - ES5準拠
- * - シスチE��は全権。ユーザーUIからの編雁E�E Fields 側のeditable相当で判宁E
- * - ID→ラベル置換�E entity_link のみ�E�返却は {v,id,label?,t} 形�E�E
+ * 逶ｮ逧・
+ * - DETAIL_entity.html 縺九ｉ縺ｮ繝ｬ繧ｳ繝ｼ繝芽ｪｭ霎ｼ/蟾ｮ蛻・嶌霎ｼAPI繧呈署萓・
+ * 蜑肴署:
+ * - ES5貅匁侠
+ * - 繧ｷ繧ｹ繝・Β縺ｯ蜈ｨ讓ｩ縲ゅΘ繝ｼ繧ｶ繝ｼUI縺九ｉ縺ｮ邱ｨ髮・・ Fields 蛛ｴ縺ｮeditable逶ｸ蠖薙〒蛻､螳・
+ * - ID竊偵Λ繝吶Ν鄂ｮ謠帙・ entity_link 縺ｮ縺ｿ・郁ｿ泌唆縺ｯ {v,id,label?,t} 蠖｢・・
  */
 /* ===== 9. End ===== */
 
@@ -890,18 +890,18 @@ function _idPrefixToEntity_(idValue){
 
 /* ===== 12. fields_resolver ===== */
 /**
- * FieldsシートかめE
- *  - 吁EntityのID列�Eラベル列！Eype=='id' | 'entity_name'�E�E
- *  - editable相彁E
- * を推定。�EチE��名�EめE��く正規化して探索する、E
+ * Fields繧ｷ繝ｼ繝医°繧・
+ *  - 蜷・ntity縺ｮID蛻励・繝ｩ繝吶Ν蛻暦ｼ・ype=='id' | 'entity_name'・・
+ *  - editable逶ｸ蠖・
+ * 繧呈耳螳壹ゅ・繝・ム蜷阪・繧・ｋ縺乗ｭ｣隕丞喧縺励※謗｢邏｢縺吶ｋ縲・
  */
 function _readFields_(){
-  var values = _read2D_("Fields"); // 例外時は既存運用に従いthrow
+  var values = _read2D_("Fields"); // 萓句､匁凾縺ｯ譌｢蟄倬°逕ｨ縺ｫ蠕薙＞throw
   var hdr = values[0];
   var rows = values.slice(1);
   var H = {};
   for(var i=0;i<hdr.length;i++){ H[_norm_(hdr[i])] = i; }
-  // 想定カラム候裁E
+  // 諠ｳ螳壹き繝ｩ繝蛟呵｣・
   var C = {
     entity: H.entity!=null?H.entity:(H.ent!=null?H.ent:null),
     type: H.type!=null?H.type:(H.kind!=null?H.kind:null),
@@ -933,7 +933,7 @@ function _idAndLabelCols_(entity, sheetHdr){
     if(t==="id" && fields[i].column_name){ idName = fields[i].column_name; }
     if((t==="entity_name"||t==="name") && fields[i].column_name){ labelName = fields[i].column_name; }
   }
-  // Fallback�E�安�E側�E�E
+  // Fallback・亥ｮ牙・蛛ｴ・・
   if(idName==null){
     var guess = ["id", e+"_id", e+"id", "code", "key"];
     for(var g=0;g<guess.length && idName==null; g++){
@@ -951,14 +951,14 @@ function _idAndLabelCols_(entity, sheetHdr){
   return { idName:idName, labelName:labelName };
 }
 function _isEditable_(entity, colName){
-  // 他ユーザー向けの編雁E��否。シスチE��は無制限だが、フラグは返す、E
+  // 莉悶Θ繝ｼ繧ｶ繝ｼ蜷代￠縺ｮ邱ｨ髮・庄蜷ｦ縲ゅす繧ｹ繝・Β縺ｯ辟｡蛻ｶ髯舌□縺後√ヵ繝ｩ繧ｰ縺ｯ霑斐☆縲・
   var fields = _readFields_();
   var e = _norm_(entity), c = _norm_(colName);
   for(var i=0;i<fields.length;i++){
     if(_norm_(fields[i].entity)!==e) continue;
     if(_norm_(fields[i].column_name)===c){
       var v = fields[i].editable;
-      // truthy判定！ERUE/true/1/Yes�E�E
+      // truthy蛻､螳夲ｼ・RUE/true/1/Yes・・
       return (String(v).toLowerCase()==="true" || String(v)==="1" || String(v).toLowerCase()==="yes");
     }
   }
@@ -967,7 +967,7 @@ function _isEditable_(entity, colName){
 /* ===== 12. End ===== */
 
 
-/* ===== 13. label_resolver (entity_linkのみラベル匁E ===== */
+/* ===== 13. label_resolver (entity_link縺ｮ縺ｿ繝ｩ繝吶Ν蛹・ ===== */
 function _resolveEntityLinkLabel_(idValue){
   var ent = _idPrefixToEntity_(idValue);
   if(!ent) return null;
@@ -988,7 +988,7 @@ function _resolveEntityLinkLabel_(idValue){
   return null;
 }
 function _cellToViewToken_(colName, value){
-  // entity_linkの判定：値のprefixから推定、ED→ラベルはここだけ、E
+  // entity_link縺ｮ蛻､螳夲ｼ壼､縺ｮprefix縺九ｉ謗ｨ螳壹・D竊偵Λ繝吶Ν縺ｯ縺薙％縺縺代・
   var t = "text", label=null;
   if(typeof value==="string"){
     var pref = _idPrefixToEntity_(value);
@@ -1020,7 +1020,7 @@ function dp_getEntityRecord(entity, id){
     var rec = {};
     for(i=0;i<hdr.length;i++){
       var token = _cellToViewToken_(hdr[i], values[found][i]);
-      token.editable = _isEditable_(entity, hdr[i]); // 他ユーザー向け
+      token.editable = _isEditable_(entity, hdr[i]); // 莉悶Θ繝ｼ繧ｶ繝ｼ蜷代￠
       rec[hdr[i]] = token;
     }
     var labelVal = (labelCol>=0)? values[found][labelCol] : null;
@@ -1044,7 +1044,7 @@ function dp_getEntityRecord(entity, id){
 
 /* ===== 15. dp_updateEntityRecord (PATCH) ===== */
 function dp_updateEntityRecord(entity, id, patch){
-  // 差刁E�Eみ。シスチE��は全権だが、E��editable列に対してはwarningsを返す、E
+  // 蟾ｮ蛻・・縺ｿ縲ゅす繧ｹ繝・Β縺ｯ蜈ｨ讓ｩ縺縺後・撼editable蛻励↓蟇ｾ縺励※縺ｯwarnings繧定ｿ斐☆縲・
   try{
     if(!patch || typeof patch!=="object") throw new Error("patch must be an object");
 
@@ -1056,34 +1056,34 @@ function dp_updateEntityRecord(entity, id, patch){
     if(!map.idName) throw new Error("ID column not resolved for entity: "+entity);
     var idCol = _hdrIndex_(hdr, map.idName);
 
-    // 対象行探索
+    // 蟇ｾ雎｡陦梧爾邏｢
     var rIdx=-1, i;
     for(i=1;i<values.length;i++){
       if(String(values[i][idCol])===String(id)){ rIdx=i; break; }
     }
     if(rIdx<0) return { ok:false, error:"Record not found", entity:entity, id:id };
 
-    // 行�E褁E��
+    // 陦後・隍・｣ｽ
     var row = values[rIdx].slice();
     var warnings = [];
 
-    // PATCH適用
+    // PATCH驕ｩ逕ｨ
     for(var k in patch){
       if(!patch.hasOwnProperty(k)) continue;
       var colIdx = _hdrIndex_(hdr, k);
-      if(colIdx<0) continue; // 未知カラムは無要E
+      if(colIdx<0) continue; // 譛ｪ遏･繧ｫ繝ｩ繝縺ｯ辟｡隕・
 
-      // editable判定�E返却用に保持�E�シスチE��は書く！E
+      // editable蛻､螳壹・霑泌唆逕ｨ縺ｫ菫晄戟・医す繧ｹ繝・Β縺ｯ譖ｸ縺擾ｼ・
       if(!_isEditable_(entity, k)){
         warnings.push("non_editable: "+k);
       }
       row[colIdx] = patch[k];
     }
 
-    // 書込�E�一括�E�E
+    // 譖ｸ霎ｼ・井ｸ諡ｬ・・
     sh.getRange(rIdx+1, 1, 1, hdr.length).setValues([row]);
 
-    // 最新を返す
+    // 譛譁ｰ繧定ｿ斐☆
     var latest = dp_getEntityRecord(entity, id);
     latest.warnings = warnings;
     latest.ok = true;
@@ -1098,10 +1098,10 @@ function dp_updateEntityRecord(entity, id, patch){
 
 /* ===== 16. page.header ===== */
 /**
- * Pageタブ�E忁E��E列！Eage Name, Page Type, Entity, Shared�E�を安�Eに読み書きする専用API、E
- * - 既存UI/HTMLは変更不要、Eode.jsのみ差し込みで動作、E
- * - Sharedは "TRUE/true/1/yes/on/✁E ↁEtrue、それ以外�Efalse に正規化、E
- * - save-as用ユーチE��リチE��も提供（�E行�E値を引き継ぎつつ上書き可�E�、E
+ * Page繧ｿ繝悶・蠢・・蛻暦ｼ・age Name, Page Type, Entity, Shared・峨ｒ螳牙・縺ｫ隱ｭ縺ｿ譖ｸ縺阪☆繧句ｰら畑API縲・
+ * - 譌｢蟄篭I/HTML縺ｯ螟画峩荳崎ｦ√・ode.js縺ｮ縺ｿ蟾ｮ縺苓ｾｼ縺ｿ縺ｧ蜍穂ｽ懊・
+ * - Shared縺ｯ "TRUE/true/1/yes/on/笨・ 竊・true縲√◎繧御ｻ･螟問・false 縺ｫ豁｣隕丞喧縲・
+ * - save-as逕ｨ繝ｦ繝ｼ繝・ぅ繝ｪ繝・ぅ繧よ署萓幢ｼ亥・陦後・蛟､繧貞ｼ輔″邯吶℃縺､縺､荳頑嶌縺榊庄・峨・
  */
 /* ===== 16. End ===== */
 
@@ -1135,33 +1135,33 @@ function _pg_idxByName_(hdrNames, name){
   }
   return -1;
 }
-// 列名解決�E�FI優允EↁE人間ラベル ↁE同義キーをラベルへ寁E��て再探索
+// 蛻怜錐隗｣豎ｺ・哥I蜆ｪ蜈・竊・莠ｺ髢薙Λ繝吶Ν 竊・蜷檎ｾｩ繧ｭ繝ｼ繧偵Λ繝吶Ν縺ｸ蟇・○縺ｦ蜀肴爾邏｢
 function _pg_resolveCol_(hdrIds, hdrNames, key){
   if(!key) return -1;
-  // 1) すでに FI 持E��！Ei_XXXX�E�E
+  // 1) 縺吶〒縺ｫ FI 謖・ｮ夲ｼ・i_XXXX・・
   if(/^fi_\d{4,}$/i.test(key)){
     var idx=_pg_idxById_(hdrIds, key);
     if(idx>=0) return idx;
   }
-  // 2) そ�Eままラベル一致
+  // 2) 縺昴・縺ｾ縺ｾ繝ｩ繝吶Ν荳閾ｴ
   var idxN=_pg_idxByName_(hdrNames, key);
   if(idxN>=0) return idxN;
-  // 3) 同義語を正規ラベルに寁E��めE
+  // 3) 蜷檎ｾｩ隱槭ｒ豁｣隕上Λ繝吶Ν縺ｫ蟇・○繧・
   var k=String(key).trim().toLowerCase();
   if(k==="page_name"||k==="name"||k==="title") k="page name";
   else if(k==="page_type"||k==="type")          k="page type";
   else if(k==="is_shared"||k==="shared?")       k="shared";
   else if(k==="config_json"||k==="config")      k="config";
-  // 再探索�E�ラベル�E�E
+  // 蜀肴爾邏｢・医Λ繝吶Ν・・
   idxN=_pg_idxByName_(hdrNames, k);
   if(idxN>=0) return idxN;
-  // 4) 最後に FI としても試す（丁E��ラベルぁEfi_ に置かれてぁE��場合！E
+  // 4) 譛蠕後↓ FI 縺ｨ縺励※繧りｩｦ縺呻ｼ井ｸ・ｸ繝ｩ繝吶Ν縺・fi_ 縺ｫ鄂ｮ縺九ｌ縺ｦ縺・ｋ蝣ｴ蜷茨ｼ・
   return _pg_idxById_(hdrIds, k);
 }
-// Page ID 列�E特定！EI優先�Eラベル�E�E
+// Page ID 蛻励・迚ｹ螳夲ｼ・I蜆ｪ蜈遺・繝ｩ繝吶Ν・・
 function _pg_locateIdCol_(hdrIds, hdrNames){
   var c;
-  c=_pg_idxById_(hdrIds, "fi_0052"); if(c>=0) return c;          // Page ID 慣侁E
+  c=_pg_idxById_(hdrIds, "fi_0052"); if(c>=0) return c;          // Page ID 諷｣萓・
   c=_pg_idxByName_(hdrNames, "page id"); if(c>=0) return c;
   c=_pg_idxById_(hdrIds, "page_id"); if(c>=0) return c;
   c=_pg_idxById_(hdrIds, "id"); if(c>=0) return c;
@@ -1172,12 +1172,12 @@ function _pg_locateIdCol_(hdrIds, hdrNames){
 
 /* ===== 18. page.api ===== */
 /**
- * 読み込み�E�忁E��ならデバッグ用途で使用。UI差し替え不要、E
+ * 隱ｭ縺ｿ霎ｼ縺ｿ・壼ｿ・ｦ√↑繧峨ョ繝舌ャ繧ｰ逕ｨ騾斐〒菴ｿ逕ｨ縲６I蟾ｮ縺玲崛縺井ｸ崎ｦ√・
  */
 function dp_getPageRecord(id){
   try{
     var values=_pg_read2D_(); var hdr=values[0];
-    // ID列�E慣例！E"Page ID" / "page_id" / "id" を頁E��探索
+    // ID蛻励・諷｣萓具ｼ・"Page ID" / "page_id" / "id" 繧帝・↓謗｢邏｢
     var idName=null;
     var cands=["Page ID","page_id","id"];
     for(var i=0;i<cands.length&&!idName;i++){ if(_pg_hdrIdx_(hdr,cands[i])>=0) idName=cands[i]; }
@@ -1195,8 +1195,8 @@ function dp_getPageRecord(id){
 }
 
 /**
- * 書き込み�E�差刁EATCH�E�：CONFIGだけでなく、Page Name / Page Type / Entity / Shared も対象、E
- * 既存�E一般用保存ロジチE��から、entity==='page' の場合にこれを呼ぶだけで修復可能、E
+ * 譖ｸ縺崎ｾｼ縺ｿ・亥ｷｮ蛻・ATCH・会ｼ咾ONFIG縺縺代〒縺ｪ縺上￣age Name / Page Type / Entity / Shared 繧ょｯｾ雎｡縲・
+ * 譌｢蟄倥・荳闊ｬ逕ｨ菫晏ｭ倥Ο繧ｸ繝・け縺九ｉ縲‘ntity==='page' 縺ｮ蝣ｴ蜷医↓縺薙ｌ繧貞他縺ｶ縺縺代〒菫ｮ蠕ｩ蜿ｯ閭ｽ縲・
  */
 function dp_updatePageRecord(id, patch){
   try{
@@ -1204,7 +1204,7 @@ function dp_updatePageRecord(id, patch){
 
     var values=_pg_read2D_(); var hdr=values[0]; var sh=_pg_sh_();
 
-    // 列名解決
+    // 蛻怜錐隗｣豎ｺ
     var idName=null, idCands=["Page ID","page_id","id"];
     for(var i=0;i<idCands.length&&!idName;i++){ if(_pg_hdrIdx_(hdr,idCands[i])>=0) idName=idCands[i]; }
     if(!idName) throw new Error("Pages: ID column not resolved");
@@ -1212,26 +1212,26 @@ function dp_updatePageRecord(id, patch){
     var r=_pg_findById_(hdr, values, idName, id);
     if(r<0) return { ok:false, error:"Record not found", id:id };
 
-    var row=values[r].slice(); // コピ�E
-    // 正式�E吁E
+    var row=values[r].slice(); // 繧ｳ繝斐・
+    // 豁｣蠑丞・蜷・
     var COL_PAGE_NAME = "Page Name";
     var COL_PAGE_TYPE = "Page Type";
     var COL_ENTITY    = "Entity";
     var COL_SHARED    = "Shared";
 
-    // PATCH適用�E�任意�E�E�E Sharedの正規化
+    // PATCH驕ｩ逕ｨ・井ｻｻ諢丞・・・ Shared縺ｮ豁｣隕丞喧
     for(var k in patch){
       if(!patch.hasOwnProperty(k)) continue;
       var idx=_pg_hdrIdx_(hdr, k);
-      if(idx<0) continue; // 未知列�E無要E
+      if(idx<0) continue; // 譛ｪ遏･蛻励・辟｡隕・
       var v = (k===COL_SHARED)? _pg_normBool_(patch[k]) : patch[k];
       row[idx]=v;
     }
 
-    // 書込
+    // 譖ｸ霎ｼ
     sh.getRange(r+1, 1, 1, hdr.length).setValues([row]);
 
-    // 返却
+    // 霑泌唆
     var latest={};
     for(var c=0;c<hdr.length;c++){ latest[hdr[c]]=row[c]; }
     return { ok:true, id:id, fields:latest };
@@ -1241,8 +1241,8 @@ function dp_updatePageRecord(id, patch){
 }
 
 /**
- * save-as�E��Eペ�Eジを褁E��し、IDと上書きパチE��を適用。Sharedは允E�E値を継承�E�Eatchで上書き可�E�、E
- * 既存�Esave-asフローから置き換え可能。UI側にチェチE��ボックスが無ぁE��合も、ここで論理値を尊重、E
+ * save-as・壼・繝壹・繧ｸ繧定､・｣ｽ縺励！D縺ｨ荳頑嶌縺阪ヱ繝・メ繧帝←逕ｨ縲４hared縺ｯ蜈・・蛟､繧堤ｶ呎価・・atch縺ｧ荳頑嶌縺榊庄・峨・
+ * 譌｢蟄倥・save-as繝輔Ο繝ｼ縺九ｉ鄂ｮ縺肴鋤縺亥庄閭ｽ縲６I蛛ｴ縺ｫ繝√ぉ繝・け繝懊ャ繧ｯ繧ｹ縺檎┌縺・ｴ蜷医ｂ縲√％縺薙〒隲也炊蛟､繧貞ｰ企㍾縲・
  */
 function dp_saveAsPage(srcId, newId, patch){
   try{
@@ -1251,25 +1251,25 @@ function dp_saveAsPage(srcId, newId, patch){
 
     var values=_pg_read2D_(); var hdr=values[0]; var sh=_pg_sh_();
 
-    // 列名解決
+    // 蛻怜錐隗｣豎ｺ
     var idName=null, idCands=["Page ID","page_id","id"];
     for(var i=0;i<idCands.length&&!idName;i++){ if(_pg_hdrIdx_(hdr,idCands[i])>=0) idName=idCands[i]; }
     if(!idName) throw new Error("Pages: ID column not resolved");
 
-    // newIdが既存ならエラー
+    // newId縺梧里蟄倥↑繧峨お繝ｩ繝ｼ
     var exists=_pg_findById_(hdr, values, idName, newId);
     if(exists>=0) return { ok:false, error:"Already exists: "+newId };
 
-    // 新規行作�E�E��E行を継承
+    // 譁ｰ隕剰｡御ｽ懈・・壼・陦後ｒ邯呎価
     var srcIdx=_pg_findById_(hdr, values, idName, srcId);
     if(srcIdx<0) return { ok:false, error:"Source not found: "+srcId };
     var base=values[srcIdx].slice();
 
-    // ID差し替ぁE
+    // ID蟾ｮ縺玲崛縺・
     var idCol=_pg_hdrIdx_(hdr, idName);
     base[idCol]=newId;
 
-    // パッチE��用�E�Eharedは正規化�E�E
+    // 繝代ャ繝・←逕ｨ・・hared縺ｯ豁｣隕丞喧・・
     var COL_SHARED="Shared";
     if(patch && typeof patch==="object"){
       for(var k in patch){
@@ -1280,10 +1280,10 @@ function dp_saveAsPage(srcId, newId, patch){
       }
     }
 
-    // 追訁E
+    // 霑ｽ險・
     sh.appendRow(base);
 
-    // 返却
+    // 霑泌唆
     var rec={}; for(var c=0;c<hdr.length;c++){ rec[hdr[c]]=base[c]; }
     return { ok:true, id:newId, fields:rec };
   }catch(e){
@@ -1379,7 +1379,7 @@ function dp_updatePageRecord(id, patch){
     var all=_pg_readAll_(), sh=all.sh, hdrIds=all.hdrIds, hdrNames=all.hdrNames, rows=all.rows;
     var idCol=_pg_locateIdCol_(hdrIds, hdrNames);
 
-    // 対象行探索
+    // 蟇ｾ雎｡陦梧爾邏｢
     var r=-1;
     for(var i=0;i<rows.length;i++){
       if(String(rows[i][idCol])===String(id)){ r=i; break; }
@@ -1391,25 +1391,25 @@ function dp_updatePageRecord(id, patch){
 
     for(var k in patch){
       if(!patch.hasOwnProperty(k)) continue;
-      if(k==="__select") continue; // 制御フラグは除夁E
+      if(k==="__select") continue; // 蛻ｶ蠕｡繝輔Λ繧ｰ縺ｯ髯､螟・
       var colIdx=_pg_resolveCol_(hdrIds, hdrNames, k);
-      if(colIdx<0) continue; // 不�E列�E無要E
+      if(colIdx<0) continue; // 荳肴・蛻励・辟｡隕・
       var val=(String(hdrNames[colIdx]).trim().toLowerCase()==="shared")?_pg_normBool_(patch[k]):patch[k];
       row[colIdx]=val;
       wrote.push(hdrIds[colIdx] || hdrNames[colIdx] || k);
     }
 
     if(wrote.length){
-      // ヘッダ2行を跨ぁE��実セル位置に書き戻ぁE
-      sh.getRange(2+1+r, 1, 1, hdrIds.length).setValues([row]); // 0:ids,1:names, 行�E2+index
+      // 繝倥ャ繝2陦後ｒ霍ｨ縺・□螳溘そ繝ｫ菴咲ｽｮ縺ｫ譖ｸ縺肴綾縺・
+      sh.getRange(2+1+r, 1, 1, hdrIds.length).setValues([row]); // 0:ids,1:names, 陦後・2+index
     }
 
-    // 選択�E替�E�即時！E
+    // 驕ｸ謚槫・譖ｿ・亥叉譎ゑｼ・
     if(patch.__select===true){
       PropertiesService.getScriptProperties().setProperty("CURRENT_PAGE_VIEW_ID", String(id));
     }
 
-    // 最新返却
+    // 譛譁ｰ霑泌唆
     var latest={};
     for(var c=0;c<hdrIds.length;c++){ latest[hdrIds[c]||hdrNames[c]||("c"+c)] = row[c]; }
     return { ok:true, id:id, wrote:wrote, selected:(patch.__select===true), fields:latest };
@@ -1525,7 +1525,7 @@ function _pg_idxBy(a,key){ key=String(key).trim().toLowerCase(); for(var i=0;i<a
 function _pg_bool(v){ var s=String(v).trim().toLowerCase(); if (s && s.charCodeAt && s.charCodeAt(0) === 0x2713) return true; return s==='true'||s==='1'||s==='yes'||s==='on'||s==='y'||s==='ok'; }
 
 function _pg_findIdx(fi,names, fiKey, labelKey, altLabels){
-  // FI優先�Eラベル→同義誁E
+  // FI蜆ｪ蜈遺・繝ｩ繝吶Ν竊貞酔鄒ｩ隱・
   var idx = _pg_idxBy(fi, fiKey);
   if(idx>=0) return idx;
   idx = _pg_idxBy(names, labelKey);
@@ -1546,7 +1546,7 @@ function gsCreatePagePreset(params){
   var cfgIn = params.config; 
   var cfgStr=(typeof cfgIn==='string')? cfgIn : (cfgIn? JSON.stringify(cfgIn): '');
 
-  // 単発ロチE�� + 直前重褁E��止
+  // 蜊倡匱繝ｭ繝・け + 逶ｴ蜑埼㍾隍・亟豁｢
   var lock=LockService.getScriptLock();
   try{ lock.tryLock(3000); }catch(e){}
   var sp=PropertiesService.getScriptProperties();
@@ -1559,7 +1559,7 @@ function gsCreatePagePreset(params){
 
   var a=_pg_all_(), sh=a.sh, fi=a.fi, names=a.names, rows=a.rows;
 
-  // 忁E��E列�E「FIが無くてもラベルで可」、CONFIG/Shared は無くてもエラーにしなぁE
+  // 蠢・・蛻励・縲熊I縺檎┌縺上※繧ゅΛ繝吶Ν縺ｧ蜿ｯ縲阪，ONFIG/Shared 縺ｯ辟｡縺上※繧ゅお繝ｩ繝ｼ縺ｫ縺励↑縺・
   var cID=_pg_findIdx(fi,names,'fi_0052','page id',['id','page_id']);
   var cNM=_pg_findIdx(fi,names,'fi_0053','page name',['name','title']);
   var cTP=_pg_findIdx(fi,names,'fi_0054','page type',['type']);
@@ -1572,7 +1572,7 @@ function gsCreatePagePreset(params){
     return { ok:false, error:'Pages header missing (need Page ID / Page Name / Page Type / Entity)' };
   }
 
-  // newId 採番�E�既存�E pg_#### から最大+1�E�E
+  // newId 謗｡逡ｪ・域里蟄倥・ pg_#### 縺九ｉ譛螟ｧ+1・・
   var maxN=0;
   for(var i=0;i<rows.length;i++){
     var m=String(rows[i][cID]||'').match(/^pg_(\d{1,})$/i);
@@ -1580,13 +1580,13 @@ function gsCreatePagePreset(params){
   }
   var newId='pg_'+('0000'+(maxN+1)).slice(-4);
 
-  // 新規行�Eース
+  // 譁ｰ隕剰｡後・繝ｼ繧ｹ
   var outRow=new Array(fi.length).fill('');
   outRow[cID]=newId; outRow[cNM]=name; outRow[cTP]=ptype; outRow[cEN]=ent;
   if(cSH>=0) outRow[cSH]=shared?true:false;
   if(cCF>=0 && cfgStr) outRow[cCF]=cfgStr;
 
-  // 監査�E�ラベル列優先で自動検�E�E�E
+  // 逶｣譟ｻ・医Λ繝吶Ν蛻怜━蜈医〒閾ｪ蜍墓､懷・・・
   var createdByIdx=_pg_idxBy(names,'created by'); if(createdByIdx<0) createdByIdx=_pg_idxBy(names,'createdby');
   var createdAtIdx=_pg_idxBy(names,'created');    if(createdAtIdx<0) createdAtIdx=_pg_idxBy(names,'created at');
   try{
@@ -1611,7 +1611,7 @@ function gsCreatePagePreset(params){
 /* ===== 23. End ===== */
 
 
-/* ===== 24. labels.bulk_api (チE�Eブル用の一括ラベル解決) ===== */
+/* ===== 24. labels.bulk_api (繝・・繝悶Ν逕ｨ縺ｮ荳諡ｬ繝ｩ繝吶Ν隗｣豎ｺ) ===== */
 function dp_resolveLabelsBulk(ids){
   ids = Array.isArray(ids)? ids.filter(function(s){return !!s;}) : [];
   var out = {};
@@ -1633,7 +1633,7 @@ function dp_debugPing(){
 
 /** optional: page layout presets */
 function dp_listPageLayoutPresets(req){
-  // 実裁E��亁E��もエラーにしなぁE��定返却
+  // 螳溯｣・悴莠・〒繧ゅお繝ｩ繝ｼ縺ｫ縺励↑縺・ｮ牙ｮ夊ｿ泌唆
   return [];
 }
 
@@ -1659,7 +1659,7 @@ function dp_traceOriginals(req){
   function _isHttpUrl_(s){ return typeof s === "string" && /^https?:\/\//i.test(s); }
   function _safeCall_(name, arg){
     try{ 
-      var fn = Function('return ' + name + ';')();  // 動的参�E (GAS互換)
+      var fn = Function('return ' + name + ';')();  // 蜍慕噪蜿ら・ (GAS莠呈鋤)
       if (typeof fn === "function") { 
         var val = fn(arg); 
         step(name, val != null, { fn: name, url: _isHttpUrl_(val) ? val : null }); 
@@ -1726,7 +1726,7 @@ function loadAppData() {
     return;
   }
   
-  // GSS読取�Eみ�E�書き込みなし）でメタ確誁E
+  // GSS隱ｭ蜿悶・縺ｿ・域嶌縺崎ｾｼ縺ｿ縺ｪ縺暦ｼ峨〒繝｡繧ｿ遒ｺ隱・
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var metaSh = ss.getSheetByName('project_meta');
@@ -1745,7 +1745,7 @@ function loadAppData() {
 }
 
 /** Load FIELD_TYPES from Fields sheet (entity-specific, read-only) */
-function getFieldTypes(entity) {  // entityフィルタ追加で効玁E��
+function getFieldTypes(entity) {  // entity繝輔ぅ繝ｫ繧ｿ霑ｽ蜉縺ｧ蜉ｹ邇・喧
   try {
     var sh = SpreadsheetApp.getActive().getSheetByName('Fields');
     if (!sh || sh.getLastRow() < 2) return {};
@@ -1773,15 +1773,15 @@ function getFieldTypes(entity) {  // entityフィルタ追加で効玁E��
   }
 }
 
-/** Debug: Load app data (LINK_MAPS + FieldTypes) for panel verification - アプリ読み込みフローチE��ト！Eead-only�E�E*/
+/** Debug: Load app data (LINK_MAPS + FieldTypes) for panel verification - 繧｢繝励Μ隱ｭ縺ｿ霎ｼ縺ｿ繝輔Ο繝ｼ繝・せ繝茨ｼ・ead-only・・*/
 function dp_loadAppData() {
   try {
-    // アプリ関数シミュレート！Ev_getLinkMaps/getFieldTypes呼出、GSS読取�Eみ�E�E
+    // 繧｢繝励Μ髢｢謨ｰ繧ｷ繝溘Η繝ｬ繝ｼ繝茨ｼ・v_getLinkMaps/getFieldTypes蜻ｼ蜃ｺ縲；SS隱ｭ蜿悶・縺ｿ・・
     var linkMaps = typeof sv_getLinkMaps === 'function' ? sv_getLinkMaps() : { assets:{}, shots:{}, tasks:{}, users:{}, members:{} };
     var fieldTypes = getFieldTypes();
     var meta = typeof _sv_getMeta_ === 'function' ? _sv_getMeta_({}) : {};
     
-    // カウンチEキー抽出
+    // 繧ｫ繧ｦ繝ｳ繝・繧ｭ繝ｼ謚ｽ蜃ｺ
     var counts = { assets: Object.keys(linkMaps.assets || {}).length, shots: Object.keys(linkMaps.shots || {}).length, tasks: Object.keys(linkMaps.tasks || {}).length, users: Object.keys(linkMaps.users || {}).length, members: Object.keys(linkMaps.members || {}).length };
     var fieldKeys = Object.keys(fieldTypes).reduce(function(acc, ent){ return acc + Object.keys(fieldTypes[ent] || {}).length; }, 0);
     
@@ -1801,3 +1801,4 @@ function dp_loadAppData() {
 }
 
 /* ===== 26. End ===== */
+
