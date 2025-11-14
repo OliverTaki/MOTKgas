@@ -1,23 +1,23 @@
 /** =========================================
- *  Code.gs (ナンバリング整理版)
- *  - doGet に DebugPanel ページ追加
- *  - 他の処理は現状維持
+ *  Code.gs (ナンバリング整琁E��)
+ *  - doGet に DebugPanel ペ�Eジ追加
+ *  - 他�E処琁E�E現状維持E
  * =========================================*/
 
 /* ===== Section Index =====
- *  1. グローバルコンテキスト
+ *  1. グローバルコンチE��スチE
  *  2. include (HTML 部品読込)
  *  3. doGet Router
- *  4. Data 読み取り（DataHub 優先）
- *  5. 型推定/補正ユーティリティ
- *  6. フィルタ評価ユーティリティ
+ *  4. Data 読み取り�E�EataHub 優先！E
+ *  5. 型推宁E補正ユーチE��リチE��
+ *  6. フィルタ評価ユーチE��リチE��
  *  7. Sheet-backed row listing & fields
  *  8. FieldTypes-based Data API
  *  9. Entity Read/Write API (header)
  * 10. Entity utils
  * 11. entity_sheet_map
  * 12. fields_resolver
- * 13. label_resolver (entity_linkのみラベル化)
+ * 13. label_resolver (entity_linkのみラベル匁E
  * 14. dp_getEntityRecord
  * 15. dp_updateEntityRecord (PATCH)
  * 16. page.header
@@ -25,6 +25,7 @@
  * 18. page.api
  * 19. pages.header
  * 20. pages.utils
+// BUILD_TS: 2025-11-14T20:50:00+09:00
  * 21. dp_updatePageRecord (Pages, v2)
  * 22. pages.read_api
  * 23. pages.write_api
@@ -34,7 +35,7 @@
  * =========================*/
 
 
-/* ===== 1. グローバルコンテキスト ===== */
+/* ===== 1. グローバルコンチE��スチE===== */
 var __VIEW_CTX = { scriptUrl:'', page:'', entity:'', id:'', dataJson:'[]' };
 /* ===== 1. End ===== */
 
@@ -50,7 +51,7 @@ function include(filename) {
 
 /* ===== 3. doGet Router ===== */
 
-// ページ名 → テンプレート名
+// ペ�Eジ吁EↁEチE��プレート名
 var PAGE_TEMPLATE_MAP = {
   '':          'index',
   'shots':     'index',
@@ -60,10 +61,10 @@ var PAGE_TEMPLATE_MAP = {
   'users':     'index',
   'dashboard': 'index',
   'settings':  'index',
-  'debugpanel':'DebugPanelPage'  // DebugPanel 専用テンプレ
+  'debugpanel':'DebugPanelPage'  // DebugPanel 専用チE��プレ
 };
 
-// page / entity / id からテンプレート名を決定
+// page / entity / id からチE��プレート名を決宁E
 function _resolveTemplateName_(page, entity, id) {
   var p = String(page || '').toLowerCase();
 
@@ -75,17 +76,17 @@ function _resolveTemplateName_(page, entity, id) {
     return PAGE_TEMPLATE_MAP[p];
   }
 
-  // 想定外の page はすべて index にフォールバック
+  // 想定外�E page はすべて index にフォールバック
   return 'index';
 }
 
-// ルーター本体
+// ルーター本佁E
 function doGet(e) {
   var params = (e && e.parameter) || {};
   var action = String(params.action || '').toLowerCase();
 
-  // 3-0. 互換用 dataJson パラメータ（旧 doGet との互換）
-  // 旧コードが dataJson を参照していても ReferenceError にならないようにしておく
+  // 3-0. 互換用 dataJson パラメータ�E�旧 doGet との互換�E�E
+  // 旧コードが dataJson を参照してぁE��めEReferenceError にならなぁE��ぁE��しておく
   var dataJson = '[]';
   if (params.dataJson) {
     var rawParam = String(params.dataJson);
@@ -97,9 +98,9 @@ function doGet(e) {
     }
   }
 
-  // 3-1. 特殊エンドポイント（JSバンドル / ステータス）
+  // 3-1. 特殊エンド�Eイント！ESバンドル / スチE�Eタス�E�E
 
-  // index.html 等からの:
+  // index.html 等から�E:
   //   <script src="<?= scriptUrl ?>?action=app-bundle"></script>
   // に対して JS を返す
   if (action === 'app-bundle') {
@@ -114,7 +115,7 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
 
-  // 簡易ステータス（必要なければ無視してよい）
+  // 簡易スチE�Eタス�E�忁E��なければ無視してよい�E�E
   if (action === 'status') {
     var payload = {
       ok: true,
@@ -129,7 +130,7 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // 3-2. 通常の HTML ページ（index / DebugPanel など）
+  // 3-2. 通常の HTML ペ�Eジ�E�Endex / DebugPanel など�E�E
 
   var page   = params.page   || 'Shots';
   var entity = (params.entity || '').toLowerCase();
@@ -137,12 +138,12 @@ function doGet(e) {
 
   var templateName = _resolveTemplateName_(page, entity, id);
 
-  // テンプレート作成
+  // チE��プレート作�E
   var t;
   try {
     t = HtmlService.createTemplateFromFile(templateName);
   } catch (err) {
-    // テンプレート名解決失敗時の簡易エラー
+    // チE��プレート名解決失敗時の簡易エラー
     var msg = 'Template "' + String(templateName) + '" not found.\n\n' +
       (err && err.stack ? String(err.stack) : String(err));
 
@@ -163,7 +164,7 @@ function doGet(e) {
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
 
-  // テンプレートに渡すコンテキスト（ローカルのみ、グローバル関数は使わない）
+  // チE��プレートに渡すコンチE��スト（ローカルのみ、グローバル関数は使わなぁE��E
   var viewCtx = {
     page: page,
     entity: entity,
@@ -171,13 +172,13 @@ function doGet(e) {
     scriptUrl: ScriptApp.getService().getUrl()
   };
 
-  // 個別に直接渡す（既存テンプレ互換用）
+  // 個別に直接渡す（既存テンプレ互換用�E�E
   t.page      = viewCtx.page;
   t.entity    = viewCtx.entity;
   t.id        = viewCtx.id;
   t.scriptUrl = viewCtx.scriptUrl;
 
-  // 旧コード互換: dataJson をテンプレへ渡す
+  // 旧コード互換: dataJson をテンプレへ渡ぁE
   t.dataJson  = dataJson;
 
   // まとめて欲しい場合用
@@ -193,7 +194,7 @@ function doGet(e) {
 
 
 
-/* ===== 4. Data 読み取り（DataHub 優先） ===== */
+/* ===== 4. Data 読み取り�E�EataHub 優先！E===== */
 function _readFromDataHubOrSheet_(sheetName){
   var dh = SpreadsheetApp.getActive().getSheetByName('DataHub');
   if (dh) {
@@ -225,7 +226,7 @@ function _readFromDataHubOrSheet_(sheetName){
 /* ===== 4. End ===== */
 
 
-/* ===== 5. 型推定/補正ユーティリティ ===== */
+/* ===== 5. 型推宁E補正ユーチE��リチE�� ===== */
 function _inferTypes_(rows, ids){
   var types = new Array(ids.length).fill('text');
   var sample = Math.min(rows.length, 200);
@@ -271,7 +272,7 @@ function _sameDay_(a,b){
 /* ===== 5. End ===== */
 
 
-/* ===== 6. フィルタ評価ユーティリティ ===== */
+/* ===== 6. フィルタ評価ユーチE��リチE�� ===== */
 function _containsAny_(raw, valOrValues){
   var hay = String(raw==null?'':raw).toLowerCase();
   var arr = [];
@@ -387,7 +388,7 @@ function _normalizeEntityParams_(params) {
   var entLc = entRaw.toLowerCase();
   var entityKey = entLc || 'shot';
 
-  // entity → シート名マップ
+  // entity ↁEシート名マッチE
   var sheetNameMap = {
     shot:   'Shots',
     asset:  'Assets',
@@ -404,7 +405,7 @@ function _normalizeEntityParams_(params) {
   var limit           = limitFromParams || limitFromObj || 100;
   if (!limit || limit < 1) limit = 100;
 
-  // page → offset
+  // page ↁEoffset
   var pageFromParams = Number(params.page);
   var pageFromObj    = entObj && Number(entObj.page);
   var page           = pageFromParams || pageFromObj || 1;
@@ -441,14 +442,14 @@ function _findSheetByCandidates_(candidates) {
 }
 
 /**
- * 指定シートからヘッダ＋データ行を取得
- *  - ヘッダ行: 1行目
- *  - データ行: 2行目以降（完全空行はスキップ）
+ * 持E��シートから�EチE���E�データ行を取征E
+ *  - ヘッダ衁E 1行目
+ *  - チE�Eタ衁E 2行目以降（完�E空行�EスキチE�E�E�E
  */
 function _readEntitySheet_(sheetName) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  // シート候補: "Shots", "shots", "SHOTS", "Shot"
+  // シート候裁E "Shots", "shots", "SHOTS", "Shot"
   var base = String(sheetName || '').trim();
   var lc   = base.toLowerCase();
   var uc   = base.toUpperCase();
@@ -502,7 +503,7 @@ function _readEntitySheet_(sheetName) {
 }
 
 /**
- * listRowsPage のコア実装
+ * listRowsPage のコア実裁E
  * 戻り値: { columns: [...], rows: [...], meta: {...} }
  */
 function _listRowsPageCore_(params) {
@@ -549,7 +550,7 @@ function _listRowsPageCore_(params) {
 }
 
 /**
- * サーバ内部用（Contract Inspector など直接呼び出し） */
+ * サーバ�E部用�E�Eontract Inspector など直接呼び出し！E*/
 function listRowsPage(params) {
   if (typeof params === 'string') {
     params = { entity: params };
@@ -558,7 +559,7 @@ function listRowsPage(params) {
 }
 
 /**
- * RPC エンドポイント（UI からはこれが呼ばれる想定） */
+ * RPC エンド�Eイント！EI からはこれが呼ばれる想定！E*/
 function sv_listRowsPage(params) {
   if (typeof params === 'string') {
     params = { entity: params };
@@ -567,8 +568,8 @@ function sv_listRowsPage(params) {
 }
 
 /**
- * FIELDS シートから、指定 entity のフィールド行を配列で返す
- * 戻り値は「2行目以降の raw 行配列」
+ * FIELDS シートから、指宁Eentity のフィールド行を配�Eで返す
+ * 戻り値は、E行目以降�E raw 行�E列、E
  */
 function getFields(entity) {
   if (!entity) {
@@ -590,7 +591,7 @@ function getFields(entity) {
   var values = sh.getRange(1, 1, lastRow, lastCol).getValues();
   var header = values[0];
 
-  // "Entity" 列を探す
+  // "Entity" 列を探ぁE
   var entityCol = -1;
   for (var c = 0; c < header.length; c++) {
     if (String(header[c]).toLowerCase() === 'entity') {
@@ -598,7 +599,7 @@ function getFields(entity) {
       break;
     }
   }
-  // ヘッダが無い場合は暫定で列2を Entity とみなす
+  // ヘッダが無ぁE��合�E暫定で刁EめEEntity とみなぁE
   if (entityCol === -1) {
     entityCol = 1;
   }
@@ -618,7 +619,7 @@ function getFields(entity) {
 }
 
 /**
- * デバッグ用: ショット一覧をサーバ側ログで確認
+ * チE��チE��用: ショチE��一覧をサーバ�Eログで確誁E
  */
 function debug_listRowsPage_shot() {
   var res = listRowsPage('shot');
@@ -631,7 +632,7 @@ function debug_listRowsPage_shot() {
 }
 
 /**
- * デバッグ用: アセット一覧をサーバ側ログで確認
+ * チE��チE��用: アセチE��一覧をサーバ�Eログで確誁E
  */
 function debug_listRowsPage_asset() {
   var res = listRowsPage('asset');
@@ -648,27 +649,27 @@ function debug_listRowsPage_asset() {
 
 /* ===== 8. FieldTypes-based Data API (sv_listRowsPage / getFields / listFields) =====
  *
- * 目的:
- * - 既存の listRowsPage(params) をそのまま利用しつつ、
- *   Fields シート由来のメタ情報付き sv_listRowsPage(entity, options) を提供する
- * - DebugPanel Contract Inspector から呼ぶ getFields / listFields を提供する
+ * 目皁E
+ * - 既存�E listRowsPage(params) をそのまま利用しつつ、E
+ *   Fields シート由来のメタ惁E��付き sv_listRowsPage(entity, options) を提供すめE
+ * - DebugPanel Contract Inspector から呼ぶ getFields / listFields を提供すめE
  *
  * ポリシー:
- * - 行データの読み出し・フィルタ・ソート・ページングは既存 listRowsPage に一本化
- *   （ロジックの二重実装・重複ループを避ける）
- * - 列メタ情報は Fields シート（getFieldTypes）から引き、FI（field id）で結合
- *   （label/name では判別しない）
+ * - 行データの読み出し�Eフィルタ・ソート�Eペ�Eジングは既孁ElistRowsPage に一本匁E
+ *   �E�ロジチE��の二重実裁E�E重褁E��ープを避ける�E�E
+ * - 列メタ惁E��は Fields シート！EetFieldTypes�E�から引き、FI�E�Eield id�E�で結合
+ *   �E�Eabel/name では判別しなぁE��E
  */
 
 /**
- * サーバー側テーブル API (契約検査用)
+ * サーバ�E側チE�Eブル API (契紁E��査用)
  * - entity: 'shot' / 'asset' / 'task' / 'member' / 'user' / 'page'
  * - options: { limit, offset, sort, filter, filterMode, filterGroups, groupCombine, sheet? }
  *
  * 戻り値:
  * {
  *   columns: [ {id,fieldId,name,label,type,editable,required,index,meta}, ... ],
- *   row0:    [... 先頭行 ...] または null,
+ *   row0:    [... 先頭衁E...] また�E null,
  *   rows:    [[...], [...], ...],
  *   meta:    { total, sheet, offset, limit, entity }
  * }
@@ -679,7 +680,7 @@ function sv_listRowsPage(entity, options) {
     throw new Error('sv_listRowsPage: entity is required.');
   }
 
-  // 既存の listRowsPage をそのまま利用して、行データと ids/header を取得
+  // 既存�E listRowsPage をそのまま利用して、行データと ids/header を取征E
   var params = {
     entity: entity,
     sheet:  options.sheet || '',
@@ -706,7 +707,7 @@ function sv_listRowsPage(entity, options) {
     total = rows.length;
   }
 
-  // Fields シートからフィールド定義を取得（FI ベース）
+  // Fields シートからフィールド定義を取得！EI ベ�Eス�E�E
   var ftAll  = getFieldTypes(entity) || {}; // { [ent]: { [fid]: {label,type,editable,required} } }
   var entKey = String(entity || '').toLowerCase();
   var fieldDefs = ftAll[entKey] || {};
@@ -756,16 +757,16 @@ function sv_listRowsPage(entity, options) {
 
 /**
  * getFields(entity)
- * - DebugPanel Contract Inspector 用。
- * - entity が渡されたらその entity だけ、
- *   未指定なら全 entity の定義を返す。
- * - 判別は entity の文字列（"shot" 等）+ FI ベース。
+ * - DebugPanel Contract Inspector 用、E
+ * - entity が渡されたらそ�E entity だけ、E
+ *   未持E��なら�E entity の定義を返す、E
+ * - 判別は entity の斁E���E�E�Eshot" 等！E FI ベ�Eス、E
  */
 function getFields(entity) {
-  // getFieldTypes は entity を省略すると全エンティティを返す実装
+  // getFieldTypes は entity を省略すると全エンチE��チE��を返す実裁E
   var all = getFieldTypes(entity || null) || {};
 
-  // entity 未指定ならそのまま返す（Fields matrix 用）
+  // entity 未持E��ならそのまま返す�E�Eields matrix 用�E�E
   if (!entity) {
     return all;
   }
@@ -777,11 +778,11 @@ function getFields(entity) {
 
 /**
  * listFields()
- * - 全 entity のフィールド定義をまとめて取得。
- * - 返却形式: { shot:{fi_0001:{...},...}, asset:{...}, ... }
+ * - 全 entity のフィールド定義をまとめて取得、E
+ * - 返却形弁E { shot:{fi_0001:{...},...}, asset:{...}, ... }
  */
 function listFields() {
-  // getFieldTypes に entity を渡さない（または空）と、全 entity を返す実装になっている前提。
+  // getFieldTypes に entity を渡さなぁE��また�E空�E�と、�E entity を返す実裁E��なってぁE��前提、E
   return getFieldTypes(null) || {};
 }
 
@@ -790,12 +791,12 @@ function listFields() {
 
 /* ===== 9. Entity Read/Write API (header) ===== */
 /**
- * 目的:
- * - DETAIL_entity.html からのレコード読込/差分書込APIを提供
+ * 目皁E
+ * - DETAIL_entity.html からのレコード読込/差刁E��込APIを提侁E
  * 前提:
  * - ES5準拠
- * - システムは全権。ユーザーUIからの編集は Fields 側のeditable相当で判定
- * - ID→ラベル置換は entity_link のみ（返却は {v,id,label?,t} 形）
+ * - シスチE��は全権。ユーザーUIからの編雁E�E Fields 側のeditable相当で判宁E
+ * - ID→ラベル置換�E entity_link のみ�E�返却は {v,id,label?,t} 形�E�E
  */
 /* ===== 9. End ===== */
 
@@ -854,10 +855,10 @@ function _idPrefixToEntity_(idValue){
 
 /* ===== 12. fields_resolver ===== */
 /**
- * Fieldsシートから:
- *  - 各entityのID列・ラベル列（type=='id' | 'entity_name'）
- *  - editable相当
- * を推定。ヘッダ名はゆるく正規化して探索する。
+ * FieldsシートかめE
+ *  - 吁EntityのID列�Eラベル列！Eype=='id' | 'entity_name'�E�E
+ *  - editable相彁E
+ * を推定。�EチE��名�EめE��く正規化して探索する、E
  */
 function _readFields_(){
   var values = _read2D_("Fields"); // 例外時は既存運用に従いthrow
@@ -865,7 +866,7 @@ function _readFields_(){
   var rows = values.slice(1);
   var H = {};
   for(var i=0;i<hdr.length;i++){ H[_norm_(hdr[i])] = i; }
-  // 想定カラム候補
+  // 想定カラム候裁E
   var C = {
     entity: H.entity!=null?H.entity:(H.ent!=null?H.ent:null),
     type: H.type!=null?H.type:(H.kind!=null?H.kind:null),
@@ -897,7 +898,7 @@ function _idAndLabelCols_(entity, sheetHdr){
     if(t==="id" && fields[i].column_name){ idName = fields[i].column_name; }
     if((t==="entity_name"||t==="name") && fields[i].column_name){ labelName = fields[i].column_name; }
   }
-  // Fallback（安全側）
+  // Fallback�E�安�E側�E�E
   if(idName==null){
     var guess = ["id", e+"_id", e+"id", "code", "key"];
     for(var g=0;g<guess.length && idName==null; g++){
@@ -915,14 +916,14 @@ function _idAndLabelCols_(entity, sheetHdr){
   return { idName:idName, labelName:labelName };
 }
 function _isEditable_(entity, colName){
-  // 他ユーザー向けの編集可否。システムは無制限だが、フラグは返す。
+  // 他ユーザー向けの編雁E��否。シスチE��は無制限だが、フラグは返す、E
   var fields = _readFields_();
   var e = _norm_(entity), c = _norm_(colName);
   for(var i=0;i<fields.length;i++){
     if(_norm_(fields[i].entity)!==e) continue;
     if(_norm_(fields[i].column_name)===c){
       var v = fields[i].editable;
-      // truthy判定（TRUE/true/1/Yes）
+      // truthy判定！ERUE/true/1/Yes�E�E
       return (String(v).toLowerCase()==="true" || String(v)==="1" || String(v).toLowerCase()==="yes");
     }
   }
@@ -931,7 +932,7 @@ function _isEditable_(entity, colName){
 /* ===== 12. End ===== */
 
 
-/* ===== 13. label_resolver (entity_linkのみラベル化) ===== */
+/* ===== 13. label_resolver (entity_linkのみラベル匁E ===== */
 function _resolveEntityLinkLabel_(idValue){
   var ent = _idPrefixToEntity_(idValue);
   if(!ent) return null;
@@ -952,7 +953,7 @@ function _resolveEntityLinkLabel_(idValue){
   return null;
 }
 function _cellToViewToken_(colName, value){
-  // entity_linkの判定：値のprefixから推定。ID→ラベルはここだけ。
+  // entity_linkの判定：値のprefixから推定、ED→ラベルはここだけ、E
   var t = "text", label=null;
   if(typeof value==="string"){
     var pref = _idPrefixToEntity_(value);
@@ -1008,7 +1009,7 @@ function dp_getEntityRecord(entity, id){
 
 /* ===== 15. dp_updateEntityRecord (PATCH) ===== */
 function dp_updateEntityRecord(entity, id, patch){
-  // 差分のみ。システムは全権だが、非editable列に対してはwarningsを返す。
+  // 差刁E�Eみ。シスチE��は全権だが、E��editable列に対してはwarningsを返す、E
   try{
     if(!patch || typeof patch!=="object") throw new Error("patch must be an object");
 
@@ -1027,7 +1028,7 @@ function dp_updateEntityRecord(entity, id, patch){
     }
     if(rIdx<0) return { ok:false, error:"Record not found", entity:entity, id:id };
 
-    // 行の複製
+    // 行�E褁E��
     var row = values[rIdx].slice();
     var warnings = [];
 
@@ -1035,16 +1036,16 @@ function dp_updateEntityRecord(entity, id, patch){
     for(var k in patch){
       if(!patch.hasOwnProperty(k)) continue;
       var colIdx = _hdrIndex_(hdr, k);
-      if(colIdx<0) continue; // 未知カラムは無視
+      if(colIdx<0) continue; // 未知カラムは無要E
 
-      // editable判定は返却用に保持（システムは書く）
+      // editable判定�E返却用に保持�E�シスチE��は書く！E
       if(!_isEditable_(entity, k)){
         warnings.push("non_editable: "+k);
       }
       row[colIdx] = patch[k];
     }
 
-    // 書込（一括）
+    // 書込�E�一括�E�E
     sh.getRange(rIdx+1, 1, 1, hdr.length).setValues([row]);
 
     // 最新を返す
@@ -1062,10 +1063,10 @@ function dp_updateEntityRecord(entity, id, patch){
 
 /* ===== 16. page.header ===== */
 /**
- * Pageタブの必須4列（Page Name, Page Type, Entity, Shared）を安全に読み書きする専用API。
- * - 既存UI/HTMLは変更不要。Code.jsのみ差し込みで動作。
- * - Sharedは "TRUE/true/1/yes/on/✓" → true、それ以外→false に正規化。
- * - save-as用ユーティリティも提供（元行の値を引き継ぎつつ上書き可）。
+ * Pageタブ�E忁E��E列！Eage Name, Page Type, Entity, Shared�E�を安�Eに読み書きする専用API、E
+ * - 既存UI/HTMLは変更不要、Eode.jsのみ差し込みで動作、E
+ * - Sharedは "TRUE/true/1/yes/on/✁E ↁEtrue、それ以外�Efalse に正規化、E
+ * - save-as用ユーチE��リチE��も提供（�E行�E値を引き継ぎつつ上書き可�E�、E
  */
 /* ===== 16. End ===== */
 
@@ -1081,7 +1082,7 @@ function _pg_readAll_(){
 }
 function _pg_normBool_(v){
   var s=String(v).trim().toLowerCase();
-  return s==="true"||s==="1"||s==="yes"||s==="on"||s==="y"||s==="✓";
+  return s==="true"||s==="1"||s==="yes"||s==="on"||s==="y"||s==="✁E;
 }
 function _pg_idxById_(hdrIds, idOrFi){
   var key=String(idOrFi).trim().toLowerCase();
@@ -1097,33 +1098,33 @@ function _pg_idxByName_(hdrNames, name){
   }
   return -1;
 }
-// 列名解決：FI優先 → 人間ラベル → 同義キーをラベルへ寄せて再探索
+// 列名解決�E�FI優允EↁE人間ラベル ↁE同義キーをラベルへ寁E��て再探索
 function _pg_resolveCol_(hdrIds, hdrNames, key){
   if(!key) return -1;
-  // 1) すでに FI 指定（fi_XXXX）
+  // 1) すでに FI 持E��！Ei_XXXX�E�E
   if(/^fi_\d{4,}$/i.test(key)){
     var idx=_pg_idxById_(hdrIds, key);
     if(idx>=0) return idx;
   }
-  // 2) そのままラベル一致
+  // 2) そ�Eままラベル一致
   var idxN=_pg_idxByName_(hdrNames, key);
   if(idxN>=0) return idxN;
-  // 3) 同義語を正規ラベルに寄せる
+  // 3) 同義語を正規ラベルに寁E��めE
   var k=String(key).trim().toLowerCase();
   if(k==="page_name"||k==="name"||k==="title") k="page name";
   else if(k==="page_type"||k==="type")          k="page type";
   else if(k==="is_shared"||k==="shared?")       k="shared";
   else if(k==="config_json"||k==="config")      k="config";
-  // 再探索（ラベル）
+  // 再探索�E�ラベル�E�E
   idxN=_pg_idxByName_(hdrNames, k);
   if(idxN>=0) return idxN;
-  // 4) 最後に FI としても試す（万一ラベルが fi_ に置かれている場合）
+  // 4) 最後に FI としても試す（丁E��ラベルぁEfi_ に置かれてぁE��場合！E
   return _pg_idxById_(hdrIds, k);
 }
-// Page ID 列の特定（FI優先→ラベル）
+// Page ID 列�E特定！EI優先�Eラベル�E�E
 function _pg_locateIdCol_(hdrIds, hdrNames){
   var c;
-  c=_pg_idxById_(hdrIds, "fi_0052"); if(c>=0) return c;          // Page ID 慣例
+  c=_pg_idxById_(hdrIds, "fi_0052"); if(c>=0) return c;          // Page ID 慣侁E
   c=_pg_idxByName_(hdrNames, "page id"); if(c>=0) return c;
   c=_pg_idxById_(hdrIds, "page_id"); if(c>=0) return c;
   c=_pg_idxById_(hdrIds, "id"); if(c>=0) return c;
@@ -1134,12 +1135,12 @@ function _pg_locateIdCol_(hdrIds, hdrNames){
 
 /* ===== 18. page.api ===== */
 /**
- * 読み込み：必要ならデバッグ用途で使用。UI差し替え不要。
+ * 読み込み�E�忁E��ならデバッグ用途で使用。UI差し替え不要、E
  */
 function dp_getPageRecord(id){
   try{
     var values=_pg_read2D_(); var hdr=values[0];
-    // ID列は慣例： "Page ID" / "page_id" / "id" を順に探索
+    // ID列�E慣例！E"Page ID" / "page_id" / "id" を頁E��探索
     var idName=null;
     var cands=["Page ID","page_id","id"];
     for(var i=0;i<cands.length&&!idName;i++){ if(_pg_hdrIdx_(hdr,cands[i])>=0) idName=cands[i]; }
@@ -1157,8 +1158,8 @@ function dp_getPageRecord(id){
 }
 
 /**
- * 書き込み（差分PATCH）：CONFIGだけでなく、Page Name / Page Type / Entity / Shared も対象。
- * 既存の一般用保存ロジックから、entity==='page' の場合にこれを呼ぶだけで修復可能。
+ * 書き込み�E�差刁EATCH�E�：CONFIGだけでなく、Page Name / Page Type / Entity / Shared も対象、E
+ * 既存�E一般用保存ロジチE��から、entity==='page' の場合にこれを呼ぶだけで修復可能、E
  */
 function dp_updatePageRecord(id, patch){
   try{
@@ -1174,18 +1175,18 @@ function dp_updatePageRecord(id, patch){
     var r=_pg_findById_(hdr, values, idName, id);
     if(r<0) return { ok:false, error:"Record not found", id:id };
 
-    var row=values[r].slice(); // コピー
-    // 正式列名
+    var row=values[r].slice(); // コピ�E
+    // 正式�E吁E
     var COL_PAGE_NAME = "Page Name";
     var COL_PAGE_TYPE = "Page Type";
     var COL_ENTITY    = "Entity";
     var COL_SHARED    = "Shared";
 
-    // PATCH適用（任意列）+ Sharedの正規化
+    // PATCH適用�E�任意�E�E�E Sharedの正規化
     for(var k in patch){
       if(!patch.hasOwnProperty(k)) continue;
       var idx=_pg_hdrIdx_(hdr, k);
-      if(idx<0) continue; // 未知列は無視
+      if(idx<0) continue; // 未知列�E無要E
       var v = (k===COL_SHARED)? _pg_normBool_(patch[k]) : patch[k];
       row[idx]=v;
     }
@@ -1203,8 +1204,8 @@ function dp_updatePageRecord(id, patch){
 }
 
 /**
- * save-as：元ページを複製し、IDと上書きパッチを適用。Sharedは元の値を継承（patchで上書き可）。
- * 既存のsave-asフローから置き換え可能。UI側にチェックボックスが無い場合も、ここで論理値を尊重。
+ * save-as�E��Eペ�Eジを褁E��し、IDと上書きパチE��を適用。Sharedは允E�E値を継承�E�Eatchで上書き可�E�、E
+ * 既存�Esave-asフローから置き換え可能。UI側にチェチE��ボックスが無ぁE��合も、ここで論理値を尊重、E
  */
 function dp_saveAsPage(srcId, newId, patch){
   try{
@@ -1222,16 +1223,16 @@ function dp_saveAsPage(srcId, newId, patch){
     var exists=_pg_findById_(hdr, values, idName, newId);
     if(exists>=0) return { ok:false, error:"Already exists: "+newId };
 
-    // 新規行作成：元行を継承
+    // 新規行作�E�E��E行を継承
     var srcIdx=_pg_findById_(hdr, values, idName, srcId);
     if(srcIdx<0) return { ok:false, error:"Source not found: "+srcId };
     var base=values[srcIdx].slice();
 
-    // ID差し替え
+    // ID差し替ぁE
     var idCol=_pg_hdrIdx_(hdr, idName);
     base[idCol]=newId;
 
-    // パッチ適用（Sharedは正規化）
+    // パッチE��用�E�Eharedは正規化�E�E
     var COL_SHARED="Shared";
     if(patch && typeof patch==="object"){
       for(var k in patch){
@@ -1242,7 +1243,7 @@ function dp_saveAsPage(srcId, newId, patch){
       }
     }
 
-    // 追記
+    // 追訁E
     sh.appendRow(base);
 
     // 返却
@@ -1295,7 +1296,7 @@ function PG_findById(hdr, rows, idColName, idValue){
 }
 function PG_bool(v){
   var s = String(v).trim().toLowerCase();
-  return s==="true"||s==="1"||s==="yes"||s==="on"||s==="y"||s==="✓";
+  return s==="true"||s==="1"||s==="yes"||s==="on"||s==="y"||s==="✁E;
 }
 function PG_idColName(hdr){
   var cands = ["Page ID","page_id","id"];
@@ -1352,20 +1353,20 @@ function dp_updatePageRecord(id, patch){
 
     for(var k in patch){
       if(!patch.hasOwnProperty(k)) continue;
-      if(k==="__select") continue; // 制御フラグは除外
+      if(k==="__select") continue; // 制御フラグは除夁E
       var colIdx=_pg_resolveCol_(hdrIds, hdrNames, k);
-      if(colIdx<0) continue; // 不明列は無視
+      if(colIdx<0) continue; // 不�E列�E無要E
       var val=(String(hdrNames[colIdx]).trim().toLowerCase()==="shared")?_pg_normBool_(patch[k]):patch[k];
       row[colIdx]=val;
       wrote.push(hdrIds[colIdx] || hdrNames[colIdx] || k);
     }
 
     if(wrote.length){
-      // ヘッダ2行を跨いだ実セル位置に書き戻す
-      sh.getRange(2+1+r, 1, 1, hdrIds.length).setValues([row]); // 0:ids,1:names, 行は2+index
+      // ヘッダ2行を跨ぁE��実セル位置に書き戻ぁE
+      sh.getRange(2+1+r, 1, 1, hdrIds.length).setValues([row]); // 0:ids,1:names, 行�E2+index
     }
 
-    // 選択切替（即時）
+    // 選択�E替�E�即時！E
     if(patch.__select===true){
       PropertiesService.getScriptProperties().setProperty("CURRENT_PAGE_VIEW_ID", String(id));
     }
@@ -1399,7 +1400,7 @@ function PG_idColName(hdr){
   for (var i=0;i<cands.length;i++){ var idx=PG_hdrIdx(hdr,cands[i]); if(idx>=0) return hdr[idx]; }
   throw new Error("Pages: ID column not resolved");
 }
-function PG_bool(v){ var s=String(v).trim().toLowerCase(); return s==="true"||s==="1"||s==="yes"||s==="on"||s==="y"||s==="✓"; }
+function PG_bool(v){ var s=String(v).trim().toLowerCase(); return s==="true"||s==="1"||s==="yes"||s==="on"||s==="y"||s==="✁E; }
 
 function gsListPagePresets(params){
   params=params||{};
@@ -1479,10 +1480,10 @@ function _pg_all_(){
   return { sh:sh, fi:v[0], names:v[1], rows:v.slice(2) };
 }
 function _pg_idxBy(a,key){ key=String(key).trim().toLowerCase(); for(var i=0;i<a.length;i++){ if(String(a[i]).trim().toLowerCase()===key) return i; } return -1; }
-function _pg_bool(v){ var s=String(v).trim().toLowerCase(); return s==='true'||s==='1'||s==='yes'||s==='on'||s==='y'||s==='✓'; }
+function _pg_bool(v){ var s=String(v).trim().toLowerCase(); return s==='true'||s==='1'||s==='yes'||s==='on'||s==='y'||s==='✁E; }
 
 function _pg_findIdx(fi,names, fiKey, labelKey, altLabels){
-  // FI優先→ラベル→同義語
+  // FI優先�Eラベル→同義誁E
   var idx = _pg_idxBy(fi, fiKey);
   if(idx>=0) return idx;
   idx = _pg_idxBy(names, labelKey);
@@ -1503,7 +1504,7 @@ function gsCreatePagePreset(params){
   var cfgIn = params.config; 
   var cfgStr=(typeof cfgIn==='string')? cfgIn : (cfgIn? JSON.stringify(cfgIn): '');
 
-  // 単発ロック + 直前重複防止
+  // 単発ロチE�� + 直前重褁E��止
   var lock=LockService.getScriptLock();
   try{ lock.tryLock(3000); }catch(e){}
   var sp=PropertiesService.getScriptProperties();
@@ -1516,7 +1517,7 @@ function gsCreatePagePreset(params){
 
   var a=_pg_all_(), sh=a.sh, fi=a.fi, names=a.names, rows=a.rows;
 
-  // 必須4列は「FIが無くてもラベルで可」、CONFIG/Shared は無くてもエラーにしない
+  // 忁E��E列�E「FIが無くてもラベルで可」、CONFIG/Shared は無くてもエラーにしなぁE
   var cID=_pg_findIdx(fi,names,'fi_0052','page id',['id','page_id']);
   var cNM=_pg_findIdx(fi,names,'fi_0053','page name',['name','title']);
   var cTP=_pg_findIdx(fi,names,'fi_0054','page type',['type']);
@@ -1529,7 +1530,7 @@ function gsCreatePagePreset(params){
     return { ok:false, error:'Pages header missing (need Page ID / Page Name / Page Type / Entity)' };
   }
 
-  // newId 採番（既存の pg_#### から最大+1）
+  // newId 採番�E�既存�E pg_#### から最大+1�E�E
   var maxN=0;
   for(var i=0;i<rows.length;i++){
     var m=String(rows[i][cID]||'').match(/^pg_(\d{1,})$/i);
@@ -1537,13 +1538,13 @@ function gsCreatePagePreset(params){
   }
   var newId='pg_'+('0000'+(maxN+1)).slice(-4);
 
-  // 新規行ベース
+  // 新規行�Eース
   var outRow=new Array(fi.length).fill('');
   outRow[cID]=newId; outRow[cNM]=name; outRow[cTP]=ptype; outRow[cEN]=ent;
   if(cSH>=0) outRow[cSH]=shared?true:false;
   if(cCF>=0 && cfgStr) outRow[cCF]=cfgStr;
 
-  // 監査（ラベル列優先で自動検出）
+  // 監査�E�ラベル列優先で自動検�E�E�E
   var createdByIdx=_pg_idxBy(names,'created by'); if(createdByIdx<0) createdByIdx=_pg_idxBy(names,'createdby');
   var createdAtIdx=_pg_idxBy(names,'created');    if(createdAtIdx<0) createdAtIdx=_pg_idxBy(names,'created at');
   try{
@@ -1568,7 +1569,7 @@ function gsCreatePagePreset(params){
 /* ===== 23. End ===== */
 
 
-/* ===== 24. labels.bulk_api (テーブル用の一括ラベル解決) ===== */
+/* ===== 24. labels.bulk_api (チE�Eブル用の一括ラベル解決) ===== */
 function dp_resolveLabelsBulk(ids){
   ids = Array.isArray(ids)? ids.filter(function(s){return !!s;}) : [];
   var out = {};
@@ -1590,7 +1591,7 @@ function dp_debugPing(){
 
 /** optional: page layout presets */
 function dp_listPageLayoutPresets(req){
-  // 実装未了でもエラーにしない安定返却
+  // 実裁E��亁E��もエラーにしなぁE��定返却
   return [];
 }
 
@@ -1616,7 +1617,7 @@ function dp_traceOriginals(req){
   function _isHttpUrl_(s){ return typeof s === "string" && /^https?:\/\//i.test(s); }
   function _safeCall_(name, arg){
     try{ 
-      var fn = Function('return ' + name + ';')();  // 動的参照 (GAS互換)
+      var fn = Function('return ' + name + ';')();  // 動的参�E (GAS互換)
       if (typeof fn === "function") { 
         var val = fn(arg); 
         step(name, val != null, { fn: name, url: _isHttpUrl_(val) ? val : null }); 
@@ -1683,7 +1684,7 @@ function loadAppData() {
     return;
   }
   
-  // GSS読取のみ（書き込みなし）でメタ確認
+  // GSS読取�Eみ�E�書き込みなし）でメタ確誁E
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var metaSh = ss.getSheetByName('project_meta');
@@ -1702,7 +1703,7 @@ function loadAppData() {
 }
 
 /** Load FIELD_TYPES from Fields sheet (entity-specific, read-only) */
-function getFieldTypes(entity) {  // entityフィルタ追加で効率化
+function getFieldTypes(entity) {  // entityフィルタ追加で効玁E��
   try {
     var sh = SpreadsheetApp.getActive().getSheetByName('Fields');
     if (!sh || sh.getLastRow() < 2) return {};
@@ -1730,15 +1731,15 @@ function getFieldTypes(entity) {  // entityフィルタ追加で効率化
   }
 }
 
-/** Debug: Load app data (LINK_MAPS + FieldTypes) for panel verification - アプリ読み込みフローテスト（read-only） */
+/** Debug: Load app data (LINK_MAPS + FieldTypes) for panel verification - アプリ読み込みフローチE��ト！Eead-only�E�E*/
 function dp_loadAppData() {
   try {
-    // アプリ関数シミュレート（sv_getLinkMaps/getFieldTypes呼出、GSS読取のみ）
+    // アプリ関数シミュレート！Ev_getLinkMaps/getFieldTypes呼出、GSS読取�Eみ�E�E
     var linkMaps = typeof sv_getLinkMaps === 'function' ? sv_getLinkMaps() : { assets:{}, shots:{}, tasks:{}, users:{}, members:{} };
     var fieldTypes = getFieldTypes();
     var meta = typeof _sv_getMeta_ === 'function' ? _sv_getMeta_({}) : {};
     
-    // カウント/キー抽出
+    // カウンチEキー抽出
     var counts = { assets: Object.keys(linkMaps.assets || {}).length, shots: Object.keys(linkMaps.shots || {}).length, tasks: Object.keys(linkMaps.tasks || {}).length, users: Object.keys(linkMaps.users || {}).length, members: Object.keys(linkMaps.members || {}).length };
     var fieldKeys = Object.keys(fieldTypes).reduce(function(acc, ent){ return acc + Object.keys(fieldTypes[ent] || {}).length; }, 0);
     
