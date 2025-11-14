@@ -86,12 +86,14 @@ function doGet(e) {
 
   // 3-0. 互換用 dataJson パラメータ（旧 doGet との互換）
   // 旧コードが dataJson を参照していても ReferenceError にならないようにしておく
-  var dataJson = null;
+  var dataJson = '[]';
   if (params.dataJson) {
+    var rawParam = String(params.dataJson);
     try {
-      dataJson = JSON.parse(params.dataJson);
+      JSON.parse(rawParam);
+      dataJson = rawParam;
     } catch (err) {
-      dataJson = null;
+      dataJson = '[]';
     }
   }
 
