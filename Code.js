@@ -508,9 +508,10 @@ function _listRowsPageCore_(params) {
   var limit     = conf.limit;
   var offset    = conf.offset;
 
-  var data = _readEntitySheet_(sheetName);
-  var header = data.header;
-  var rows   = data.rows;
+  var data = _readFromDataHubOrSheet_(sheetName);
+  var ids    = data.ids    || [];
+  var header = data.header || [];
+  var rows   = data.rows   || [];
 
   var total = rows.length;
 
@@ -524,7 +525,8 @@ function _listRowsPageCore_(params) {
   var sliced = rows.slice(start, end);
 
   var result = {
-    columns: header,
+    ids:     ids,
+    header:  header,
     rows:    sliced,
     meta: {
       total:  total,
