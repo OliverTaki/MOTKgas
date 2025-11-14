@@ -709,16 +709,25 @@ function debug_listRowsPage_asset() {
  *   meta:    { total, sheet, offset, limit, entity }
  * }
  */
+
 function sv_listRowsPage(entity, options) {
+  if (entity && typeof entity === 'object' && (!options || typeof options !== 'object')) {
+    options = entity || {};
+    entity = options.entity || options.sheet || options.sheetName || options.entityPlural || '';
+  }
   options = options || {};
-  if (!entity) {
+
+  var entCandidate = entity || options.entity || options.sheet || options.sheetName || options.entityPlural;
+  var entString = String(entCandidate || '').trim();
+  if (!entString) {
     throw new Error('sv_listRowsPage: entity is required.');
   }
+  entity = entString;
 
-  // 譌｢蟄倥・ listRowsPage 繧偵◎縺ｮ縺ｾ縺ｾ蛻ｩ逕ｨ縺励※縲∬｡後ョ繝ｼ繧ｿ縺ｨ ids/header 繧貞叙蠕・
+  // ??? listRowsPage ??????????????? ids/header ???
   var params = {
-    entity: entity,
-    sheet:  options.sheet || '',
+    entity: entString,
+    sheet:  options.sheet || options.sheetName || entString,
 
     offset: options.offset,
     limit:  options.limit,
@@ -729,7 +738,6 @@ function sv_listRowsPage(entity, options) {
     filterGroups:  options.filterGroups,
     groupCombine:  options.groupCombine
   };
-
   var base  = _listRowsPageCore_(params) || {};
   var ids   = base.ids    || [];
   var names = base.header || base.labels || [];
