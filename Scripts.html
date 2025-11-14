@@ -9,6 +9,14 @@
     return (window.scriptUrl || window.SCRIPT_URL || (location.origin + location.pathname));
   }
   function normalizeEntity(ent){ return String(ent||'').trim().toLowerCase(); }
+  function pageToEntity(pid){
+    var p = String(pid || '').trim().toLowerCase();
+    if(p==='assets') return 'asset';
+    if(p==='tasks')  return 'task';
+    if(p==='users')  return 'user';
+    if(p==='members'||p==='projectmembers') return 'member';
+    return 'shot';
+  }
   function detailPageNameForEntity(ent){
     var key = normalizeEntity(ent);
     if(key==='asset'||key==='assets') return 'DetailAsset';
@@ -24,7 +32,11 @@
     var dataPage = body.dataset ? (body.dataset.navPage||'') : '';
     var statePage = (window.STATE && window.STATE.pageKey) ? window.STATE.pageKey : '';
     var target = pg || cur || statePage || dataPage || '';
-    if(target) u.searchParams.set('page', target);
+    if(target){
+      u.searchParams.set('page', target);
+      var ent = pageToEntity(target);
+      if(ent) u.searchParams.set('entity', ent);
+    }
     if(withTs){ u.searchParams.set('ts', Date.now().toString(36)); }
     return u.toString();
   }
@@ -71,6 +83,8 @@
     function navigateTo(pid){
       if(!pid) return;
       var usp=new URLSearchParams(location.search); usp.set('page',pid);
+      var ent = pageToEntity(pid);
+      if(ent) usp.set('entity', ent);
       history.pushState({page:pid},'',location.pathname+'?'+usp.toString());
       setActiveNav();
       var handled=false;
@@ -481,4 +495,3 @@ window.addEventListener("resize",function(){ if(isDetail()){ liftGrid(); } },{pa
 })();
 /* ===== 41. End ===== */
 </script>
-
