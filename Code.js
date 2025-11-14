@@ -1,3 +1,4 @@
+// BUILD_STAMP: 2025-11-14 23:55 JST
 /** =========================================
  *  Code.gs (ナンバリング整琁E��)
  *  - doGet に DebugPanel ペ�Eジ追加
@@ -25,7 +26,7 @@
  * 18. page.api
  * 19. pages.header
  * 20. pages.utils
-// BUILD_TS: 2025-11-14T20:50:00+09:00
+// BUILD_TS: 2025-11-14T23:55:00+09:00
  * 21. dp_updatePageRecord (Pages, v2)
  * 22. pages.read_api
  * 23. pages.write_api
