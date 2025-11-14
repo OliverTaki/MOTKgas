@@ -2384,6 +2384,55 @@
     onDom();
   }
 
+  function handleNavigate(ev){
+    try{
+      var detail = ev && ev.detail || {};
+      var pid = detail.page || '';
+      if(pid){
+        var usp = new URLSearchParams(location.search);
+        usp.set('page', pid);
+        history.replaceState({page:pid},'',location.pathname+'?'+usp.toString());
+      }
+      resolveEntityFromContext();
+      STATE.pageId = '';
+      STATE.filterGroups = [];
+      STATE.groupCombine = 'all';
+      Promise.resolve().then(function(){
+        return fetchPagesForEntity(STATE.sheetName);
+      }).then(function(){
+        STATE.pageId = pickInitialPageId();
+        try{
+          var usp2 = writeUrlState ? writeUrlState() : new URLSearchParams(location.search);
+          if(STATE.pageId) usp2.set('pid', STATE.pageId);
+          if(STATE.sheetName) usp2.set('entity', STATE.sheetName);
+          history.replaceState(null,'',location.pathname+'?'+usp2.toString());
+        }catch(_){}
+        var linksP = (typeof ensureLinkMaps==='function'
+          ? ensureLinkMaps()
+          : Promise.resolve(window.LINK_MAPS||{})).catch(function(){});
+        var cfgP = new Promise(function(res){
+          if(typeof loadPageConfigFromCacheThenNetwork!=='function'){
+            res(); return;
+          }
+          loadPageConfigFromCacheThenNetwork(STATE.pageId, function(){ res(); });
+        });
+        return Promise.all([linksP,cfgP]);
+      }).then(function(){
+        fetchPageOnlyFromCacheThenNetwork(1, function(){
+          window.dispatchEvent(new CustomEvent('motk:navigate:handled'));
+        });
+      }).catch(function(){
+        window.dispatchEvent(new CustomEvent('motk:navigate:handled'));
+        location.reload();
+      });
+    }catch(e){
+      window.dispatchEvent(new CustomEvent('motk:navigate:handled'));
+      location.reload();
+    }
+  }
+
+  window.addEventListener('motk:navigate', handleNavigate);
+
 })();
 </script>
 
