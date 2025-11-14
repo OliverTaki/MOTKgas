@@ -1404,7 +1404,11 @@ function PG_idColName(hdr){
   for (var i=0;i<cands.length;i++){ var idx=PG_hdrIdx(hdr,cands[i]); if(idx>=0) return hdr[idx]; }
   throw new Error("Pages: ID column not resolved");
 }
-function PG_bool(v){ var s=String(v).trim().toLowerCase(); return s==="true"||s==="1"||s==="yes"||s==="on"||s==="y"||s==="✁E; }
+function PG_bool(v){
+  var s = String(v).trim().toLowerCase();
+  if (s && s.charCodeAt && s.charCodeAt(0) === 0x2713) return true;
+  return s==="true"||s==="1"||s==="yes"||s==="on"||s==="y"||s==="ok";
+}
 
 function gsListPagePresets(params){
   params=params||{};
