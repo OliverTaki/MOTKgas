@@ -1083,8 +1083,10 @@ function _pg_readAll_(){
 }
 function _pg_normBool_(v){
   var s=String(v).trim().toLowerCase();
-  return s==="true"||s==="1"||s==="yes"||s==="on"||s==="y"||s==="✁E;
+  if (s && s.charCodeAt && s.charCodeAt(0) === 0x2713) return true;
+  return s==="true"||s==="1"||s==="yes"||s==="on"||s==="y"||s==="ok";
 }
+
 function _pg_idxById_(hdrIds, idOrFi){
   var key=String(idOrFi).trim().toLowerCase();
   for(var i=0;i<hdrIds.length;i++){
