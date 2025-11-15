@@ -267,41 +267,63 @@
       navigator.clipboard.writeText(text).then(() => log('copyAll: length ' + text.length));
     }
 
+    var VIEWER_STATE_STORAGE_KEY='motk:viewerStateSnapshot';
+
+    function readViewerSnapshotFromStorage(){
+      try{
+        if(!window || !window.localStorage) return null;
+        var raw=localStorage.getItem(VIEWER_STATE_STORAGE_KEY);
+        if(!raw) return null;
+        var snap=JSON.parse(raw);
+        if(!snap || !snap.updatedAt) return null;
+        snap.source='storage';
+        return snap;
+      }catch(_){
+        return null;
+      }
+    }
+
     function captureViewerState() {
       try {
-        if (!window.opener) {
-          updateElement('viewer-state-status', '<span class="error">window.opener not available</span>');
-          const box = document.getElementById('viewer-state-json');
-          if (box) box.textContent = '{}';
+        var snapshot=null;
+        if(window.opener && window.opener.STATE){
+          var viewWin=window.opener;
+          var st=viewWin.STATE;
+          if(st){
+            var params=null;
+            try{ params=new URLSearchParams(viewWin.location.search); }catch(_){}
+            snapshot={
+              capturedAt:new Date().toISOString(),
+              origin:(viewWin.location&&viewWin.location.href)||'',
+              sheetName:st.sheetName||'',
+              pageId:st.pageId||'',
+              page:st.page||1,
+              perPage:st.perPage||'',
+              rowsLength:Array.isArray(st.rows)?st.rows.length:0,
+              total:st.total,
+              dataSource:st.dataSource||'',
+              entityParam:params?(params.get('entity')||''):'',
+              pageParam:params?(params.get('page')||''):'',
+              pidParam:params?(params.get('pid')||''):'',
+              source:'window.opener'
+            };
+          }
+        }
+        if(!snapshot){
+          snapshot=readViewerSnapshotFromStorage();
+        }
+        if(!snapshot){
+          updateElement('viewer-state-status', '<span class="error">viewer state unavailable</span>');
+          const boxEmpty=document.getElementById('viewer-state-json');
+          if(boxEmpty) boxEmpty.textContent='{}';
           return;
         }
-        var viewWin = window.opener;
-        var st = viewWin.STATE;
-        if (!st) {
-          updateElement('viewer-state-status', '<span class="error">window.opener.STATE not found</span>');
-          const box = document.getElementById('viewer-state-json');
-          if (box) box.textContent = '{}';
-          return;
-        }
-        var params = null;
-        try { params = new URLSearchParams(viewWin.location.search); } catch (_){}
-        var snapshot = {
-          capturedAt: new Date().toISOString(),
-          origin: (viewWin.location && viewWin.location.href) || '',
-          sheetName: st.sheetName || '',
-          pageId: st.pageId || '',
-          page: st.page || 1,
-          perPage: st.perPage || '',
-          rowsLength: Array.isArray(st.rows) ? st.rows.length : 0,
-          total: st.total,
-          dataSource: st.dataSource || '',
-          entityParam: params ? (params.get('entity') || '') : '',
-          pageParam: params ? (params.get('page') || '') : '',
-          pidParam: params ? (params.get('pid') || '') : ''
-        };
         updateElement('viewer-state-status',
+          (snapshot.source==='storage'?'(stored) ':'') +
           'sheet=' + (snapshot.sheetName || '(blank)') +
-          ' rows=' + snapshot.rowsLength + ' total=' + snapshot.total);
+          ' rows=' + (snapshot.rowsLength != null ? snapshot.rowsLength : '') +
+          ' total=' + (snapshot.total != null ? snapshot.total : '')
+        );
         var box = document.getElementById('viewer-state-json');
         if (box) box.textContent = JSON.stringify(snapshot, null, 2);
       } catch (err) {

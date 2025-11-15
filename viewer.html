@@ -300,6 +300,38 @@
     return e || 'shot';
   }
 
+  var VIEWER_STATE_STORAGE_KEY='motk:viewerStateSnapshot';
+
+  function persistViewerStateSnapshot(extra){
+    try{
+      if(!window || !window.localStorage) return;
+      var rowsLen=Array.isArray(STATE&&STATE.rows)?STATE.rows.length:0;
+      var snap={
+        updatedAt: Date.now(),
+        sheetName: (STATE&&STATE.sheetName)||'',
+        pageId: (STATE&&STATE.pageId)||'',
+        page: Number(STATE&&STATE.page)||1,
+        perPage: (STATE&&STATE.perPage)||'',
+        total: Number(STATE&&STATE.total)||0,
+        rowsLength: rowsLen,
+        dataSource: (STATE&&STATE.dataSource)||'',
+        origin: (location&&location.href)||'',
+        entityParam: (function(){ try{ return new URLSearchParams(location.search).get('entity')||''; }catch(_){ return ''; } })()
+      };
+      if(Array.isArray(STATE&&STATE.rows)){
+        try{
+          snap.sampleIds=STATE.rows.slice(0,5).map(function(r){ return r&&r[0]; });
+        }catch(_){}
+      }
+      if(extra&&typeof extra==='object'){
+        Object.keys(extra).forEach(function(k){
+          snap[k]=extra[k];
+        });
+      }
+      localStorage.setItem(VIEWER_STATE_STORAGE_KEY, JSON.stringify(snap));
+    }catch(_){}
+  }
+
   function setFinalStatus(){
     var el=document.getElementById('statusLeft'); if(!el) return;
     var src=(STATE&&STATE.dataSource)?(' · '+STATE.dataSource):' · DataHub';
@@ -334,11 +366,17 @@
     if(end<start&&total>0) end=start;
     var hasWindow=(total>0&&start>0&&end>=start);
 
-    el.textContent=(
+    var summaryText=(
       hasWindow
         ? (start+'–'+end+' of '+total+' '+entPlural)
         : ('0 of 0 '+entPlural)
     )+src;
+    el.textContent=summaryText;
+    persistViewerStateSnapshot({
+      statusText: summaryText,
+      rowsStart: hasWindow?start:0,
+      rowsEnd: hasWindow?end:0
+    });
   }
 
   /* ===== 6. ページング定数・ローカルストレージ ===== */
