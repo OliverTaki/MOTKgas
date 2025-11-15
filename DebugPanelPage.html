@@ -20,6 +20,12 @@
 </head>
 <body>
   <h1>Debug Panel</h1>
+
+  <div id="console" class="card">
+    <h3>Console (live)</h3>
+    <pre id="console-log"></pre>
+  </div>
+
   <button class="btn" onclick="runAllChecks()">Run all checks</button>
   <button class="btn" onclick="copyPageText()">Copy page text</button>
 
@@ -33,10 +39,7 @@
 
   <div id="viewer-state" class="card">
     <h3>Viewer State (window.opener)</h3>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px">
-      <button class="btn" onclick="captureViewerState()">Refresh viewer state</button>
-      <span id="viewer-state-status" class="muted">waiting…</span>
-    </div>
+    <div id="viewer-state-status" class="muted">capturing…</div>
     <pre id="viewer-state-json">{}</pre>
   </div>
 
@@ -93,11 +96,6 @@
     <div id="sample-diff">Sample diff（first 3）: <span class="loading">Loading...</span></div>
     <div id="dry-run-task">Dry-run TASK link: <span class="loading">Loading...</span></div>
     <div>This card never mutates DOM.</div>
-  </div>
-
-  <div id="console" class="card">
-    <h3>Console (live)</h3>
-    <pre id="console-log"></pre>
   </div>
 
   <div id="raw-snapshot" class="card">
@@ -285,6 +283,7 @@
     log('DebugPanel: init');
     runAllChecks();
     captureViewerState();
+    setInterval(captureViewerState, 10000);
   </script>
 
 <!-- ===== 70.contract-inspector ===== -->
