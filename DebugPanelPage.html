@@ -31,6 +31,15 @@
     <div id="url-params">URL Params: <span class="loading">Loading...</span></div>
   </div>
 
+  <div id="viewer-state" class="card">
+    <h3>Viewer State (window.opener)</h3>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px">
+      <button class="btn" onclick="captureViewerState()">Refresh viewer state</button>
+      <span id="viewer-state-status" class="muted">waiting…</span>
+    </div>
+    <pre id="viewer-state-json">{}</pre>
+  </div>
+
   <div id="data-maps" class="card">
     <h3>Data maps / Page</h3>
     <div id="field-types">FIELD_TYPES: <span class="loading">Loading...</span></div>
@@ -230,9 +239,52 @@
       navigator.clipboard.writeText(text).then(() => log('copyAll: length ' + text.length));
     }
 
+    function captureViewerState() {
+      try {
+        if (!window.opener) {
+          updateElement('viewer-state-status', '<span class="error">window.opener not available</span>');
+          const box = document.getElementById('viewer-state-json');
+          if (box) box.textContent = '{}';
+          return;
+        }
+        var viewWin = window.opener;
+        var st = viewWin.STATE;
+        if (!st) {
+          updateElement('viewer-state-status', '<span class="error">window.opener.STATE not found</span>');
+          const box = document.getElementById('viewer-state-json');
+          if (box) box.textContent = '{}';
+          return;
+        }
+        var params = null;
+        try { params = new URLSearchParams(viewWin.location.search); } catch (_){}
+        var snapshot = {
+          capturedAt: new Date().toISOString(),
+          origin: (viewWin.location && viewWin.location.href) || '',
+          sheetName: st.sheetName || '',
+          pageId: st.pageId || '',
+          page: st.page || 1,
+          perPage: st.perPage || '',
+          rowsLength: Array.isArray(st.rows) ? st.rows.length : 0,
+          total: st.total,
+          dataSource: st.dataSource || '',
+          entityParam: params ? (params.get('entity') || '') : '',
+          pageParam: params ? (params.get('page') || '') : '',
+          pidParam: params ? (params.get('pid') || '') : ''
+        };
+        updateElement('viewer-state-status',
+          'sheet=' + (snapshot.sheetName || '(blank)') +
+          ' rows=' + snapshot.rowsLength + ' total=' + snapshot.total);
+        var box = document.getElementById('viewer-state-json');
+        if (box) box.textContent = JSON.stringify(snapshot, null, 2);
+      } catch (err) {
+        updateElement('viewer-state-status', '<span class="error">' + err.message + '</span>');
+      }
+    }
+
     // Init
     log('DebugPanel: init');
     runAllChecks();
+    captureViewerState();
   </script>
 
 <!-- ===== 70.contract-inspector ===== -->
