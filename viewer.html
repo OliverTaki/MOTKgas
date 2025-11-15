@@ -137,23 +137,7 @@
     try{ window.scriptUrl = location.pathname; }catch(_){}
   }
 
-  if(typeof window.enableSpaNav!=='function'){
-    window.enableSpaNav=function enableSpaNav(){
-      document.addEventListener('click', function(ev){
-        var a = ev.target && ev.target.closest && ev.target.closest('a[href]');
-        if(!a) return;
-        if(ev.metaKey || ev.ctrlKey || ev.shiftKey || a.target==='_blank') return;
-        var href = a.getAttribute('href')||'';
-        if(!href || href[0]==='#') return;
-        var url; try{ url = new URL(href, location.href); }catch(_){ return; }
-        if(url.origin !== location.origin) return;
-        if(url.searchParams.has('entity') || url.searchParams.has('id') || url.searchParams.has('pid')){
-          ev.preventDefault();
-          location.href = url.href;
-        }
-      }, true);
-    };
-  }
+  // viewer relies on Scripts.html version of enableSpaNav
 
   /* ===== 2. レイアウトオフセット（adjustNavOffset） ===== */
 
