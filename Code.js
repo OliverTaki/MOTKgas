@@ -244,7 +244,9 @@ function _readFromDataHubOrSheet_(sheetName){
         var rows    = colVals.slice(3)
                         .map(function(v){ return v?String(v).split('|'):[]; })
                         .filter(function(a){ return a.length && String(a[0]||'')!==''; });
-        return { ids:ids, header:names, rows:rows };
+        if (rows.length > 0) {
+          return { ids:ids, header:names, rows:rows };
+        }
       }
     }
   }
