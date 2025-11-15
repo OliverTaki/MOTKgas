@@ -1720,6 +1720,105 @@ function dp_traceOriginals(req){
   out.found    = !!out.finalUrl;
   return out;
 }
+
+var VIEWER_STATE_PROP_PREFIX='MOTK_VIEWER_STATE_V1';
+
+function dp_storeViewerState(snapshot){
+  try{
+    var snap=_sanitizeViewerSnapshot(snapshot||{});
+    var payload={
+      snapshot:snap,
+      storedAt:Date.now(),
+      user:_currentUserEmail()||'unknown'
+    };
+    _persistViewerStatePayload(payload);
+    return { ok:true, storedAt:payload.storedAt };
+  }catch(e){
+    return { ok:false, error:e && e.message ? e.message : String(e) };
+  }
+}
+
+function dp_fetchViewerState(){
+  try{
+    var payload=_loadViewerStatePayload();
+    if(payload && payload.snapshot){
+      return {
+        ok:true,
+        found:true,
+        storedAt:payload.storedAt||null,
+        user:payload.user||'',
+        snapshot:payload.snapshot
+      };
+    }
+    return { ok:true, found:false };
+  }catch(e){
+    return { ok:false, error:e && e.message ? e.message : String(e) };
+  }
+}
+
+function _currentUserEmail(){
+  var email='';
+  try{
+    var act=Session.getActiveUser();
+    if(act && typeof act.getEmail==='function') email=act.getEmail()||'';
+  }catch(_){}
+  if(!email){
+    try{
+      var eff=Session.getEffectiveUser();
+      if(eff && typeof eff.getEmail==='function') email=eff.getEmail()||'';
+    }catch(_){}
+  }
+  return email||'';
+}
+
+function _viewerStateStorageKey(){
+  return VIEWER_STATE_PROP_PREFIX+'::'+(_currentUserEmail()||'anonymous');
+}
+
+function _persistViewerStatePayload(payload){
+  var key=_viewerStateStorageKey();
+  var serialized='';
+  try{ serialized=JSON.stringify(payload||{}); }catch(_){ serialized=''; }
+  if(!serialized) return;
+  try{
+    CacheService.getUserCache().put(key, serialized, 60*60);
+  }catch(_){}
+  try{
+    PropertiesService.getUserProperties().setProperty(key, serialized);
+  }catch(_){}
+}
+
+function _loadViewerStatePayload(){
+  var key=_viewerStateStorageKey();
+  var raw=null;
+  try{
+    raw=CacheService.getUserCache().get(key);
+  }catch(_){}
+  if(!raw){
+    try{
+      raw=PropertiesService.getUserProperties().getProperty(key);
+    }catch(_){}
+  }
+  if(!raw) return null;
+  try{
+    var parsed=JSON.parse(raw);
+    if(parsed && typeof parsed==='object') return parsed;
+  }catch(_){}
+  return null;
+}
+
+function _sanitizeViewerSnapshot(snapshot){
+  var allowed=['sheetName','pageId','page','perPage','rowsLength','total','dataSource','origin','entityParam','pageParam','pidParam','statusText','rowsStart','rowsEnd','sampleIds'];
+  var out={};
+  for(var i=0;i<allowed.length;i++){
+    var key=allowed[i];
+    if(snapshot.hasOwnProperty(key)){
+      out[key]=snapshot[key];
+    }
+  }
+  out.capturedAt=snapshot.capturedAt||new Date().toISOString();
+  return out;
+}
 /* ===== 25. End ===== */
 
 

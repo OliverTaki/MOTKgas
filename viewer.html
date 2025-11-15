@@ -301,6 +301,15 @@
   }
 
   var VIEWER_STATE_STORAGE_KEY='motk:viewerStateSnapshot';
+  var _viewerStateUploadHash='';
+
+  function uploadViewerSnapshotToServer(snapshot){
+    try{
+      if(!window || !window.google || !google.script || !google.script.run) return;
+      if(typeof google.script.run.withFailureHandler!=='function') return;
+      google.script.run.withFailureHandler(function(){}).dp_storeViewerState(snapshot);
+    }catch(_){}
+  }
 
   function persistViewerStateSnapshot(extra){
     try{
@@ -329,6 +338,13 @@
         });
       }
       localStorage.setItem(VIEWER_STATE_STORAGE_KEY, JSON.stringify(snap));
+      try{
+        var serialized=JSON.stringify(snap);
+        if(serialized && serialized!==_viewerStateUploadHash){
+          _viewerStateUploadHash=serialized;
+          uploadViewerSnapshotToServer(snap);
+        }
+      }catch(_){}
     }catch(_){}
   }
 

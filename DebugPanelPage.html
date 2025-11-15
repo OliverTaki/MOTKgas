@@ -268,6 +268,7 @@
     }
 
     var VIEWER_STATE_STORAGE_KEY='motk:viewerStateSnapshot';
+    var viewerStateServerFetchInFlight=false;
 
     function readViewerSnapshotFromStorage(){
       try{
@@ -281,6 +282,54 @@
       }catch(_){
         return null;
       }
+    }
+
+    function renderViewerSnapshot(snapshot){
+      if(!snapshot) return;
+      var labelPrefix=(snapshot.source==='storage')?'(stored) ':
+        (snapshot.source==='server')?'(server) ':
+        (snapshot.source==='window.opener')?'':'';
+      updateElement('viewer-state-status',
+        labelPrefix +
+        'sheet=' + (snapshot.sheetName || '(blank)') +
+        ' rows=' + (snapshot.rowsLength != null ? snapshot.rowsLength : '') +
+        ' total=' + (snapshot.total != null ? snapshot.total : '')
+      );
+      var box=document.getElementById('viewer-state-json');
+      if(box){
+        box.textContent=JSON.stringify(snapshot, null, 2);
+      }
+    }
+
+    function fetchViewerStateFromServer(){
+      if(viewerStateServerFetchInFlight) return;
+      if(!window.google || !google.script || !google.script.run){
+        updateElement('viewer-state-status', '<span class="error">viewer state unavailable</span>');
+        return;
+      }
+      viewerStateServerFetchInFlight=true;
+      updateElement('viewer-state-status','fetching stored viewer state…');
+      google.script.run
+        .withSuccessHandler(function(res){
+          viewerStateServerFetchInFlight=false;
+          if(res && res.found && res.snapshot){
+            var snap=res.snapshot;
+            snap.source='server';
+            snap.storedAt=res.storedAt||snap.storedAt||null;
+            renderViewerSnapshot(snap);
+            return;
+          }
+          updateElement('viewer-state-status','<span class="error">viewer state unavailable</span>');
+          var box=document.getElementById('viewer-state-json');
+          if(box) box.textContent='{}';
+        })
+        .withFailureHandler(function(err){
+          viewerStateServerFetchInFlight=false;
+          updateElement('viewer-state-status','<span class="error">'+(err && err.message ? err.message : 'viewer state unavailable')+'</span>');
+          var box=document.getElementById('viewer-state-json');
+          if(box) box.textContent='{}';
+        })
+        .dp_fetchViewerState();
     }
 
     function captureViewerState() {
@@ -312,20 +361,11 @@
         if(!snapshot){
           snapshot=readViewerSnapshotFromStorage();
         }
-        if(!snapshot){
-          updateElement('viewer-state-status', '<span class="error">viewer state unavailable</span>');
-          const boxEmpty=document.getElementById('viewer-state-json');
-          if(boxEmpty) boxEmpty.textContent='{}';
+        if(snapshot){
+          renderViewerSnapshot(snapshot);
           return;
         }
-        updateElement('viewer-state-status',
-          (snapshot.source==='storage'?'(stored) ':'') +
-          'sheet=' + (snapshot.sheetName || '(blank)') +
-          ' rows=' + (snapshot.rowsLength != null ? snapshot.rowsLength : '') +
-          ' total=' + (snapshot.total != null ? snapshot.total : '')
-        );
-        var box = document.getElementById('viewer-state-json');
-        if (box) box.textContent = JSON.stringify(snapshot, null, 2);
+        fetchViewerStateFromServer();
       } catch (err) {
         updateElement('viewer-state-status', '<span class="error">' + err.message + '</span>');
       }
