@@ -1991,6 +1991,17 @@
 
   /* ===== 26. fetch + payload（buildServerPayload / fetchAndRenderPage / fetchPageOnlyFromCacheThenNetwork） ===== */
 
+  function applySheetNameFromPayload(payload, meta){
+    try{
+      var fromMeta = meta && meta.sheet ? meta.sheet : (meta && meta.entity ? meta.entity : '');
+      var fromPayload = payload && (payload.sheetName || payload.entity || payload.sheet || payload.entityPlural) || '';
+      var candidate = fromMeta || fromPayload || '';
+      if(candidate){
+        STATE.sheetName = singularEntityFor(candidate);
+      }
+    }catch(_){}
+  }
+
   function buildServerPayload(offset, limit){
     var activeSort = Array.isArray(STATE.sort)
       ? STATE.sort.filter(function(s){ return s && s.on !== false; })
@@ -2034,6 +2045,7 @@
     var cached = LSC_get(key, 2*60*1000);
     if(cached){
       var p = normalizeRowsPayload(cached);
+      applySheetNameFromPayload(payload, p && p.meta);
       STATE.dataSource = detectSourceByIds(p.ids, p.header);
       applyData(p);
       refreshDistinctCache();
@@ -2046,6 +2058,7 @@
       payload,
       function(res){
         var p = normalizeRowsPayload(res);
+        applySheetNameFromPayload(payload, p && p.meta);
         STATE.dataSource = detectSourceByIds(p.ids, p.header);
         applyData(p);
         refreshDistinctCache();
@@ -2082,6 +2095,7 @@
             base0,
             function(res0){
               var p0 = normalizeRowsPayload(res0);
+              applySheetNameFromPayload(base0, p0 && p0.meta);
               STATE.dataSource = detectSourceByIds(p0.ids, p0.header);
               applyData(p0);
               refreshDistinctCache();
@@ -2094,6 +2108,7 @@
         }
 
         STATE.dataSource = detectSourceByIds(p.ids, p.header);
+        applySheetNameFromPayload(payload, p && p.meta);
         applyData(p);
         refreshDistinctCache();
         STATE._prevRowForGroup=null;
