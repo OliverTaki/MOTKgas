@@ -1726,6 +1726,9 @@ var VIEWER_STATE_PROP_PREFIX='MOTK_VIEWER_STATE_V1';
 function dp_storeViewerState(snapshot){
   try{
     var snap=_sanitizeViewerSnapshot(snapshot||{});
+    try{
+      console.log('dp_storeViewerState snapshot', JSON.stringify(snap));
+    }catch(_){}
     var payload={
       snapshot:snap,
       storedAt:Date.now(),

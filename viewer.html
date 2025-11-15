@@ -300,7 +300,8 @@
     return e || 'shot';
   }
 
-  var VIEWER_STATE_STORAGE_KEY='motk:viewerStateSnapshot';
+  var VIEWER_STATE_STORAGE_KEY='MOTK.viewer.state';
+  var VIEWER_STATE_STORAGE_KEY_LEGACY='motk:viewerStateSnapshot';
   var _viewerStateUploadHash='';
 
   function uploadViewerSnapshotToServer(snapshot){
@@ -337,11 +338,12 @@
           snap[k]=extra[k];
         });
       }
-      localStorage.setItem(VIEWER_STATE_STORAGE_KEY, JSON.stringify(snap));
+      var serializedSnap=JSON.stringify(snap);
+      localStorage.setItem(VIEWER_STATE_STORAGE_KEY, serializedSnap);
+      try{ localStorage.setItem(VIEWER_STATE_STORAGE_KEY_LEGACY, serializedSnap); }catch(_){}
       try{
-        var serialized=JSON.stringify(snap);
-        if(serialized && serialized!==_viewerStateUploadHash){
-          _viewerStateUploadHash=serialized;
+        if(serializedSnap && serializedSnap!==_viewerStateUploadHash){
+          _viewerStateUploadHash=serializedSnap;
           uploadViewerSnapshotToServer(snap);
         }
       }catch(_){}
@@ -2084,6 +2086,16 @@
     };
   }
 
+  function ensureRowsAfterFetch(){
+    try{
+      var totalRows=Number(STATE&&STATE.total);
+      var rowCount=Array.isArray(STATE&&STATE.rows)?STATE.rows.length:0;
+      if(totalRows>0 && rowCount===0 && typeof fetchAndRenderPage==='function'){
+        fetchAndRenderPage(1);
+      }
+    }catch(_){}
+  }
+
   function fetchPageOnlyFromCacheThenNetwork(page, cb){
     STATE.page = Math.max(1, page|0||1);
     if(STATE.perPage===PER_PAGE_ALL) STATE.page = 1;
@@ -2105,9 +2117,10 @@
       var p = normalizeRowsPayload(cached);
       applySheetNameFromPayload(payload, p && p.meta);
       STATE.dataSource = detectSourceByIds(p.ids, p.header);
-      applyData(p);
-      refreshDistinctCache();
-      if(cb) cb();
+        applyData(p);
+        refreshDistinctCache();
+        ensureRowsAfterFetch();
+        if(cb) cb();
     }
 
     var payload = buildServerPayload(offset, limit);
@@ -2170,6 +2183,7 @@
         applyData(p);
         refreshDistinctCache();
         STATE._prevRowForGroup=null;
+        ensureRowsAfterFetch();
         renderCurrentPage(true);
       },
       function(){ showStatus && showStatus('no data'); }

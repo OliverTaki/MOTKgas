@@ -267,13 +267,15 @@
       navigator.clipboard.writeText(text).then(() => log('copyAll: length ' + text.length));
     }
 
-    var VIEWER_STATE_STORAGE_KEY='motk:viewerStateSnapshot';
+    var VIEWER_STATE_STORAGE_KEY='MOTK.viewer.state';
+    var VIEWER_STATE_STORAGE_KEY_LEGACY='motk:viewerStateSnapshot';
     var viewerStateServerFetchInFlight=false;
 
     function readViewerSnapshotFromStorage(){
       try{
         if(!window || !window.localStorage) return null;
-        var raw=localStorage.getItem(VIEWER_STATE_STORAGE_KEY);
+        var raw=localStorage.getItem(VIEWER_STATE_STORAGE_KEY)
+          || localStorage.getItem(VIEWER_STATE_STORAGE_KEY_LEGACY);
         if(!raw) return null;
         var snap=JSON.parse(raw);
         if(!snap || !snap.updatedAt) return null;
