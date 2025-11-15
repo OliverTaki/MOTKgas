@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
@@ -13,12 +13,12 @@
     <select id="presetSelect" aria-label="Pages"></select>
     <span id="presetStatus" class="muted"></span>
 
-    <!-- Save dropdown（Save / Save as… / Revert） -->
+    <!-- Save dropdown・・ave / Save as窶ｦ / Revert・・-->
     <div class="dropdown" id="saveDD">
-      <button id="saveDDBtn" class="btn" disabled>Save ▾</button>
+      <button id="saveDDBtn" class="btn" disabled>Save 笆ｾ</button>
       <div class="dd-menu" id="saveDDMenu">
         <div class="dd-item" data-act="save">Save</div>
-        <div class="dd-item" data-act="saveas">Save as…</div>
+        <div class="dd-item" data-act="saveas">Save as窶ｦ</div>
         <div class="dd-item" data-act="revert">Revert</div>
       </div>
     </div>
@@ -36,7 +36,7 @@
 
   <!-- Footer -->
   <div id="statusBar">
-    <span id="statusLeft" class="muted">loading…</span>
+    <span id="statusLeft" class="muted">loading窶ｦ</span>
     <div class="spacer"></div>
     <div id="pager">
       <select id="perPage" title="Rows per page">
@@ -47,9 +47,9 @@
         <option value="all">ALL</option>
       </select>
       <span class="muted">per page</span>
-      <button id="prevBtn" class="btn" aria-label="Previous page">‹</button>
+      <button id="prevBtn" class="btn" aria-label="Previous page">窶ｹ</button>
       <select id="pageSelect" title="Page"></select>
-      <button id="nextBtn" class="btn" aria-label="Next page">›</button>
+      <button id="nextBtn" class="btn" aria-label="Next page">窶ｺ</button>
     </div>
   </div>
 </div>
@@ -81,52 +81,52 @@
 
 <script>
 /** =========================================
- *  viewer.html (ナンバリング整理版)
- *  - addGlobalClosers / removeGlobalClosers を単一実装に統合
- *  - openPanel の上書きラップを廃止し、単一定義に集約
- *  - applyData の上書きフックを廃止（Distinct は fetch 後に更新）
- *  - 既存 UI/動作は極力変更せずに構造のみ整理
+ *  viewer.html (繝翫Φ繝舌Μ繝ｳ繧ｰ謨ｴ逅・沿)
+ *  - addGlobalClosers / removeGlobalClosers 繧貞腰荳螳溯｣・↓邨ｱ蜷・
+ *  - openPanel 縺ｮ荳頑嶌縺阪Λ繝・・繧貞ｻ・ｭ｢縺励∝腰荳螳夂ｾｩ縺ｫ髮・ｴ・
+ *  - applyData 縺ｮ荳頑嶌縺阪ヵ繝・け繧貞ｻ・ｭ｢・・istinct 縺ｯ fetch 蠕後↓譖ｴ譁ｰ・・
+ *  - 譌｢蟄・UI/蜍穂ｽ懊・讌ｵ蜉帛､画峩縺帙★縺ｫ讒矩縺ｮ縺ｿ謨ｴ逅・
  * =========================================*/
 
 /* ===== Section Index =====
- *  1. グローバル初期化（scriptUrl / SPA ナビ導入フック）
- *  2. レイアウトオフセット（adjustNavOffset）
- *  3. 汎用ユーティリティ（uniq / raf / _canon 等）
+ *  1. 繧ｰ繝ｭ繝ｼ繝舌Ν蛻晄悄蛹厄ｼ・criptUrl / SPA 繝翫ン蟆主・繝輔ャ繧ｯ・・
+ *  2. 繝ｬ繧､繧｢繧ｦ繝医が繝輔そ繝・ヨ・・djustNavOffset・・
+ *  3. 豎守畑繝ｦ繝ｼ繝・ぅ繝ｪ繝・ぅ・・niq / raf / _canon 遲会ｼ・
  *  3A. copy helper
- *  4. グローバルクロージャ（addGlobalClosers / removeGlobalClosers）
- *  5. エンティティ/ステータスヘルパ
- *  6. ページング定数・ローカルストレージ
- *  7. ページング計算 & UI バインド
- *  8. URL 状態（page / perPage / sort）
- *  8A. URL ユーティリティ（getUrlParam）
- *  8C. linkmaps-cache（現在は no-op）
- *  9. Viewer STATE 定義
+ *  4. 繧ｰ繝ｭ繝ｼ繝舌Ν繧ｯ繝ｭ繝ｼ繧ｸ繝｣・・ddGlobalClosers / removeGlobalClosers・・
+ *  5. 繧ｨ繝ｳ繝・ぅ繝・ぅ/繧ｹ繝・・繧ｿ繧ｹ繝倥Ν繝・
+ *  6. 繝壹・繧ｸ繝ｳ繧ｰ螳壽焚繝ｻ繝ｭ繝ｼ繧ｫ繝ｫ繧ｹ繝医Ξ繝ｼ繧ｸ
+ *  7. 繝壹・繧ｸ繝ｳ繧ｰ險育ｮ・& UI 繝舌う繝ｳ繝・
+ *  8. URL 迥ｶ諷具ｼ・age / perPage / sort・・
+ *  8A. URL 繝ｦ繝ｼ繝・ぅ繝ｪ繝・ぅ・・etUrlParam・・
+ *  8C. linkmaps-cache・育樟蝨ｨ縺ｯ no-op・・
+ *  9. Viewer STATE 螳夂ｾｩ
  *  9A. state guard
- * 10. Link マップ（LINK_MAPS） & 名前抽出
- * 11. Proxy index（ShotView/AssetView 用）
- * 12. GAS 呼び出しヘルパ（callFirst）
- * 13. データソース判定 & 正規化（normalizeRowsPayload）
- * 14. グループフィルタ payload
- * 15. 列順・列幅・visibleCols
- * 16. テーブルレンダリング本体（renderCurrentPage）
- * 16C. 列リサイズ & 並び替えハンドラ
- * 17. View 列 Lazy ロード（shotview / assetview）
- * 18. リンクレンダリングヘルパ
- * 19. カラムパネル（Fields）
- * 20. ソートパネル
- * 21. Distinct 値キャッシュ & refreshDistinctCache
- * 22. フィルタパネル V3
- * 23. パネル共通 openPanel / closePanel / closeAllPanels
- * 24. Dirty フラグ管理（setDirty）
- * 25. Save ドロップダウン UI（Save / Save as… / Revert）
- * 26. fetch + payload（buildServerPayload / fetchAndRenderPage / fetchPageOnlyFromCacheThenNetwork）
- * 27. ちょいユーティリティ（rid / labelForFieldId）
+ * 10. Link 繝槭ャ繝暦ｼ・INK_MAPS・・& 蜷榊燕謚ｽ蜃ｺ
+ * 11. Proxy index・・hotView/AssetView 逕ｨ・・
+ * 12. GAS 蜻ｼ縺ｳ蜃ｺ縺励・繝ｫ繝托ｼ・allFirst・・
+ * 13. 繝・・繧ｿ繧ｽ繝ｼ繧ｹ蛻､螳・& 豁｣隕丞喧・・ormalizeRowsPayload・・
+ * 14. 繧ｰ繝ｫ繝ｼ繝励ヵ繧｣繝ｫ繧ｿ payload
+ * 15. 蛻鈴・・蛻怜ｹ・・visibleCols
+ * 16. 繝・・繝悶Ν繝ｬ繝ｳ繝繝ｪ繝ｳ繧ｰ譛ｬ菴難ｼ・enderCurrentPage・・
+ * 16C. 蛻励Μ繧ｵ繧､繧ｺ & 荳ｦ縺ｳ譖ｿ縺医ワ繝ｳ繝峨Λ
+ * 17. View 蛻・Lazy 繝ｭ繝ｼ繝会ｼ・hotview / assetview・・
+ * 18. 繝ｪ繝ｳ繧ｯ繝ｬ繝ｳ繝繝ｪ繝ｳ繧ｰ繝倥Ν繝・
+ * 19. 繧ｫ繝ｩ繝繝代ロ繝ｫ・・ields・・
+ * 20. 繧ｽ繝ｼ繝医ヱ繝阪Ν
+ * 21. Distinct 蛟､繧ｭ繝｣繝・す繝･ & refreshDistinctCache
+ * 22. 繝輔ぅ繝ｫ繧ｿ繝代ロ繝ｫ V3
+ * 23. 繝代ロ繝ｫ蜈ｱ騾・openPanel / closePanel / closeAllPanels
+ * 24. Dirty 繝輔Λ繧ｰ邂｡逅・ｼ・etDirty・・
+ * 25. Save 繝峨Ο繝・・繝繧ｦ繝ｳ UI・・ave / Save as窶ｦ / Revert・・
+ * 26. fetch + payload・・uildServerPayload / fetchAndRenderPage / fetchPageOnlyFromCacheThenNetwork・・
+ * 27. 縺｡繧・＞繝ｦ繝ｼ繝・ぅ繝ｪ繝・ぅ・・id / labelForFieldId・・
  * =========================*/
 
 ;(function(){
   "use strict";
 
-  /* ===== 1. グローバル初期化（scriptUrl / SPA ナビ導入フック） ===== */
+  /* ===== 1. 繧ｰ繝ｭ繝ｼ繝舌Ν蛻晄悄蛹厄ｼ・criptUrl / SPA 繝翫ン蟆主・繝輔ャ繧ｯ・・===== */
 
   try{
     window.scriptUrl = (function(){
@@ -155,7 +155,7 @@
     };
   }
 
-  /* ===== 2. レイアウトオフセット（adjustNavOffset） ===== */
+  /* ===== 2. 繝ｬ繧､繧｢繧ｦ繝医が繝輔そ繝・ヨ・・djustNavOffset・・===== */
 
   function adjustNavOffset(){
     try{
@@ -165,7 +165,7 @@
     }catch(e){}
   }
 
-  /* ===== 3. 汎用ユーティリティ（uniq / raf / _canon 等） ===== */
+  /* ===== 3. 豎守畑繝ｦ繝ｼ繝・ぅ繝ｪ繝・ぅ・・niq / raf / _canon 遲会ｼ・===== */
 
   function uniq(a){
     var o={},r=[];
@@ -220,7 +220,7 @@
     return r;
   }
 
-  /* ===== 4. グローバルクロージャ（addGlobalClosers / removeGlobalClosers） ===== */
+  /* ===== 4. 繧ｰ繝ｭ繝ｼ繝舌Ν繧ｯ繝ｭ繝ｼ繧ｸ繝｣・・ddGlobalClosers / removeGlobalClosers・・===== */
 
   function addGlobalClosers(popupEl, anchorEl, onClose){
     function onDocMouseDown(ev){
@@ -255,7 +255,7 @@
     }catch(e){}
   }
 
-  /* ===== 5. エンティティ/ステータスヘルパ ===== */
+  /* ===== 5. 繧ｨ繝ｳ繝・ぅ繝・ぅ/繧ｹ繝・・繧ｿ繧ｹ繝倥Ν繝・===== */
 
   function singularEntityFor(x){
     var s=_canon(x);
@@ -354,7 +354,7 @@
 
   function setFinalStatus(){
     var el=document.getElementById('statusLeft'); if(!el) return;
-    var src=(STATE&&STATE.dataSource)?(' · '+STATE.dataSource):' · DataHub';
+    var src=(STATE&&STATE.dataSource)?(' ﾂｷ '+STATE.dataSource):' ﾂｷ DataHub';
     var entPlural = pluralEntityFor(_entityForUI());
     var rowsLen=Array.isArray(STATE&&STATE.rows)?STATE.rows.length:0;
 
@@ -388,7 +388,7 @@
 
     var summaryText=(
       hasWindow
-        ? (start+'–'+end+' of '+total+' '+entPlural)
+        ? (start+'窶・+end+' of '+total+' '+entPlural)
         : ('0 of 0 '+entPlural)
     )+src;
     el.textContent=summaryText;
@@ -399,7 +399,7 @@
     });
   }
 
-  /* ===== 6. ページング定数・ローカルストレージ ===== */
+  /* ===== 6. 繝壹・繧ｸ繝ｳ繧ｰ螳壽焚繝ｻ繝ｭ繝ｼ繧ｫ繝ｫ繧ｹ繝医Ξ繝ｼ繧ｸ ===== */
 
   var DEFAULT_COL_W=140;
   var DEFAULT_PER_PAGE=100;
@@ -422,7 +422,7 @@
     }catch(e){}
   }
 
-  /* ===== 7. ページング計算 & UI バインド ===== */
+  /* ===== 7. 繝壹・繧ｸ繝ｳ繧ｰ險育ｮ・& UI 繝舌う繝ｳ繝・===== */
 
   function getTotalRows(){
     var total = Number(STATE && STATE.total);
@@ -570,7 +570,7 @@
     }
   }
 
-  /* ===== 8. URL 状態（page / perPage / sort） ===== */
+  /* ===== 8. URL 迥ｶ諷具ｼ・age / perPage / sort・・===== */
 
   function parseSortParam(s){
     if(!s)return[];
@@ -616,14 +616,14 @@
     return usp;
   }
 
-  /* ===== 8A. URL ユーティリティ（getUrlParam） ===== */
+  /* ===== 8A. URL 繝ｦ繝ｼ繝・ぅ繝ｪ繝・ぅ・・etUrlParam・・===== */
 
   function getUrlParam(k){
     try{ return (new URLSearchParams(location.search).get(k)||'').trim(); }
     catch(_){ return ''; }
   }
 
-  /* ===== 8C. linkmaps-cache（現在は no-op） ===== */
+  /* ===== 8C. linkmaps-cache・育樟蝨ｨ縺ｯ no-op・・===== */
 
   function loadLinkMapsFromCache(){ return null; }
   function saveLinkMapsToCache(_maps){ /* no-op */ }
@@ -631,7 +631,7 @@
   function mergeLinkMaps(dst, src){ return src || dst || {}; }
   function countMaps(_maps){ return 0; }
 
-  /* ===== 9. Viewer STATE 定義 ===== */
+  /* ===== 9. Viewer STATE 螳夂ｾｩ ===== */
 
   window.STATE=window.STATE||{};
   var STATE=window.STATE;
@@ -667,14 +667,14 @@
 
   function maybeRender(){
     if(!(STATE && STATE._dataReady && STATE._cfgReady)) return;
-    if(typeof showStatus === 'function') showStatus('applying page…');
+    if(typeof showStatus === 'function') showStatus('applying page窶ｦ');
     raf(function(){
       try{ renderCurrentPage(true); }
       catch(_){}
     });
   }
 
-  /* ===== 10. Link マップ（LINK_MAPS） & 名前抽出 ===== */
+  /* ===== 10. Link 繝槭ャ繝暦ｼ・INK_MAPS・・& 蜷榊燕謚ｽ蜃ｺ ===== */
 
   window.LINK_MAPS = window.LINK_MAPS || {assets:{}, shots:{}, tasks:{}, users:{}, members:{}};
 
@@ -751,7 +751,7 @@
     return String(row[i]||'').trim();
   }
 
-  /* ===== 11. Proxy index（ShotView/AssetView 用） ===== */
+  /* ===== 11. Proxy index・・hotView/AssetView 逕ｨ・・===== */
 
   var PROXY_CACHE={};
 
@@ -777,7 +777,7 @@
     );
   }
 
-  /* ===== 12. GAS 呼び出しヘルパ（callFirst） ===== */
+  /* ===== 12. GAS 蜻ｼ縺ｳ蜃ｺ縺励・繝ｫ繝托ｼ・allFirst・・===== */
 
   function callFirst(names, params, onOk, onFail){
     onOk=onOk||function(){}; onFail=onFail||function(){};
@@ -793,7 +793,7 @@
     })();
   }
 
-  /* ===== 13. データソース判定 & 正規化（normalizeRowsPayload） ===== */
+  /* ===== 13. 繝・・繧ｿ繧ｽ繝ｼ繧ｹ蛻､螳・& 豁｣隕丞喧・・ormalizeRowsPayload・・===== */
 
   function detectSourceByIds(ids, header){
     try{
@@ -882,7 +882,7 @@
     return { ids:[], header:[], rows:[], total:0 };
   }
 
-  /* ===== 14. グループフィルタ payload ===== */
+  /* ===== 14. 繧ｰ繝ｫ繝ｼ繝励ヵ繧｣繝ｫ繧ｿ payload ===== */
 
   function buildGroupFilterPayload(){
     var groups=[];
@@ -916,7 +916,7 @@
     return { filterGroups: groups, groupCombine: (STATE.groupCombine==='any'?'any':'all') };
   }
 
-  /* ===== 15. 列順・列幅・visibleCols ===== */
+  /* ===== 15. 蛻鈴・・蛻怜ｹ・・visibleCols ===== */
 
   function defaultWidthFor(colId, headerText){
     var h=String(headerText||'').toLowerCase();
@@ -980,7 +980,7 @@
     return '';
   }
 
-  /* ===== 16. テーブルレンダリング本体（renderCurrentPage） ===== */
+  /* ===== 16. 繝・・繝悶Ν繝ｬ繝ｳ繝繝ｪ繝ｳ繧ｰ譛ｬ菴難ｼ・enderCurrentPage・・===== */
 
   function renderCurrentPage(){
     var wrap=document.getElementById('tableWrap'); if(!wrap)return;
@@ -1172,7 +1172,7 @@
     return true;
   }
 
-  /* ===== 16C. 列リサイズ & 並び替えハンドラ ===== */
+  /* ===== 16C. 蛻励Μ繧ｵ繧､繧ｺ & 荳ｦ縺ｳ譖ｿ縺医ワ繝ｳ繝峨Λ ===== */
 
   (function(){
     var MIN_W = 56, MAX_W = 720;
@@ -1258,7 +1258,7 @@
         if(!STATE.pageCfgRaw) STATE.pageCfgRaw = {};
         STATE.pageCfgRaw.order = newOrder;
         setDirty(true);
-        showStatus('applying page…');
+        showStatus('applying page窶ｦ');
         requestAnimationFrame(function(){ renderCurrentPage(false); });
       }catch(_){}
       finally{
@@ -1293,7 +1293,7 @@
     setTimeout(window.updateFooterPad, 360);
   })();
 
-  /* ===== 17. View 列 Lazy ロード（shotview / assetview） ===== */
+  /* ===== 17. View 蛻・Lazy 繝ｭ繝ｼ繝会ｼ・hotview / assetview・・===== */
 
   function _norm(h){
     return String(h||'').toLowerCase().replace(/[\s_-]/g,'');
@@ -1370,10 +1370,10 @@
     td.appendChild(img);
   }
 
-  /* ===== 18. リンクレンダリングヘルパ ===== */
+  /* ===== 18. 繝ｪ繝ｳ繧ｯ繝ｬ繝ｳ繝繝ｪ繝ｳ繧ｰ繝倥Ν繝・===== */
 
   function splitTokens(s){
-    return String(s||'').split(/[,\s;|、／]+/).filter(Boolean);
+    return String(s||'').split(/[,\s;|縲・ｼ従+/).filter(Boolean);
   }
 
   function tokenExistsInAnyMap(s){
@@ -1434,7 +1434,7 @@
     return 'item';
   }
 
-  /* ===== 19. カラムパネル（Fields） ===== */
+  /* ===== 19. 繧ｫ繝ｩ繝繝代ロ繝ｫ・・ields・・===== */
 
   document.getElementById('columnsBtn').addEventListener('click', function(){
     openPanel('colPanel', this, buildColsPanel);
@@ -1453,14 +1453,14 @@
       var cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!STATE.hiddenCols[colId];
       cb.onchange=(function(colIdRef){return function(){
         STATE.hiddenCols[colIdRef]=!this.checked; setDirty(true);
-        showStatus('applying page…'); requestAnimationFrame(function(){ renderCurrentPage(false); });
+        showStatus('applying page窶ｦ'); requestAnimationFrame(function(){ renderCurrentPage(false); });
       };})(colId);
       var span=document.createElement('span'); span.textContent=label;
       row.appendChild(cb); row.appendChild(span); panel.appendChild(row);
     }
   }
 
-  /* ===== 20. ソートパネル ===== */
+  /* ===== 20. 繧ｽ繝ｼ繝医ヱ繝阪Ν ===== */
 
   document.getElementById('sortBtn').addEventListener('click', function(){
     openPanel('sortPanel', this, buildSortPanel);
@@ -1525,11 +1525,11 @@
           sel.value=it.id||''; sel.onchange=function(){ it.id=this.value; };
 
           var dirBtn=document.createElement('button'); dirBtn.className='btn';
-          function paintDir(){ dirBtn.textContent=(it.dir==='desc'?'↓':'↑'); }
+          function paintDir(){ dirBtn.textContent=(it.dir==='desc'?'竊・:'竊・); }
           paintDir();
           dirBtn.onclick=function(){ it.dir=(it.dir==='desc'?'asc':'desc'); paintDir(); };
 
-          var del=document.createElement('button'); del.className='btn'; del.textContent='×';
+          var del=document.createElement('button'); del.className='btn'; del.textContent='ﾃ・;
           del.onclick=function(){ localSort.splice(idx,1); body(); };
 
           row.appendChild(eg);
@@ -1575,7 +1575,7 @@
     body();
   }
 
-  /* ===== 21. Distinct 値キャッシュ & refreshDistinctCache ===== */
+  /* ===== 21. Distinct 蛟､繧ｭ繝｣繝・す繝･ & refreshDistinctCache ===== */
 
   var DISTINCT_CACHE = {};
 
@@ -1588,7 +1588,7 @@
       for(var r=0; r<lim; r++){
         var v = rows[r][idx];
         if(v==null || v==='') continue;
-        String(v).split(/[,\s;|、／]+/).filter(Boolean).forEach(function(x){ set[x] = 1; });
+        String(v).split(/[,\s;|縲・ｼ従+/).filter(Boolean).forEach(function(x){ set[x] = 1; });
       }
     }catch(_){}
   }
@@ -1609,7 +1609,7 @@
     }catch(_){}
   }
 
-  /* ===== 22. フィルタパネル V3 ===== */
+  /* ===== 22. 繝輔ぅ繝ｫ繧ｿ繝代ロ繝ｫ V3 ===== */
 
   document.getElementById('filterBtn').addEventListener('click', function(){
     openPanel('filterPanel', this, buildFilterPanelV3);
@@ -1766,7 +1766,7 @@
       rebuildValueUI();
       op.onchange=function(){ r.op=this.value; rebuildValueUI(); };
 
-      var del=document.createElement('button'); del.className='btn'; del.textContent='×';
+      var del=document.createElement('button'); del.className='btn'; del.textContent='ﾃ・;
       del.onclick=function(){ if(typeof onRemove==='function') onRemove(); };
 
       row.appendChild(sel);
@@ -1798,7 +1798,7 @@
           modeSel.value=(g.mode==='any'?'any':'all');
           modeSel.onchange=function(){ g.mode=this.value; };
 
-          var del=document.createElement('button'); del.className='btn'; del.textContent='×';
+          var del=document.createElement('button'); del.className='btn'; del.textContent='ﾃ・;
           del.onclick=function(){
             localFG.splice(gi2,1);
             if(localFG.length===0) localFG=[ defaultGroup() ];
@@ -1884,7 +1884,7 @@
     body();
   }
 
-  /* ===== 23. パネル共通 openPanel / closePanel / closeAllPanels ===== */
+  /* ===== 23. 繝代ロ繝ｫ蜈ｱ騾・openPanel / closePanel / closeAllPanels ===== */
 
   (function(){
     var MARGIN = 6;
@@ -1985,7 +1985,7 @@
     };
   })();
 
-  /* ===== 24. Dirty フラグ管理（setDirty） ===== */
+  /* ===== 24. Dirty 繝輔Λ繧ｰ邂｡逅・ｼ・etDirty・・===== */
 
   function setDirty(flag){
     STATE.dirty=!!flag;
@@ -1995,7 +1995,7 @@
     if(btn2) btn2.disabled=!STATE.dirty;
   }
 
-  /* ===== 25. Save ドロップダウン UI（Save / Save as… / Revert） ===== */
+  /* ===== 25. Save 繝峨Ο繝・・繝繧ｦ繝ｳ UI・・ave / Save as窶ｦ / Revert・・===== */
 
   (function(){
     function ready(fn){
@@ -2060,7 +2060,7 @@
     });
   })();
 
-  /* ===== 26. fetch + payload（buildServerPayload / fetchAndRenderPage / fetchPageOnlyFromCacheThenNetwork） ===== */
+  /* ===== 26. fetch + payload・・uildServerPayload / fetchAndRenderPage / fetchPageOnlyFromCacheThenNetwork・・===== */
 
   function applySheetNameFromPayload(payload, meta){
     try{
@@ -2096,15 +2096,7 @@
       groupCombine  : (STATE.groupCombine==='any'?'any':'all')
     };
   }
-
-  function ensureRowsAfterFetch(){
-    try{
-      var totalRows=Number(STATE&&STATE.total);
-      var rowCount=Array.isArray(STATE&&STATE.rows)?STATE.rows.length:0;
-      if(totalRows>0 && rowCount===0 && typeof fetchAndRenderPage==='function'){
-        fetchAndRenderPage(1);
-      }
-    }catch(_){}
+}catch(_){}
   }
 
   function fetchPageOnlyFromCacheThenNetwork(page, cb){
@@ -2130,7 +2122,6 @@
       STATE.dataSource = detectSourceByIds(p.ids, p.header);
         applyData(p);
         refreshDistinctCache();
-        ensureRowsAfterFetch();
         if(cb) cb();
     }
 
@@ -2164,7 +2155,7 @@
     history.replaceState(null,'',location.pathname+'?'+usp.toString());
 
     var payload = buildServerPayload(offset, limit);
-    if(typeof showStatus==='function') showStatus('loading '+pluralEntityFor(payload.entity)+'…');
+    if(typeof showStatus==='function') showStatus('loading '+pluralEntityFor(payload.entity)+'窶ｦ');
 
     callFirst(['listRowsPage','sv_listRowsPage','gsListRowsPage','dp_listRowsPage'],
       payload,
@@ -2194,14 +2185,13 @@
         applyData(p);
         refreshDistinctCache();
         STATE._prevRowForGroup=null;
-        ensureRowsAfterFetch();
         renderCurrentPage(true);
       },
       function(){ showStatus && showStatus('no data'); }
     );
   }
 
-  /* ===== 27. ちょいユーティリティ（rid / labelForFieldId） ===== */
+  /* ===== 27. 縺｡繧・＞繝ｦ繝ｼ繝・ぅ繝ｪ繝・ぅ・・id / labelForFieldId・・===== */
 
   function rid(){ return 'g'+Math.random().toString(36).slice(2,8); }
 
@@ -2210,7 +2200,7 @@
     return idx>=0?(STATE.header[idx]||fid):fid;
   }
 
-  /* ===== start() ブートシーケンス & DOM Ready ===== */
+  /* ===== start() 繝悶・繝医す繝ｼ繧ｱ繝ｳ繧ｹ & DOM Ready ===== */
 
   function resolveEntityStrict(){
     if(STATE && STATE.sheetName){
@@ -2546,7 +2536,7 @@
 })();
 </script>
 
-<!-- ===== 27.saveas-modal (UI: Shared付き) ===== -->
+<!-- ===== 27.saveas-modal (UI: Shared莉倥″) ===== -->
 <div id="pgSaveAsMask"></div>
 <div id="pgSaveAs" role="dialog" aria-modal="true" aria-labelledby="pgSaveAsTitle">
   <div class="hd" id="pgSaveAsTitle">Save as Page View</div>
@@ -2570,7 +2560,7 @@
 </div>
 
 <script>
-/* ===== 28.local_cache (Config/Labels TTLキャッシュ) ===== */
+/* ===== 28.local_cache (Config/Labels TTL繧ｭ繝｣繝・す繝･) ===== */
 (function(){
   var TTL_MS = 15000;
   function k(ns, id){ return "MOTK."+ns+"."+id; }
@@ -2628,7 +2618,7 @@
   };
 })();
 
-/* ===== 30.link_labels (安定ラベル置換: 一括API + キャッシュ) ===== */
+/* ===== 30.link_labels (螳牙ｮ壹Λ繝吶Ν鄂ｮ謠・ 荳諡ｬAPI + 繧ｭ繝｣繝・す繝･) ===== */
 (function(){
   function uniq(arr){
     var s={}, o=[];
