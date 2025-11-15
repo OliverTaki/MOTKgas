@@ -69,7 +69,7 @@ var PAGE_TEMPLATE_MAP = {
 function _resolveTemplateName_(page, entity, id) {
   var p = String(page || '').toLowerCase();
 
-  if (p === 'debugpanel') {
+  if (p === 'debugpanel' || p === 'debugpanelpage') {
     return 'DebugPanelPage';
   }
 

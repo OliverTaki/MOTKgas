@@ -594,6 +594,15 @@
 
   if (!Array.isArray(STATE.group)) STATE.group = [];
 
+  function maybeRender(){
+    if(!(STATE && STATE._dataReady && STATE._cfgReady)) return;
+    if(typeof showStatus === 'function') showStatus('applying page…');
+    raf(function(){
+      try{ renderCurrentPage(true); }
+      catch(_){}
+    });
+  }
+
   /* ===== 10. Link マップ（LINK_MAPS） & 名前抽出 ===== */
 
   window.LINK_MAPS = window.LINK_MAPS || {assets:{}, shots:{}, tasks:{}, users:{}, members:{}};
@@ -2037,23 +2046,6 @@
       payload,
       function(res){
         var p = normalizeRowsPayload(res);
-        var totalCount = Number(p && p.total) || 0;
-        var rowCount = Array.isArray(p && p.rows) ? p.rows.length : 0;
-        if(totalCount > 0 && rowCount === 0){
-          var basePayload = buildServerPayload(0, resolveFetchLimit ? resolveFetchLimit() : pageWindow);
-          callFirst(['listRowsPage','sv_listRowsPage','gsListRowsPage','dp_listRowsPage'],
-            basePayload,
-            function(res0){
-              var p0 = normalizeRowsPayload(res0);
-              STATE.dataSource = detectSourceByIds(p0.ids, p0.header);
-              applyData(p0);
-              refreshDistinctCache();
-              if(cb) cb();
-            },
-            function(){ if(cb) cb(); }
-          );
-          return;
-        }
         STATE.dataSource = detectSourceByIds(p.ids, p.header);
         applyData(p);
         refreshDistinctCache();
@@ -2123,6 +2115,9 @@
   /* ===== start() ブートシーケンス & DOM Ready ===== */
 
   function resolveEntityStrict(){
+    if(STATE && STATE.sheetName){
+      return singularEntityFor(STATE.sheetName);
+    }
     try{
       var usp=new URLSearchParams(location.search);
       var qent=(usp.get('entity')||'').trim();
@@ -2135,7 +2130,6 @@
       var e2 = entityFromPageId(STATE.pageId);
       if(e2) return e2;
     }
-    if(STATE && STATE.sheetName) return singularEntityFor(STATE.sheetName);
     return 'shot';
   }
 
