@@ -362,6 +362,11 @@ window.applyData = window.applyData || function(p){
 
   // ページャなどの最低限のUI同期
   if (typeof updatePagerUI === 'function') updatePagerUI();
+  try{
+    if(typeof window.persistViewerStateSnapshot === 'function'){
+      window.persistViewerStateSnapshot({ source:'applyData' });
+    }
+  }catch(_){}
 };
 
 
@@ -379,5 +384,4 @@ window.applyData = window.applyData || function(p){
 
 
 </script>
-
 
