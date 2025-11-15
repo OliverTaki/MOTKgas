@@ -314,9 +314,8 @@
 
   function persistViewerStateSnapshot(extra){
     try{
-      if(!window || !window.localStorage) return;
-      if(!(STATE && STATE._dataReady)) return;
       var rowsLen=Array.isArray(STATE&&STATE.rows)?STATE.rows.length:0;
+      if(rowsLen<=0) return;
       var snap={
         updatedAt: Date.now(),
         sheetName: (STATE&&STATE.sheetName)||'',
