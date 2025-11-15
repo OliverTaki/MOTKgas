@@ -312,7 +312,7 @@
     }catch(_){}
   }
 
-  function persistViewerStateSnapshot(extra){
+  window.persistViewerStateSnapshot = function(extra){
     try{
       var rowsLen=Array.isArray(STATE&&STATE.rows)?STATE.rows.length:0;
       if(rowsLen<=0) return;
