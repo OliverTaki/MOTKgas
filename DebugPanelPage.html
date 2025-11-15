@@ -23,6 +23,7 @@
 
   <button class="btn" onclick="runAllChecks()">Run all checks</button>
   <button class="btn" onclick="copyPageText()">Copy page text</button>
+  <div id="run-status" class="muted">idle</div>
 
   <div id="console" class="card">
     <h3>Console (live)</h3>
@@ -180,34 +181,73 @@
       document.getElementById('raw-snap').innerHTML = JSON.stringify(snap, null, 2);
     }
 
-    function runAllChecks() {
-      log('Run all checks: begin');
-      checkRuntime();
-      // 並列呼出で全データ取得
-      google.script.run
-        .withSuccessHandler(updateFromRes)
-        .withFailureHandler(function(err) {
-          log('Global res error: ' + err);
-          updateElement('field-types', '<span class="error">error: ' + err + '</span>');
-        })
-        .dp_loadAppData();  // 拡張版で全関数含む
-      checkOriginals();  // 別途trace用
-      renderEntitySamples();  // 重複OK
-      log('Run all checks: done');
+    function setRunStatus(text, isError){
+      var el=document.getElementById('run-status');
+      if(!el) return;
+      el.innerHTML = isError ? ('<span class="error">'+text+'</span>') : text;
     }
 
-    function checkRuntime() {
+    async function runAllChecks() {
+      log('Run all checks: begin');
+      setRunStatus('running…');
+      renderEntitySamples();
+      try{
+        await Promise.all([
+          checkRuntimeAsync(),
+          loadAppDataAsync(),
+          checkOriginalsAsync()
+        ]);
+        log('Run all checks: done');
+        setRunStatus('completed at '+new Date().toLocaleTimeString());
+      }catch(err){
+        log('Run all checks: error '+err);
+        setRunStatus('error: '+err, true);
+      }
+    }
+
+    function checkRuntimeAsync() {
       log('checkRuntime: start');
       updateElement('gsr-status', google.script.run ? 'available' : 'unavailable');
       const loc = document.getElementById('location');
       loc.innerHTML = 'Location: ' + window.location.href;
       updateElement('url-params', JSON.stringify(getUrlParams()));
-      google.script.run.withSuccessHandler(function(res) {
-        updateElement('server-ping', 'ok ts=' + res.ts);
-        log('checkRuntime: ping ok ' + res.ts);
-      }).withFailureHandler(function(err) {
-        updateElement('server-ping', '<span class="error">failed: ' + err + '</span>');
-      }).dp_debugPing();
+      return new Promise(function(resolve){
+        google.script.run.withSuccessHandler(function(res) {
+          updateElement('server-ping', 'ok ts=' + res.ts);
+          log('checkRuntime: ping ok ' + res.ts);
+          resolve();
+        }).withFailureHandler(function(err) {
+          updateElement('server-ping', '<span class="error">failed: ' + err + '</span>');
+          resolve();
+        }).dp_debugPing();
+      });
+    }
+
+    function loadAppDataAsync(){
+      return new Promise(function(resolve){
+        google.script.run
+          .withSuccessHandler(function(res){ updateFromRes(res); resolve(); })
+          .withFailureHandler(function(err){
+            log('Global res error: ' + err);
+            updateElement('field-types', '<span class="error">error: ' + err + '</span>');
+            resolve();
+          })
+          .dp_loadAppData();
+      });
+    }
+
+    function checkOriginalsAsync() {
+      log('checkOriginals: start');
+      return new Promise(function(resolve){
+        google.script.run.withSuccessHandler(function(trace) {
+          globalRes.trace = trace;
+          updateFromRes(globalRes);
+          resolve();
+        }).withFailureHandler(function(err) {
+          updateElement('resolve-result', '<span class="error">failed: ' + err + '</span>');
+          resolve();
+        }).dp_traceOriginals({entity: 'shot', id: 'sh_0001'});
+      });
     }
 
     function getUrlParams() {
@@ -215,16 +255,6 @@
       const obj = {};
       params.forEach((v, k) => obj[k] = v);
       return obj;
-    }
-
-    function checkOriginals() {
-      log('checkOriginals: start');
-      google.script.run.withSuccessHandler(function(trace) {
-        globalRes.trace = trace;
-        updateFromRes(globalRes);  // 更新トリガー
-      }).withFailureHandler(function(err) {
-        updateElement('resolve-result', '<span class="error">failed: ' + err + '</span>');
-      }).dp_traceOriginals({entity: 'shot', id: 'sh_0001'});
     }
 
     function renderEntitySamples() {
