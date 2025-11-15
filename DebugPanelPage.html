@@ -345,11 +345,6 @@
     root.innerHTML = [
       '<div style="margin:8px 0;padding:8px;border:1px solid #ccc;border-radius:6px">',
       '  <h3 style="margin:0 0 8px">Contract Inspector</h3>',
-      '  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">',
-      '    <button id="ciRunAll">Run all checks</button>',
-      '    <select id="ciEntity"><option>shot</option><option>asset</option><option>task</option><option>member</option><option>user</option></select>',
-      '    <button id="ciSample">Sample listRowsPage</button>',
-      '  </div>',
       '  <pre id="ciLog" style="max-height:50vh;overflow:auto;background:#111;color:#eee;padding:8px;border-radius:6px"></pre>',
       '</div>'
     ].join('');
@@ -447,8 +442,8 @@
   }
 
   function start(){
-    var root = ensurePanel();
-    root.querySelector('#ciRunAll').addEventListener('click', async function(){
+    ensurePanel();
+    (async function(){
       resetLog();
       await checkFieldsMatrix();
       await checkLinksShape();
@@ -456,12 +451,8 @@
       await sampleListRows('asset');
       await checkMeta();
       logLine('== done ==');
-    });
-    root.querySelector('#ciSample').addEventListener('click', async function(){
-      resetLog();
-      var ent = root.querySelector('#ciEntity').value || 'shot';
-      await sampleListRows(ent);
-      logLine('== done ==');
+    })().catch(function(err){
+      logLine('contract-inspector error: '+ String(err && err.message || err));
     });
   }
 
