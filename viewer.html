@@ -137,20 +137,22 @@
     try{ window.scriptUrl = location.pathname; }catch(_){}
   }
 
-  function enableSpaNav(){
-    document.addEventListener('click', function(ev){
-      var a = ev.target && ev.target.closest && ev.target.closest('a[href]');
-      if(!a) return;
-      if(ev.metaKey || ev.ctrlKey || ev.shiftKey || a.target==='_blank') return;
-      var href = a.getAttribute('href')||'';
-      if(!href || href[0]==='#') return;
-      var url; try{ url = new URL(href, location.href); }catch(_){ return; }
-      if(url.origin !== location.origin) return;
-      if(url.searchParams.has('entity') || url.searchParams.has('id') || url.searchParams.has('pid')){
-        ev.preventDefault();
-        location.href = url.href;
-      }
-    }, true);
+  if(typeof window.enableSpaNav!=='function'){
+    window.enableSpaNav=function enableSpaNav(){
+      document.addEventListener('click', function(ev){
+        var a = ev.target && ev.target.closest && ev.target.closest('a[href]');
+        if(!a) return;
+        if(ev.metaKey || ev.ctrlKey || ev.shiftKey || a.target==='_blank') return;
+        var href = a.getAttribute('href')||'';
+        if(!href || href[0]==='#') return;
+        var url; try{ url = new URL(href, location.href); }catch(_){ return; }
+        if(url.origin !== location.origin) return;
+        if(url.searchParams.has('entity') || url.searchParams.has('id') || url.searchParams.has('pid')){
+          ev.preventDefault();
+          location.href = url.href;
+        }
+      }, true);
+    };
   }
 
   /* ===== 2. レイアウトオフセット（adjustNavOffset） ===== */
@@ -631,24 +633,33 @@
 
   /* ===== 9. Viewer STATE 定義 ===== */
 
-  var STATE={
-    sheetName:'', pageType:'table',
-    fieldIds:[], header:[],
-    rows:[], total:0,
-    pageList:[], pageId:'pg_default',
-    pageCfgRaw:null, widths:{}, hiddenCols:{},
-    dirty:false,
-    perPage:DEFAULT_PER_PAGE, page:1,
-    sort:[],
-    filterSets:{},
-    selectedGroups:{},
-    groupCombine:'all',
-    groupEnabled:true,
-    dataSource:'',
-    _dataReady:false, _cfgReady:false, _linksReady:false,
-    _namesReady:false,
-    _didRerenderAfterLinks:false
-  };
+  window.STATE=window.STATE||{};
+  var STATE=window.STATE;
+  STATE.sheetName=STATE.sheetName||'';
+  STATE.pageType=STATE.pageType||'table';
+  STATE.fieldIds=STATE.fieldIds||[];
+  STATE.header=STATE.header||[];
+  STATE.rows=STATE.rows||[];
+  STATE.total=STATE.total||0;
+  STATE.pageList=STATE.pageList||[];
+  STATE.pageId=STATE.pageId||'pg_default';
+  STATE.pageCfgRaw=STATE.pageCfgRaw||null;
+  STATE.widths=STATE.widths||{};
+  STATE.hiddenCols=STATE.hiddenCols||{};
+  STATE.dirty=!!STATE.dirty;
+  STATE.perPage=STATE.perPage||DEFAULT_PER_PAGE;
+  STATE.page=STATE.page||1;
+  STATE.sort=STATE.sort||[];
+  STATE.filterSets=STATE.filterSets||{};
+  STATE.selectedGroups=STATE.selectedGroups||{};
+  STATE.groupCombine=STATE.groupCombine||'all';
+  STATE.groupEnabled=(STATE.groupEnabled!==false);
+  STATE.dataSource=STATE.dataSource||'';
+  STATE._dataReady=!!STATE._dataReady;
+  STATE._cfgReady=!!STATE._cfgReady;
+  STATE._linksReady=!!STATE._linksReady;
+  STATE._namesReady=!!STATE._namesReady;
+  STATE._didRerenderAfterLinks=!!STATE._didRerenderAfterLinks;
 
   /* ===== 9A. state guard ===== */
 
@@ -2401,7 +2412,7 @@
       }
     }catch(_){}
 
-    try{ enableSpaNav(); }catch(_){}
+    try{ window.enableSpaNav && window.enableSpaNav(); }catch(_){}
     try{ readUrlState && readUrlState(); }catch(_){}
 
     start();
