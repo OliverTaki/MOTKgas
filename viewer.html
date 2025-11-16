@@ -2806,12 +2806,15 @@
     try{
       var detail = ev && ev.detail || {};
       var pid = detail.page || '';
+      var entityFromPid = pid ? singularEntityFor(pid) : '';
       if(pid){
         var usp = new URLSearchParams(location.search);
         usp.set('page', pid);
-        var derived = singularEntityFor(pid);
-        if(derived) usp.set('entity', derived);
+        if(entityFromPid) usp.set('entity', entityFromPid);
         history.replaceState({page:pid},'',location.pathname+'?'+usp.toString());
+      }
+      if(entityFromPid){
+        STATE.sheetName = entityFromPid;
       }
       markHandled();
       resolveEntityFromContext();
