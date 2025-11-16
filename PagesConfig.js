@@ -196,8 +196,17 @@ function sv_savePageConfig(params) {
     if (params.entity   != null) row[cEnt]  = params.entity;
     if (params.shared   != null) row[cSh]   = params.shared;
 
-    row[cCB]  = params.createdBy != null ? params.createdBy
-              : (Session.getActiveUser && Session.getActiveUser().getEmail ? Session.getActiveUser().getEmail() : '');
+    function safeUserEmail(){
+      try{
+        return (Session.getActiveUser && Session.getActiveUser().getEmail)
+          ? Session.getActiveUser().getEmail()
+          : '';
+      }catch(_){
+        return '';
+      }
+    }
+
+    row[cCB]  = params.createdBy != null ? params.createdBy : safeUserEmail();
     row[cCr]  = now;
     row[cMd]  = now;
     row[cConf]= json;

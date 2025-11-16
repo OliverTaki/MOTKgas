@@ -421,9 +421,20 @@ function _normalizeEntityParams_(params) {
     entRaw = entParam;
   }
 
+  function canonEntityKey(raw){
+    var key = String(raw||'').trim().toLowerCase();
+    if(!key) return '';
+    if(key==='shots' || key==='shot') return 'shot';
+    if(key==='assets' || key==='asset') return 'asset';
+    if(key==='tasks' || key==='task') return 'task';
+    if(key==='users' || key==='user') return 'user';
+    if(key==='projectmembers' || key==='projectmember' || key==='members' || key==='member') return 'member';
+    if(key==='pages' || key==='page') return 'page';
+    return key;
+  }
+
   entRaw = String(entRaw || '').trim();
-  var entLc = entRaw.toLowerCase();
-  var entityKey = entLc || 'shot';
+  var entityKey = canonEntityKey(entRaw) || 'shot';
 
   // entity 竊・繧ｷ繝ｼ繝亥錐繝槭ャ繝・
   var sheetNameMap = {

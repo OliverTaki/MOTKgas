@@ -258,16 +258,15 @@
     var t=(o.type || (window.FIELD_TYPES||{})[o.fid] || "").toLowerCase();
     var fname = String(o.name || o.field_name || "").toLowerCase();
 
-    // shotview 繧貞・騾夂ｵ瑚ｷｯ縺ｫ邨ｱ蜷茨ｼ医ユ繝ｼ繝悶Ν縺ｨ蜷後§繝昴Μ繧ｷ繝ｼ・・    if (fname === "shotview" || t === "shotview") {
+        // shotview を共通経路に統合（テーブルと同じポリシー）
+    if (fname === "shotview" || t === "shotview") {
       var el = document.createElement("span");
       el.textContent = "";
 
       var row = o.row || {};
-      var sid =
-        row["Shot ID"] || row["id"] || row["shot_id"] ||
-        row["sh_id"] || row["shid"] || "";
+      var sid = row["Shot ID"] || row["id"] || row["shot_id"] || row["sh_id"] || row["shid"] || "";
 
-      // 1) 譌｢蟄倥く繝｣繝・す繝･・医ユ繝ｼ繝悶Ν逕ｱ譚･・峨′縺ゅｌ縺ｰ蜊ｳ謠冗判
+      // 1) 既存キャッシュ（テーブル由来）があれば即描画
       try{
         if (sid && window.PROXY_CACHE && window.PROXY_CACHE[sid]) {
           var urlC = window.PROXY_CACHE[sid];
@@ -276,9 +275,10 @@
           el.innerHTML = '<a href="'+urlC+'" target="_blank" rel="noopener"><img loading="lazy" decoding="async" style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px" src="'+thumbC+'"></a>';
           return el;
         }
-      }catch(_){}
+      }catch(_){ }
 
-      // 2) 蜊倡匱繝ｪ繧ｾ繝ｫ繝厄ｼ・pps Script 繧呈ｮｵ髫守噪繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ・・      (async function(){
+      // 2) 単発リゾルブ（Apps Script フォールバック）
+      (async function(){
         function best(res){
           try{
             if(!res) return "";
@@ -291,7 +291,7 @@
             if(res.items && Array.isArray(res.items) && res.items.length){
               var b=res.items[0]; if(b.url) return b.url; if(b.id) return "https://drive.google.com/file/d/"+b.id+"/view";
             }
-          }catch(_){}
+          }catch(_){ }
           return "";
         }
         try{
@@ -308,10 +308,10 @@
               var res = await tryCall([apis[i][0]], apis[i][1]);
               url = best(res);
               if (url) break;
-            }catch(_){}
+            }catch(_){ }
           }
           if (url){
-            try{ if(window.PROXY_CACHE) window.PROXY_CACHE[sid]=url; }catch(_){}
+            try{ if(window.PROXY_CACHE) window.PROXY_CACHE[sid]=url; }catch(_){ }
             var idm = (String(url).match(/[-\w]{25,}/)||[])[0] || "";
             var thumb = idm ? ("https://drive.google.com/thumbnail?id="+idm+"&sz=w320") : url;
             el.innerHTML = '<a href="'+url+'" target="_blank" rel="noopener"><img loading="lazy" decoding="async" style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px" src="'+thumb+'"></a>';
@@ -325,6 +325,7 @@
 
       return el;
     }
+
 
     // 譌｢蟄倥ち繧､繝励・蠕捺擂縺ｮ繝ｬ繝ｳ繝繝ｩ縺ｫ蟋碑ｭｲ
     switch(t){
@@ -412,6 +413,11 @@ window.applyData = window.applyData || function(p){
 
 
 </script>
+
+
+
+
+
 
 
 
