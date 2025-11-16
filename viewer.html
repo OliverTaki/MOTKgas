@@ -674,6 +674,52 @@
     });
   }
 
+  var LAST_VIEW_CACHE_TTL = 30*24*60*60*1000;
+
+  function ensureFilterGroupDefaults(){
+    if(!Array.isArray(STATE.filterGroups) || STATE.filterGroups.length === 0){
+      STATE.filterGroups = [{
+        id: rid(),
+        name: 'Group 1',
+        mode: 'any',
+        rules: [{ id:'', op:'isempty', value:'', values:[] }]
+      }];
+    }
+    var first = STATE.filterGroups[0];
+    if(first && (!Array.isArray(first.rules) || first.rules.length === 0)){
+      first.rules = [{ id:'', op:'isempty', value:'', values:[] }];
+    }
+  }
+
+  function rememberLastView(){
+    try{
+      if(!STATE) return;
+      LSC_set('motk:lastView',{
+        sheet: STATE.sheetName || '',
+        pid: STATE.pageId || '',
+        perPage: STATE.perPage || ''
+      });
+    }catch(_){}
+  }
+
+  function applyLastViewFallback(){
+    try{
+      var saved = LSC_get('motk:lastView', LAST_VIEW_CACHE_TTL);
+      if(!saved) return;
+      var hasPid = !!getUrlParam('pid');
+      var hasEntity = !!getUrlParam('entity');
+      if(!STATE.pageId && saved.pid && !hasPid){
+        STATE.pageId = saved.pid;
+      }
+      if((!STATE.sheetName || !STATE.sheetName.length) && saved.sheet && !hasEntity){
+        STATE.sheetName = singularEntityFor(saved.sheet);
+      }
+      if(saved.perPage && !hasPid){
+        STATE.perPage = normalizePerPageValue(saved.perPage);
+      }
+    }catch(_){}
+  }
+
   /* ===== 10. Link マップ（LINK_MAPS） & 名前抽出 ===== */
 
   window.LINK_MAPS = window.LINK_MAPS || {assets:{}, shots:{}, tasks:{}, users:{}, members:{}};
@@ -2060,6 +2106,126 @@
     });
   })();
 
+  function snapshotCurrentPageConfig(){
+    var order = (STATE.pageCfgRaw && Array.isArray(STATE.pageCfgRaw.order) && STATE.pageCfgRaw.order.length)
+      ? STATE.pageCfgRaw.order.slice()
+      : resolveOrder().slice();
+    return {
+      order: order,
+      widths: copy(STATE.widths||{}),
+      hidden: copy(STATE.hiddenCols||{}),
+      sort: Array.isArray(STATE.sort) ? STATE.sort.slice() : [],
+      group: Array.isArray(STATE.group) ? STATE.group.slice() : [],
+      filterGroups: Array.isArray(STATE.filterGroups) ? deepCopy(STATE.filterGroups) : [],
+      groupCombine: (STATE.groupCombine==='any'?'any':'all')
+    };
+  }
+
+  function entityLabelForSave(){
+    var ent = (typeof resolveEntityStrict==='function')
+      ? resolveEntityStrict()
+      : (STATE && STATE.sheetName) || 'shot';
+    return pluralEntityFor(ent);
+  }
+
+  function refreshPresetsAfterSave(){
+    return fetchPagesForEntity(STATE.sheetName||resolveEntityStrict()||'shot')
+      .then(function(){
+        try{ wirePresetSelectAfterLoad && wirePresetSelectAfterLoad(); }catch(_){}
+        var sel=document.getElementById('presetSelect');
+        if(sel && STATE.pageId) sel.value=STATE.pageId;
+      }).catch(function(){});
+  }
+
+  window.saveCurrentPageConfig = function(){
+    var pid = STATE && STATE.pageId ? STATE.pageId : 'pg_default';
+    var cfg = snapshotCurrentPageConfig();
+    var payload = {
+      pageId: pid,
+      entity: entityLabelForSave(),
+      pageType: STATE && STATE.pageType ? STATE.pageType : 'table',
+      config: cfg
+    };
+    if(typeof showStatus==='function') showStatus('saving…');
+    callFirst(['sv_savePageConfig','gsSavePageConfig','savePageLayout','dp_savePageConfig'],
+      payload,
+      function(){
+        applyLoadedConfig({config:cfg});
+        cachePageConfigSnapshot(pid);
+        setDirty(false);
+        rememberLastView();
+        refreshPresetsAfterSave();
+        if(typeof showStatus==='function') showStatus('saved');
+      },
+      function(){
+        if(typeof showStatus==='function') showStatus('save failed');
+      }
+    );
+  };
+
+  function needsQuoteForName(s){
+    var val = String(s||'').trim();
+    if(!val) return false;
+    if(/^0\d+$/.test(val)) return true;
+    if(/^[+-]?\d+(\.\d+)?$/.test(val)) return true;
+    if(val.length>=12 && /^\d+$/.test(val)) return true;
+    return false;
+  }
+
+  window.saveAsPage = function(name, shared, done){
+    var nmEl = document.getElementById('npName') || document.getElementById('pgName');
+    var shEl = document.getElementById('npShared') || document.getElementById('pgShared');
+    if(typeof name==='undefined') name = nmEl ? String(nmEl.value||'').trim() : '';
+    if(typeof shared==='undefined') shared = shEl ? !!shEl.checked : false;
+    done = typeof done==='function' ? done : function(){};
+    if(!name){
+      if(nmEl){ nmEl.focus(); }
+      done();
+      return;
+    }
+    var safeName = needsQuoteForName(name) ? ("'"+name) : name;
+    var cfg = snapshotCurrentPageConfig();
+    var payload = {
+      pageId: 'pg_new',
+      pageName: safeName,
+      shared: !!shared,
+      entity: entityLabelForSave(),
+      pageType: STATE && STATE.pageType ? STATE.pageType : 'table',
+      config: cfg
+    };
+    if(typeof showStatus==='function') showStatus('saving…');
+    callFirst(['sv_savePageConfig','gsSavePageConfig','savePageLayout','dp_savePageConfig'],
+      payload,
+      function(res){
+        var newId = res && (res.pageId || res.id || res.pid) || '';
+        if(newId){
+          STATE.pageId = newId;
+          applyLoadedConfig({config:cfg});
+          cachePageConfigSnapshot(newId);
+          rememberLastView();
+        }
+        setDirty(false);
+        refreshPresetsAfterSave();
+        if(typeof showStatus==='function') showStatus('saved');
+        done();
+      },
+      function(){
+        if(typeof showStatus==='function') showStatus('save failed');
+        done();
+      }
+    );
+  };
+
+  window.revertCurrentPageConfig = function(){
+    if(!STATE || !STATE.pageId) return;
+    if(typeof showStatus==='function') showStatus('reverting…');
+    loadPageConfigFromCacheThenNetwork(STATE.pageId, function(){
+      setDirty(false);
+      try{ renderCurrentPage && renderCurrentPage(true); }catch(_){}
+      if(typeof showStatus==='function') showStatus('reverted');
+    }, {forceNetwork:true});
+  };
+
   /* ===== 26. fetch + payload（buildServerPayload / fetchAndRenderPage / fetchPageOnlyFromCacheThenNetwork） ===== */
 
   function applySheetNameFromPayload(payload, meta){
@@ -2115,6 +2281,7 @@
     var limit  = resolveFetchLimit();
     var offset = (STATE.page-1) * pageWindow;
 
+    var payload = buildServerPayload(offset, limit);
     var key = 'motk:rows:' + [
       _canon(STATE.sheetName),
       _canon(STATE.pageType||'table'),
@@ -2133,8 +2300,6 @@
         ensureRowsAfterFetch();
         if(cb) cb();
     }
-
-    var payload = buildServerPayload(offset, limit);
 
     callFirst(['listRowsPage','sv_listRowsPage','gsListRowsPage','dp_listRowsPage'],
       payload,
@@ -2285,10 +2450,7 @@
 
   function wirePresetSelectAfterLoad(){
     var sel=document.getElementById('presetSelect'); if(!sel)return;
-    var pt=_canon(STATE.pageType||'table');
-    var list=(Array.isArray(STATE.pageList)?STATE.pageList:[]).filter(function(x){
-      return _canon(getPageType(x))===pt;
-    });
+    var list=(Array.isArray(STATE.pageList)?STATE.pageList:[]);
     var cur=sel.value; sel.innerHTML='';
     for(var i=0;i<list.length;i++){
       var x=list[i];
@@ -2308,6 +2470,7 @@
 
     sel.removeEventListener('change', onPresetChange);
     sel.addEventListener('change', onPresetChange);
+    bindPresetAutoRefresh(sel);
   }
 
   function onPresetChange(ev){
@@ -2319,6 +2482,7 @@
       STATE.pageId = pid;
       var ent = entityFromPageId(pid) || resolveEntityStrict();
       STATE.sheetName = ent;
+      rememberLastView();
 
       var usp = (typeof writeUrlState==='function')
         ? writeUrlState()
@@ -2338,16 +2502,56 @@
     }catch(_){}
   }
 
-  function fetchPagesForEntity(entity){
+  function filterPagesForEntity(list, entity){
+    var entSing = singularEntityFor(entity||STATE.sheetName||'shot');
+    var entCanon = _canon(entSing);
+    var entPluralCanon = _canon(pluralEntityFor(entSing));
+    var ptCanon = _canon(STATE.pageType||'table');
+    return list.filter(function(x){
+      var xe = _canon(getPageEnt(x));
+      var xt = _canon(getPageType(x));
+      var entOk = !xe || xe===entCanon || xe===entPluralCanon;
+      var typeOk = !xt || xt===ptCanon;
+      return entOk && typeOk;
+    });
+  }
+
+  function bindPresetAutoRefresh(sel){
+    if(!sel || sel._motkRefreshBound) return;
+    sel._motkRefreshBound = true;
+    var kick = function(){
+      if(!STATE || !STATE.sheetName) return;
+      var badge=document.getElementById('presetStatus');
+      if(badge) badge.textContent='syncing…';
+      fetchPagesForEntity(STATE.sheetName, {forceNetwork:true}).then(function(){
+        var b=document.getElementById('presetStatus');
+        if(b) b.textContent='synced';
+      }).catch(function(){
+        var b=document.getElementById('presetStatus');
+        if(b) b.textContent='sync failed';
+      });
+    };
+    sel.addEventListener('mousedown', kick);
+    sel.addEventListener('focus', kick);
+  }
+
+  function fetchPagesForEntity(entity, opts){
+    opts = opts || {};
     return new Promise(function(resolve){
       STATE._pagesFetchDone = false;
-      var entPlural = pluralEntityFor(entity);
+      var entSing = singularEntityFor(entity||STATE.sheetName||'shot');
+      var payload = {
+        entity: _canon(entSing),
+        pageType: 'table'
+      };
+      if(opts.forceNetwork) payload.nocache = true;
       callFirst(['sv_listPages','gsListPagePresets'],
-        { entity: entPlural, pageType:'table' },
+        payload,
         function(list){
           var arr = Array.isArray(list) ? list
                     : (list && Array.isArray(list.items) ? list.items : []);
-          STATE.pageList = Array.isArray(arr) ? arr : [];
+          var filtered = Array.isArray(arr) ? filterPagesForEntity(arr, entSing) : [];
+          STATE.pageList = filtered;
           STATE._pagesFetchDone = true;
           try{ wirePresetSelectAfterLoad && wirePresetSelectAfterLoad(); }catch(_){}
           resolve();
@@ -2362,13 +2566,96 @@
     });
   }
 
+  function pageConfigCacheKey(pid){
+    return pid ? ('motk:cfg:'+pid) : '';
+  }
+
+  function applyLoadedConfig(cfg){
+    var c = (cfg && cfg.config && typeof cfg.config === 'object') ? cfg.config : (cfg || {});
+    STATE.pageCfgRaw = {
+      order        : (c && Array.isArray(c.order)) ? uniq(c.order) : null,
+      widths       : (c && c.widths && typeof c.widths === 'object') ? copy(c.widths) : {},
+      hidden       : (c && c.hidden && typeof c.hidden === 'object') ? copy(c.hidden) : {},
+      group        : (c && Array.isArray(c.group)) ? c.group.slice() : [],
+      filterGroups : (c && Array.isArray(c.filterGroups)) ? deepCopy(c.filterGroups) : [],
+      sort         : (c && Array.isArray(c.sort)) ? c.sort.slice() : []
+    };
+    STATE.widths = copy(STATE.pageCfgRaw.widths);
+    STATE.hiddenCols = copy(STATE.pageCfgRaw.hidden);
+    STATE.group = Array.isArray(STATE.pageCfgRaw.group) ? STATE.pageCfgRaw.group.slice() : [];
+    STATE.filterGroups = Array.isArray(STATE.pageCfgRaw.filterGroups) ? deepCopy(STATE.pageCfgRaw.filterGroups) : [];
+    STATE.groupCombine = (c && c.groupCombine === 'any') ? 'any' : 'all';
+    STATE.sort = Array.isArray(STATE.pageCfgRaw.sort) ? STATE.pageCfgRaw.sort.slice() : [];
+    ensureFilterGroupDefaults();
+  }
+
+  function cachePageConfigSnapshot(pid){
+    if(!pid || !STATE || !STATE.pageCfgRaw) return;
+    LSC_set(pageConfigCacheKey(pid), {
+      order: STATE.pageCfgRaw.order,
+      widths: STATE.pageCfgRaw.widths,
+      hidden: STATE.pageCfgRaw.hidden,
+      group: STATE.pageCfgRaw.group,
+      filterGroups: STATE.pageCfgRaw.filterGroups,
+      groupCombine: STATE.groupCombine,
+      sort: Array.isArray(STATE.sort)?STATE.sort.slice():[]
+    });
+  }
+
+  function loadPageConfigFromCacheThenNetwork(pid, done, opts){
+    opts = opts || {};
+    if(!pid){
+      STATE.pageCfgRaw = null;
+      STATE.widths = {};
+      STATE.hiddenCols = {};
+      STATE.group = [];
+      STATE.filterGroups = [];
+      STATE.groupCombine = 'all';
+      STATE.sort = [];
+      ensureFilterGroupDefaults();
+      setDirty(false);
+      if(typeof done === 'function') done();
+      return;
+    }
+    var key = pageConfigCacheKey(pid);
+    if(opts.forceNetwork){
+      try{ localStorage.removeItem(key); }catch(_){}
+    }else{
+      var cached = LSC_get(key, 24*60*60*1000);
+      if(cached){
+        applyLoadedConfig(cached);
+        setDirty(false);
+      }
+    }
+    var payload = { pageId: pid };
+    if(opts.forceNetwork) payload.nocache = true;
+    callFirst(['sv_loadPageConfig','gsLoadPageConfig','getPageLayout','dp_loadPageConfig'],
+      payload,
+      function(cfg){
+        applyLoadedConfig(cfg||{});
+        setDirty(false);
+        cachePageConfigSnapshot(pid);
+        if(typeof rememberLastView==='function') rememberLastView();
+        if(typeof done === 'function') done();
+      },
+      function(){
+        if(typeof done === 'function') done();
+      }
+    );
+  }
+
   function pickInitialPageId(){
     var ent=pluralEntityFor(STATE.sheetName).toLowerCase();
     var pt=(STATE.pageType||'table').toLowerCase();
+    var canonEnt = _canon(STATE.sheetName);
+    var canonPlural = _canon(pluralEntityFor(STATE.sheetName));
+    var ptCanon = _canon(STATE.pageType||'table');
     var list=(Array.isArray(STATE.pageList)?STATE.pageList:[]).filter(function(x){
-      var xe=(String(getPageEnt(x)||'')||'').toLowerCase();
-      var xt=(String(getPageType(x)||'')||'').toLowerCase();
-      return xe===ent && xt===pt;
+      var xe=_canon(getPageEnt(x));
+      var xt=_canon(getPageType(x));
+      var entOk = !xe || xe===canonEnt || xe===canonPlural || xe===ent;
+      var typeOk = !xt || xt===ptCanon || xt===pt;
+      return entOk && typeOk;
     });
     var qpid=getUrlParam('pid');
     if(qpid && list.some(function(x){ return getPageId(x)===qpid; })) return qpid;
@@ -2433,6 +2720,7 @@
     STATE.pageType='table';
 
     resolveEntityFromContext();
+    applyLastViewFallback();
 
     try{ bindPagerControls && bindPagerControls(); }catch(_){}
     try{ updatePagerUI && updatePagerUI(); }catch(_){}
@@ -2440,7 +2728,9 @@
     await fetchPagesForEntity(STATE.sheetName);
 
     var qpid = getUrlParam('pid');
-    STATE.pageId = qpid || pickInitialPageId();
+    var lastPid = (!qpid && STATE.pageId) ? STATE.pageId : '';
+    STATE.pageId = qpid || lastPid || pickInitialPageId();
+    rememberLastView();
 
     try{
       var usp = writeUrlState ? writeUrlState() : new URLSearchParams(location.search);
@@ -2495,14 +2785,23 @@
   }
 
   function handleNavigate(ev){
+    var handledSignal=false;
+    function markHandled(){
+      if(handledSignal) return;
+      handledSignal=true;
+      try{ window.dispatchEvent(new CustomEvent('motk:navigate:handled')); }catch(_){}
+    }
     try{
       var detail = ev && ev.detail || {};
       var pid = detail.page || '';
       if(pid){
         var usp = new URLSearchParams(location.search);
         usp.set('page', pid);
+        var derived = singularEntityFor(pid);
+        if(derived) usp.set('entity', derived);
         history.replaceState({page:pid},'',location.pathname+'?'+usp.toString());
       }
+      markHandled();
       resolveEntityFromContext();
       STATE.pageId = '';
       STATE.filterGroups = [];
@@ -2511,6 +2810,7 @@
         return fetchPagesForEntity(STATE.sheetName);
       }).then(function(){
         STATE.pageId = pickInitialPageId();
+        rememberLastView();
         try{
           var usp2 = writeUrlState ? writeUrlState() : new URLSearchParams(location.search);
           if(STATE.pageId) usp2.set('pid', STATE.pageId);
@@ -2528,15 +2828,11 @@
         });
         return Promise.all([linksP,cfgP]);
       }).then(function(){
-        fetchPageOnlyFromCacheThenNetwork(1, function(){
-          window.dispatchEvent(new CustomEvent('motk:navigate:handled'));
-        });
+        fetchPageOnlyFromCacheThenNetwork(1, function(){});
       }).catch(function(){
-        window.dispatchEvent(new CustomEvent('motk:navigate:handled'));
         location.reload();
       });
     }catch(e){
-      window.dispatchEvent(new CustomEvent('motk:navigate:handled'));
       location.reload();
     }
   }
