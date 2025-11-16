@@ -248,6 +248,16 @@
     if(s==='projectmembers'||s==='projectmember'||s==='members'||s==='member') return 'member';
     return s||'shot';
   }
+  function entityFromPageName(x){
+    var s=_canon(x);
+    if(s==='shots') return 'shot';
+    if(s==='assets') return 'asset';
+    if(s==='tasks') return 'task';
+    if(s==='users') return 'user';
+    if(s==='projectmembers') return 'member';
+    if(s==='members') return 'member';
+    return '';
+  }
 
   function pluralEntityFor(x){
     var s=singularEntityFor(x);
@@ -2685,7 +2695,7 @@
       var pageParam = (getUrlParam('page') || '').trim();
       var pageLc = pageParam.toLowerCase();
       if(pageLc && /^(shots|assets|tasks|users|members|projectmembers)$/.test(pageLc)){
-        raw = pageParam;
+        raw = entityFromPageName(pageParam) || pageParam;
       }
     }
     if(!raw){
@@ -2812,7 +2822,7 @@
       var detail = ev && ev.detail || {};
       var pid = detail.page || '';
       var entityFromDetail = detail.entity ? singularEntityFor(detail.entity) : '';
-      var entityFromPid = (!entityFromDetail && pid) ? singularEntityFor(pid) : '';
+      var entityFromPid = (!entityFromDetail && pid) ? entityFromPageName(pid) : '';
       var nextEntity = entityFromDetail || entityFromPid;
       if(STATE){
         STATE._navEntity = nextEntity || '';

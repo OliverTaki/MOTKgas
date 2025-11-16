@@ -126,36 +126,66 @@ function _resolveTemplateName_(page, entity, id) {
 
 
 
-function _normalizePageAndEntity_(page, entity) {
-  var pageRaw = String(page || '').trim().toLowerCase();
-  var entRaw = String(entity || '').trim().toLowerCase();
-  function normEntity(x) {
-    if (x === 'assets' || x === 'asset') return 'asset';
-    if (x === 'tasks'  || x === 'task')  return 'task';
-    if (x === 'users'  || x === 'user')  return 'user';
-    if (x === 'members'|| x === 'member' || x === 'projectmembers' || x === 'projectmember') return 'member';
-    if (x === 'shots'  || x === 'shot' || x === 'table' || x === 'index' || x === '') return 'shot';
-    return entRaw || 'shot';
-  }
-
-  if (pageRaw === 'debugpanel' || pageRaw === 'debug' || pageRaw === 'debugpanelpage') {
-    return { page: 'DebugPanelPage', entity: entRaw || 'shot' };
-  }
-  if (/^detail[a-z]+$/.test(pageRaw)) {
-    return { page: page || 'DetailShot', entity: entRaw || 'shot' };
-  }
-  if (pageRaw === 'assets')  return { page: 'Assets', entity: entRaw || 'asset' };
-  if (pageRaw === 'shots')   return { page: 'Shots', entity: entRaw || 'shot' };
-  if (pageRaw === 'tasks')   return { page: 'Tasks', entity: entRaw || 'task' };
-  if (pageRaw === 'users')   return { page: 'Users', entity: entRaw || 'user' };
-  if (pageRaw === 'members' || pageRaw === 'projectmembers') {
-    return { page: 'Members', entity: entRaw || 'member' };
-  }
-  if (pageRaw === '' || pageRaw === 'table' || pageRaw === 'index' || pageRaw === 'list' || pageRaw === 'viewer') {
-    return { page: 'Shots', entity: normEntity(entRaw || 'shot') };
-  }
-  return { page: page || 'Shots', entity: normEntity(entRaw) };
-}
+function _normalizePageAndEntity_(page, entity) {
+
+  var pageRaw = String(page || '').trim().toLowerCase();
+
+  var entRaw = String(entity || '').trim().toLowerCase();
+
+  function normEntity(x) {
+
+    if (x === 'assets' || x === 'asset') return 'asset';
+
+    if (x === 'tasks'  || x === 'task')  return 'task';
+
+    if (x === 'users'  || x === 'user')  return 'user';
+
+    if (x === 'members'|| x === 'member' || x === 'projectmembers' || x === 'projectmember') return 'member';
+
+    if (x === 'shots'  || x === 'shot' || x === 'table' || x === 'index' || x === '') return 'shot';
+
+    return entRaw || 'shot';
+
+  }
+
+
+
+  if (pageRaw === 'debugpanel' || pageRaw === 'debug' || pageRaw === 'debugpanelpage') {
+
+    return { page: 'DebugPanelPage', entity: entRaw || 'shot' };
+
+  }
+
+  if (/^detail[a-z]+$/.test(pageRaw)) {
+
+    return { page: page || 'DetailShot', entity: entRaw || 'shot' };
+
+  }
+
+  if (pageRaw === 'assets')  return { page: 'Assets', entity: entRaw || 'asset' };
+
+  if (pageRaw === 'shots')   return { page: 'Shots', entity: entRaw || 'shot' };
+
+  if (pageRaw === 'tasks')   return { page: 'Tasks', entity: entRaw || 'task' };
+
+  if (pageRaw === 'users')   return { page: 'Users', entity: entRaw || 'user' };
+
+  if (pageRaw === 'members' || pageRaw === 'projectmembers') {
+
+    return { page: 'Members', entity: entRaw || 'member' };
+
+  }
+
+  if (pageRaw === '' || pageRaw === 'table' || pageRaw === 'index' || pageRaw === 'list' || pageRaw === 'viewer') {
+
+    return { page: 'Shots', entity: normEntity(entRaw || 'shot') };
+
+  }
+
+  return { page: page || 'Shots', entity: normEntity(entRaw) };
+
+}
+
 
 // 繝ｫ繝ｼ繧ｿ繝ｼ譛ｬ菴・
 function doGet(e) {
@@ -801,6 +831,47 @@ function _sortRowsBySpecs_(rows, sortList, ids, header) {
   return copy;
 }
 
+function _pruneEmptyColumns_(ids, header, rows) {
+  var maxLen = Math.max(ids.length, header.length);
+  var keep = [];
+  outer:
+  for (var i = 0; i < maxLen; i++) {
+    var idVal = (i < ids.length && ids[i] != null) ? String(ids[i]).trim() : '';
+    var headerVal = (i < header.length && header[i] != null) ? String(header[i]).trim() : '';
+    if (idVal || headerVal) {
+      keep.push(i);
+      continue;
+    }
+    for (var r = 0; r < rows.length; r++) {
+      var row = rows[r];
+      if (row && row[i] != null && String(row[i]).trim() !== '') {
+        keep.push(i);
+        continue outer;
+      }
+    }
+    // drop column
+  }
+  if (keep.length === maxLen) {
+    return { ids: ids, header: header, rows: rows };
+  }
+  var trimmedIds = [];
+  var trimmedHeader = [];
+  for (var k = 0; k < keep.length; k++) {
+    var idx = keep[k];
+    trimmedIds.push(idx < ids.length ? ids[idx] : '');
+    trimmedHeader.push(idx < header.length ? header[idx] : '');
+  }
+  var trimmedRows = rows.map(function(row) {
+    var out = [];
+    for (var j = 0; j < keep.length; j++) {
+      var idx = keep[j];
+      out.push(row && idx < row.length ? row[idx] : '');
+    }
+    return out;
+  });
+  return { ids: trimmedIds, header: trimmedHeader, rows: trimmedRows };
+}
+
 /**
  * listRowsPage 縺ｮ繧ｳ繧｢螳溯｣・
  * 謌ｻ繧雁､: { columns: [...], rows: [...], meta: {...} }
@@ -836,6 +907,10 @@ function _listRowsPageCore_(params) {
   if (end > total) end = total;
 
   var sliced = workingRows.slice(start, end);
+  var trimmed = _pruneEmptyColumns_(ids, header, sliced);
+  ids = trimmed.ids;
+  header = trimmed.header;
+  sliced = trimmed.rows;
 
   var result = {
     ids:     ids,
@@ -880,79 +955,70 @@ function sv_listRowsPage(params) {
  * FIELDS 繧ｷ繝ｼ繝医°繧峨∵欠螳・entity 縺ｮ繝輔ぅ繝ｼ繝ｫ繝芽｡後ｒ驟榊・縺ｧ霑斐☆
  * 謌ｻ繧雁､縺ｯ縲・陦檎岼莉･髯阪・ raw 陦碁・蛻励・
  */
-function getFields(entity) {
-  if (!entity) {
-    throw new Error('getFields: entity is required.');
-  }
+function getFieldsMatrix(){
 
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName('FIELDS');
-  if (!sh) {
-    return [];
-  }
+  var map = {};
 
-  var lastRow = sh.getLastRow();
-  var lastCol = sh.getLastColumn();
-  if (lastRow < 2 || lastCol < 1) {
-    return [];
-  }
+  var all = getFieldTypes(null) || {};
 
-  var values = sh.getRange(1, 1, lastRow, lastCol).getValues();
-  var header = values[0];
+  for (var ent in all){
 
-  // "Entity" 蛻励ｒ謗｢縺・
-  var entityCol = -1;
-  for (var c = 0; c < header.length; c++) {
-    if (String(header[c]).toLowerCase() === 'entity') {
-      entityCol = c;
-      break;
+    if(!all.hasOwnProperty(ent)) continue;
+
+    var defs = all[ent] || {};
+
+    var typeCounts = {};
+
+    for (var fid in defs){
+
+      if(!defs.hasOwnProperty(fid)) continue;
+
+      var def = defs[fid] || {};
+
+      var t = String(def.type||'').toLowerCase();
+
+      typeCounts[t] = (typeCounts[t]||0)+1;
+
     }
-  }
-  // 繝倥ャ繝縺檎┌縺・ｴ蜷医・證ｫ螳壹〒蛻・繧・Entity 縺ｨ縺ｿ縺ｪ縺・
-  if (entityCol === -1) {
-    entityCol = 1;
+
+    map[ent] = typeCounts;
+
   }
 
-  var out = [];
-  var target = String(entity).toLowerCase();
-  for (var r = 1; r < values.length; r++) {
-    var row = values[r];
-    var entValue = String(row[entityCol] || '').toLowerCase();
-    if (!entValue) continue;
-    if (entValue === target) {
-      out.push(row);
-    }
-  }
+  return map;
 
-  return out;
 }
 
-/**
- * 繝・ヰ繝・げ逕ｨ: 繧ｷ繝ｧ繝・ヨ荳隕ｧ繧偵し繝ｼ繝仙・繝ｭ繧ｰ縺ｧ遒ｺ隱・
- */
-function debug_listRowsPage_shot() {
-  var res = listRowsPage('shot');
-  Logger.log('SHOT meta: %s', JSON.stringify(res.meta, null, 2));
-  if (res.rows && res.rows.length > 0) {
-    Logger.log('First row (shot): %s', JSON.stringify(res.rows[0]));
-  } else {
-    Logger.log('No shot rows returned.');
-  }
-}
 
-/**
- * 繝・ヰ繝・げ逕ｨ: 繧｢繧ｻ繝・ヨ荳隕ｧ繧偵し繝ｼ繝仙・繝ｭ繧ｰ縺ｧ遒ｺ隱・
- */
-function debug_listRowsPage_asset() {
-  var res = listRowsPage('asset');
-  Logger.log('ASSET meta: %s', JSON.stringify(res.meta, null, 2));
-  if (res.rows && res.rows.length > 0) {
-    Logger.log('First row (asset): %s', JSON.stringify(res.rows[0]));
-  } else {
-    Logger.log('No asset rows returned.');
-  }
-}
 
+function getFields(entity) {
+  var all = getFieldTypes(null) || {};
+  var keys = entity ? [_norm_(entity)] : Object.keys(all);
+  var rows = [];
+  for (var i = 0; i < keys.length; i++) {
+    var entKey = keys[i];
+    var defs = all[entKey] || {};
+    for (var fid in defs) {
+      if (!defs.hasOwnProperty(fid)) continue;
+      var def = defs[fid] || {};
+      rows.push({
+        entity: entKey,
+        fieldId: fid,
+        label: def.label || '',
+        name: def.label || '',
+        type: def.type || 'text',
+        editable: def.editable != null ? !!def.editable : true,
+        required: !!def.required
+      });
+    }
+  }
+  return rows;
+}
+
+function listFields(entity) {
+  return getFields(entity || null);
+}
+
 /* ===== 7. End of Sheet-backed row listing & fields ===== */
 
 
@@ -1072,36 +1138,6 @@ function sv_listRowsPage(entity, options) {
   };
 }
 
-/**
- * getFields(entity)
- * - DebugPanel Contract Inspector 逕ｨ縲・
- * - entity 縺梧ｸ｡縺輔ｌ縺溘ｉ縺昴・ entity 縺縺代・
- *   譛ｪ謖・ｮ壹↑繧牙・ entity 縺ｮ螳夂ｾｩ繧定ｿ斐☆縲・
- * - 蛻､蛻･縺ｯ entity 縺ｮ譁・ｭ怜・・・shot" 遲会ｼ・ FI 繝吶・繧ｹ縲・
- */
-function getFields(entity) {
-  // getFieldTypes 縺ｯ entity 繧堤怐逡･縺吶ｋ縺ｨ蜈ｨ繧ｨ繝ｳ繝・ぅ繝・ぅ繧定ｿ斐☆螳溯｣・
-  var all = getFieldTypes(entity || null) || {};
-
-  // entity 譛ｪ謖・ｮ壹↑繧峨◎縺ｮ縺ｾ縺ｾ霑斐☆・・ields matrix 逕ｨ・・
-  if (!entity) {
-    return all;
-  }
-
-  var key = String(entity || '').toLowerCase();
-  return all[key] || {};
-}
-
-
-/**
- * listFields()
- * - 蜈ｨ entity 縺ｮ繝輔ぅ繝ｼ繝ｫ繝牙ｮ夂ｾｩ繧偵∪縺ｨ繧√※蜿門ｾ励・
- * - 霑泌唆蠖｢蠑・ { shot:{fi_0001:{...},...}, asset:{...}, ... }
- */
-function listFields() {
-  // getFieldTypes 縺ｫ entity 繧呈ｸ｡縺輔↑縺・ｼ医∪縺溘・遨ｺ・峨→縲∝・ entity 繧定ｿ斐☆螳溯｣・↓縺ｪ縺｣縺ｦ縺・ｋ蜑肴署縲・
-  return getFieldTypes(null) || {};
-}
 
 /* ===== 8. End ===== */
 
