@@ -633,6 +633,19 @@
 
   /* ===== 9. Viewer STATE 定義 ===== */
 
+  window.applyData = window.applyData || function(p){
+    p = p || {};
+    window.STATE = window.STATE || {};
+    STATE.fieldIds = Array.isArray(p.ids) ? p.ids.slice() : [];
+    STATE.header   = Array.isArray(p.header) ? p.header.slice() : [];
+    STATE.rows     = Array.isArray(p.rows) ? p.rows.slice() : [];
+    var total = Number(p.total);
+    STATE.total = (isFinite(total) && total >= 0) ? total : STATE.rows.length;
+    if(typeof updatePagerUI === 'function'){
+      try{ updatePagerUI(); }catch(_){}
+    }
+  };
+
   window.STATE=window.STATE||{};
   var STATE=window.STATE;
   STATE.sheetName=STATE.sheetName||'';
