@@ -80,10 +80,10 @@
         if(cur && pid && pid===cur) a.classList.add('active');
       }
     }
-    function navigateTo(pid){
+    function navigateTo(pid, entHint){
       if(!pid) return;
+      var ent = entHint || pageToEntity(pid);
       var usp=new URLSearchParams(location.search); usp.set('page',pid);
-      var ent = pageToEntity(pid);
       if(ent) usp.set('entity', ent);
       history.pushState({page:pid},'',location.pathname+'?'+usp.toString());
       setActiveNav();
@@ -97,17 +97,35 @@
       var as=nav.querySelectorAll('a[href]');
       for(var i=0;i<as.length;i++){
         var a=as[i];
+        if(a.dataset.spaBound==='1') continue;
         var pid=a.dataset.page||getParamPid(a.getAttribute('href'))||'';
         if(!pid) continue;
         a.dataset.page=pid;
+        if(!a.dataset.entity){
+          a.dataset.entity = a.getAttribute('data-entity') || pageToEntity(pid);
+        }
+        a.dataset.spaBound='1';
         a.addEventListener('click',function(e){
-          var p=e.currentTarget.dataset.page||''; if(!p) return;
-          e.preventDefault(); navigateTo(p);
+          var link=e.currentTarget;
+          var p=link.dataset.page||''; if(!p) return;
+          var entAttr = link.dataset.entity || pageToEntity(p);
+          e.preventDefault(); navigateTo(p, entAttr);
         });
       }
       setActiveNav();
-      window.addEventListener('popstate', setActiveNav);
+      if(!window.__pNavPopstateBound){
+        window.addEventListener('popstate', setActiveNav);
+        window.__pNavPopstateBound = true;
+      }
     };
+    function autoEnableNav(){
+      try{ window.enableSpaNav && window.enableSpaNav(); }catch(_){}
+    }
+    if(document.readyState==='loading'){
+      document.addEventListener('DOMContentLoaded', autoEnableNav, {once:true});
+    }else{
+      autoEnableNav();
+    }
   })();
 
   /* --- 4.Entity link rewrite (安定) --- */

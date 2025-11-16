@@ -4,7 +4,7 @@
     <base target="_top" />
     <meta charset="utf-8" />
     <title>MOTKsheets G-Viewer</title>
-    <?!= include('COMMON_styles'); ?>
+    <?!= include('Web_CommonStyles'); ?>
   </head>
   <body data-nav-page="<?= page ?>">
 <!-- ===== 1.gnav ===== -->
@@ -23,7 +23,7 @@
   <a data-page="ProjectMembers" data-entity="member" href="<?= scriptUrl ?>?page=ProjectMembers&entity=member">Members</a>
   <a data-page="Users" data-entity="user" href="<?= scriptUrl ?>?page=Users&entity=user">Users</a>
 </nav>
-    <?!= include('Scripts'); ?>
+    <?!= include('Web_Router'); ?>
 
     <main id="main-content">
       <div class="loader">Loading...</div>
@@ -55,7 +55,7 @@
     
     <script src="<?= scriptUrl ?>?action=app-bundle"></script>
 
-    <?!= include('viewer'); ?>
+    <?!= include('Web_Viewer'); ?>
 
     <script>
       document.addEventListener('DOMContentLoaded', () => {

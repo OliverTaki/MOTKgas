@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>Viewer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <?!= include('COMMON_styles'); ?>
+  <?!= include('Web_CommonStyles'); ?>
 </head>
 <body>
 <div id="table-view-container">
@@ -76,8 +76,8 @@
   </div>
 </div>
 
-<?!= include('COMMON_renderer'); ?>
-<?!= include('Scripts'); ?>
+<?!= include('Web_CommonRenderer'); ?>
+<?!= include('Web_Router'); ?>
 
 <script>
 /** =========================================
@@ -650,6 +650,7 @@
   STATE.groupCombine=STATE.groupCombine||'all';
   STATE.groupEnabled=(STATE.groupEnabled!==false);
   STATE.dataSource=STATE.dataSource||'';
+  STATE._navEntity=STATE._navEntity||'';
   STATE._dataReady=!!STATE._dataReady;
   STATE._cfgReady=!!STATE._cfgReady;
   STATE._linksReady=!!STATE._linksReady;
@@ -2676,7 +2677,10 @@
   }
 
   function resolveEntityFromContext(){
-    var raw = (getUrlParam('entity') || '').trim();
+    var raw = (STATE && STATE._navEntity) ? STATE._navEntity : '';
+    if(!raw){
+      raw = (getUrlParam('entity') || '').trim();
+    }
     if(!raw){
       var pageParam = (getUrlParam('page') || '').trim();
       var pageLc = pageParam.toLowerCase();
@@ -2689,6 +2693,7 @@
     }
     var s = singularEntityFor(raw);
     STATE.sheetName = s;
+    if(STATE) STATE._navEntity='';
     return s;
   }
 
@@ -2809,6 +2814,9 @@
       var entityFromDetail = detail.entity ? singularEntityFor(detail.entity) : '';
       var entityFromPid = (!entityFromDetail && pid) ? singularEntityFor(pid) : '';
       var nextEntity = entityFromDetail || entityFromPid;
+      if(STATE){
+        STATE._navEntity = nextEntity || '';
+      }
       if(pid){
         var usp = new URLSearchParams(location.search);
         usp.set('page', pid);
@@ -2855,25 +2863,6 @@
   }
 
   window.addEventListener('motk:navigate', handleNavigate);
-  document.addEventListener('click', function(ev){
-    try{
-      var target = ev.target && ev.target.closest ? ev.target.closest('#pNav a[href]') : null;
-      if(!target) return;
-      if(ev.metaKey || ev.ctrlKey || ev.shiftKey || target.target==='_blank') return;
-      ev.preventDefault();
-      var pid = target.dataset && target.dataset.page
-        ? target.dataset.page
-        : (function(){
-            try{ var u=new URL(target.href, location.origin); return (u.searchParams.get('page')||'').trim(); }
-            catch(_){ return ''; }
-          })();
-      if(!pid) return;
-      var ent = (target.dataset && target.dataset.entity)
-        ? singularEntityFor(target.dataset.entity)
-        : singularEntityFor(pid);
-      window.dispatchEvent(new CustomEvent('motk:navigate',{detail:{page:pid, entity:ent}}));
-    }catch(_){}
-  }, true);
 
 })();
 </script>
