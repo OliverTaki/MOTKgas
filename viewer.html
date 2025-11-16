@@ -2853,6 +2853,22 @@
   }
 
   window.addEventListener('motk:navigate', handleNavigate);
+  document.addEventListener('click', function(ev){
+    try{
+      var target = ev.target && ev.target.closest ? ev.target.closest('#pNav a[href]') : null;
+      if(!target) return;
+      if(ev.metaKey || ev.ctrlKey || ev.shiftKey || target.target==='_blank') return;
+      ev.preventDefault();
+      var pid = target.dataset && target.dataset.page
+        ? target.dataset.page
+        : (function(){
+            try{ var u=new URL(target.href, location.origin); return (u.searchParams.get('page')||'').trim(); }
+            catch(_){ return ''; }
+          })();
+      if(!pid) return;
+      window.dispatchEvent(new CustomEvent('motk:navigate',{detail:{page:pid}}));
+    }catch(_){}
+  }, true);
 
 })();
 </script>
