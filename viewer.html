@@ -2806,15 +2806,17 @@
     try{
       var detail = ev && ev.detail || {};
       var pid = detail.page || '';
-      var entityFromPid = pid ? singularEntityFor(pid) : '';
+      var entityFromDetail = detail.entity ? singularEntityFor(detail.entity) : '';
+      var entityFromPid = (!entityFromDetail && pid) ? singularEntityFor(pid) : '';
+      var nextEntity = entityFromDetail || entityFromPid;
       if(pid){
         var usp = new URLSearchParams(location.search);
         usp.set('page', pid);
-        if(entityFromPid) usp.set('entity', entityFromPid);
+        if(nextEntity) usp.set('entity', nextEntity);
         history.replaceState({page:pid},'',location.pathname+'?'+usp.toString());
       }
-      if(entityFromPid){
-        STATE.sheetName = entityFromPid;
+      if(nextEntity){
+        STATE.sheetName = nextEntity;
       }
       markHandled();
       resolveEntityFromContext();
@@ -2866,7 +2868,10 @@
             catch(_){ return ''; }
           })();
       if(!pid) return;
-      window.dispatchEvent(new CustomEvent('motk:navigate',{detail:{page:pid}}));
+      var ent = (target.dataset && target.dataset.entity)
+        ? singularEntityFor(target.dataset.entity)
+        : singularEntityFor(pid);
+      window.dispatchEvent(new CustomEvent('motk:navigate',{detail:{page:pid, entity:ent}}));
     }catch(_){}
   }, true);
 

@@ -89,7 +89,7 @@
       setActiveNav();
       var handled=false;
       window.addEventListener('motk:navigate:handled', function once(){handled=true; window.removeEventListener('motk:navigate:handled', once);},{once:true});
-      try{ window.dispatchEvent(new CustomEvent('motk:navigate',{detail:{page:pid}})); }catch(_){}
+      try{ window.dispatchEvent(new CustomEvent('motk:navigate',{detail:{page:pid, entity:ent}})); }catch(_){}
       setTimeout(function(){ if(!handled){ location.reload(); } },0);
     }
     window.enableSpaNav=function enableSpaNav(){
