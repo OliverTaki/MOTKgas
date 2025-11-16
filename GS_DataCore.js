@@ -54,63 +54,108 @@ function include(filename) {
 
 // 繝壹・繧ｸ蜷・竊・繝・Φ繝励Ξ繝ｼ繝亥錐
 var PAGE_TEMPLATE_MAP = {
-  '':          'index',
-  'shots':     'index',
-  'assets':    'index',
-  'tasks':     'index',
-  'members':   'index',
-  'users':     'index',
-  'dashboard': 'index',
-  'settings':  'index',
-  'debugpanel':'DebugPanelPage'  // DebugPanel 蟆ら畑繝・Φ繝励Ξ
+
+  '':              'Web_Shell',
+
+  'shots':         'Web_Shell',
+
+  'assets':        'Web_Shell',
+
+  'tasks':         'Web_Shell',
+
+  'members':       'Web_Shell',
+
+  'projectmembers':'Web_Shell',
+
+  'users':         'Web_Shell',
+
+  'dashboard':     'Web_Shell',
+
+  'settings':      'Web_Shell',
+
+  'index':         'Web_Shell',
+
+  'table':         'Web_Shell',
+
+  'viewer':        'Web_Shell',
+
+  'debugpanel':    'Web_DebugPanel',
+
+  'debugpanelpage':'Web_DebugPanel',
+
+  'debug':         'Web_DebugPanel'
+
 };
 
 // page / entity / id 縺九ｉ繝・Φ繝励Ξ繝ｼ繝亥錐繧呈ｱｺ螳・
 function _resolveTemplateName_(page, entity, id) {
+
   var p = String(page || '').toLowerCase();
 
-  if (p === 'debugpanel' || p === 'debugpanelpage') {
-    return 'DebugPanelPage';
+
+
+  if (p === 'debugpanel' || p === 'debugpanelpage' || p === 'debug') {
+
+    return 'Web_DebugPanel';
+
   }
+
+
+
+  if (/^detail[a-z0-9_-]*/.test(p)) {
+
+    return 'Web_Detail';
+
+  }
+
+
 
   if (PAGE_TEMPLATE_MAP.hasOwnProperty(p)) {
+
     return PAGE_TEMPLATE_MAP[p];
+
   }
 
-  // 諠ｳ螳壼､悶・ page 縺ｯ縺吶∋縺ｦ index 縺ｫ繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ
-  return 'index';
+
+
+  // 想定外の page はすべて Web_Shell にフォールバック
+
+  return 'Web_Shell';
+
 }
 
-function _normalizePageAndEntity_(page, entity) {
-  var pageRaw = String(page || '').trim().toLowerCase();
-  var entRaw = String(entity || '').trim().toLowerCase();
-  function normEntity(x) {
-    if (x === 'assets' || x === 'asset') return 'asset';
-    if (x === 'tasks'  || x === 'task')  return 'task';
-    if (x === 'users'  || x === 'user')  return 'user';
-    if (x === 'members'|| x === 'member' || x === 'projectmembers' || x === 'projectmember') return 'member';
-    if (x === 'shots'  || x === 'shot' || x === 'table' || x === 'index' || x === '') return 'shot';
-    return entRaw || 'shot';
-  }
 
-  if (pageRaw === 'debugpanel' || pageRaw === 'debug' || pageRaw === 'debugpanelpage') {
-    return { page: 'DebugPanelPage', entity: entRaw || 'shot' };
-  }
-  if (/^detail[a-z]+$/.test(pageRaw)) {
-    return { page: page || 'DetailShot', entity: entRaw || 'shot' };
-  }
-  if (pageRaw === 'assets')  return { page: 'index', entity: entRaw || 'asset' };
-  if (pageRaw === 'shots')   return { page: 'index', entity: entRaw || 'shot' };
-  if (pageRaw === 'tasks')   return { page: 'index', entity: entRaw || 'task' };
-  if (pageRaw === 'users')   return { page: 'index', entity: entRaw || 'user' };
-  if (pageRaw === 'members' || pageRaw === 'projectmembers') {
-    return { page: 'index', entity: entRaw || 'member' };
-  }
-  if (pageRaw === '' || pageRaw === 'table' || pageRaw === 'index' || pageRaw === 'list' || pageRaw === 'viewer') {
-    return { page: 'index', entity: normEntity(entRaw || 'shot') };
-  }
-  return { page: page || 'index', entity: normEntity(entRaw) };
-}
+
+function _normalizePageAndEntity_(page, entity) {
+  var pageRaw = String(page || '').trim().toLowerCase();
+  var entRaw = String(entity || '').trim().toLowerCase();
+  function normEntity(x) {
+    if (x === 'assets' || x === 'asset') return 'asset';
+    if (x === 'tasks'  || x === 'task')  return 'task';
+    if (x === 'users'  || x === 'user')  return 'user';
+    if (x === 'members'|| x === 'member' || x === 'projectmembers' || x === 'projectmember') return 'member';
+    if (x === 'shots'  || x === 'shot' || x === 'table' || x === 'index' || x === '') return 'shot';
+    return entRaw || 'shot';
+  }
+
+  if (pageRaw === 'debugpanel' || pageRaw === 'debug' || pageRaw === 'debugpanelpage') {
+    return { page: 'DebugPanelPage', entity: entRaw || 'shot' };
+  }
+  if (/^detail[a-z]+$/.test(pageRaw)) {
+    return { page: page || 'DetailShot', entity: entRaw || 'shot' };
+  }
+  if (pageRaw === 'assets')  return { page: 'Assets', entity: entRaw || 'asset' };
+  if (pageRaw === 'shots')   return { page: 'Shots', entity: entRaw || 'shot' };
+  if (pageRaw === 'tasks')   return { page: 'Tasks', entity: entRaw || 'task' };
+  if (pageRaw === 'users')   return { page: 'Users', entity: entRaw || 'user' };
+  if (pageRaw === 'members' || pageRaw === 'projectmembers') {
+    return { page: 'Members', entity: entRaw || 'member' };
+  }
+  if (pageRaw === '' || pageRaw === 'table' || pageRaw === 'index' || pageRaw === 'list' || pageRaw === 'viewer') {
+    return { page: 'Shots', entity: normEntity(entRaw || 'shot') };
+  }
+  return { page: page || 'Shots', entity: normEntity(entRaw) };
+}
 
 // 繝ｫ繝ｼ繧ｿ繝ｼ譛ｬ菴・
 function doGet(e) {
