@@ -258,8 +258,7 @@
     var t=(o.type || (window.FIELD_TYPES||{})[o.fid] || "").toLowerCase();
     var fname = String(o.name || o.field_name || "").toLowerCase();
 
-    // shotview を共通経路に統合（テーブルと同じポリシー）
-    if (fname === "shotview" || t === "shotview") {
+    // shotview を�E通経路に統合（テーブルと同じポリシー�E�E    if (fname === "shotview" || t === "shotview") {
       var el = document.createElement("span");
       el.textContent = "";
 
@@ -268,7 +267,7 @@
         row["Shot ID"] || row["id"] || row["shot_id"] ||
         row["sh_id"] || row["shid"] || "";
 
-      // 1) 既存キャッシュ（テーブル由来）があれば即描画
+      // 1) 既存キャチE��ュ�E�テーブル由来�E�があれば即描画
       try{
         if (sid && window.PROXY_CACHE && window.PROXY_CACHE[sid]) {
           var urlC = window.PROXY_CACHE[sid];
@@ -279,8 +278,7 @@
         }
       }catch(_){}
 
-      // 2) 単発リゾルブ（Apps Script を段階的フォールバック）
-      (async function(){
+      // 2) 単発リゾルブ！Epps Script を段階的フォールバック�E�E      (async function(){
         function best(res){
           try{
             if(!res) return "";
@@ -328,7 +326,7 @@
       return el;
     }
 
-    // 既存タイプは従来のレンダラに委譲
+    // 既存タイプ�E従来のレンダラに委譲
     switch(t){
       case "id":          return R_id(o);
       case "text":        return R_text(o);
@@ -348,11 +346,56 @@
 
 /* ========= 4. entry ========= */
 
-/* ===== 4B.applyData shim（ADD） ===== */
-// 最低限の applyData を先に定義しておく。
-// これにより listRowsPage 成功時の applyData 呼び出しで落ちない。
-window.applyData = window.applyData || function(p){
+/* ===== 4B.applyData shim�E�EDD�E�E===== */
+// 最低限の applyData を�Eに定義しておく、E// これにより listRowsPage 成功時�E applyData 呼び出しで落ちなぁE��Ewindow.applyData = window.applyData || function(p){
   p = p || {};
+  window.STATE = window.STATE || {};
+
+  var rawIds    = Array.isArray(p.ids) ? p.ids : [];
+  var rawHeader = Array.isArray(p.header) ? p.header : [];
+  var rawRows   = Array.isArray(p.rows) ? p.rows : [];
+
+  function cleanColumns(ids, header, rows){
+    var keep = [];
+    for(var i=0;i<ids.length;i++){
+      var fid = ids[i];
+      var key = (fid == null ? '' : String(fid)).trim();
+      if(!key || key.toLowerCase() === 'null') continue;
+      keep.push(i);
+    }
+    if(!keep.length) return { ids: ids.slice(), header: header.slice(), rows: rows.slice() };
+    var outIds = [], outHeader = [];
+    for(var j=0;j<keep.length;j++){
+      var idx = keep[j];
+      outIds.push(ids[idx]);
+      outHeader.push(header[idx] != null ? header[idx] : ids[idx]);
+    }
+    var outRows = rows.map(function(row){
+      var next=[];
+      for(var k=0;k<keep.length;k++){
+        var colIdx = keep[k];
+        next.push(row && colIdx < row.length ? row[colIdx] : '');
+      }
+      return next;
+    });
+    return { ids: outIds, header: outHeader, rows: outRows };
+  }
+
+  var sanitized = cleanColumns(rawIds, rawHeader, rawRows);
+
+  STATE.fieldIds = sanitized.ids;
+  STATE.header   = sanitized.header;
+  STATE.rows     = sanitized.rows;
+  var t = Number(p.total);
+  STATE.total    = (isFinite(t) && t >= 0) ? t : STATE.rows.length;
+
+  if (typeof updatePagerUI === 'function') updatePagerUI();
+  try{
+    if(typeof window.persistViewerStateSnapshot === 'function'){
+      window.persistViewerStateSnapshot({ source:'applyData' });
+    }
+  }catch(_){}
+};
   window.STATE = window.STATE || {};
   STATE.fieldIds = Array.isArray(p.ids) ? p.ids : [];
   STATE.header   = Array.isArray(p.header) ? p.header : [];
@@ -360,7 +403,7 @@ window.applyData = window.applyData || function(p){
   var t = Number(p.total);
   STATE.total    = (isFinite(t) && t >= 0) ? t : STATE.rows.length;
 
-  // ページャなどの最低限のUI同期
+  // ペ�Eジャなどの最低限のUI同期
   if (typeof updatePagerUI === 'function') updatePagerUI();
   try{
     if(typeof window.persistViewerStateSnapshot === 'function'){
@@ -384,4 +427,5 @@ window.applyData = window.applyData || function(p){
 
 
 </script>
+
 

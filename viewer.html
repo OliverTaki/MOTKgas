@@ -2149,7 +2149,15 @@
     if(typeof showStatus==='function') showStatus('saving…');
     callFirst(['sv_savePageConfig','gsSavePageConfig','savePageLayout','dp_savePageConfig'],
       payload,
-      function(){
+      function(res){
+        if(!res || (res.ok===false)){
+          if(typeof showStatus==='function'){
+            var fail='save failed';
+            if(res && res.error) fail+=': '+res.error;
+            showStatus(fail);
+          }
+          return;
+        }
         applyLoadedConfig({config:cfg});
         cachePageConfigSnapshot(pid);
         setDirty(false);
@@ -2197,6 +2205,15 @@
     callFirst(['sv_savePageConfig','gsSavePageConfig','savePageLayout','dp_savePageConfig'],
       payload,
       function(res){
+        if(!res || (res.ok===false)){
+          if(typeof showStatus==='function'){
+            var fail='save as failed';
+            if(res && res.error) fail+=': '+res.error;
+            showStatus(fail);
+          }
+          done();
+          return;
+        }
         var newId = res && (res.pageId || res.id || res.pid) || '';
         if(newId){
           STATE.pageId = newId;

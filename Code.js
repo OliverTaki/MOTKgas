@@ -539,6 +539,212 @@ function _readEntitySheet_(sheetName) {
   };
 }
 
+function _buildColumnIndexMap_(ids, header) {
+  var map = Object.create(null);
+  var len = Math.max(ids.length, header.length);
+  for (var i = 0; i < len; i++) {
+    if (i < ids.length) {
+      var fid = ids[i];
+      var key = (fid == null ? '' : String(fid)).trim().toLowerCase();
+      if (key && !(key in map)) map[key] = i;
+    }
+    if (i < header.length) {
+      var label = header[i];
+      var labelKey = (label == null ? '' : String(label)).trim().toLowerCase();
+      if (labelKey && !(labelKey in map)) map[labelKey] = i;
+    }
+  }
+  return map;
+}
+
+function _resolveColumnIndex_(map, fid) {
+  if (!fid) return -1;
+  var norm = String(fid).trim().toLowerCase();
+  if (!norm) return -1;
+  return (norm in map) ? map[norm] : -1;
+}
+
+function _extractRuleValues_(rule) {
+  if (!rule) return [];
+  if (Array.isArray(rule.values) && rule.values.length) {
+    return rule.values.map(function(v){ return String(v||'').trim(); }).filter(Boolean);
+  }
+  if (rule.value != null) {
+    return String(rule.value).split('||').map(function(v){ return v.trim(); }).filter(Boolean);
+  }
+  return [];
+}
+
+function _parseNumberOrDate_(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number' && isFinite(value)) return value;
+  var num = Number(value);
+  if (!isNaN(num)) return num;
+  var time = Date.parse(value);
+  return isNaN(time) ? null : time;
+}
+
+function _compileFilterGroups_(filterGroups, ids, header) {
+  if (!Array.isArray(filterGroups) || !filterGroups.length) return [];
+  var map = _buildColumnIndexMap_(ids, header);
+  var compiled = [];
+  for (var i = 0; i < filterGroups.length; i++) {
+    var group = filterGroups[i] || {};
+    var rules = Array.isArray(group.rules) ? group.rules : [];
+    var compiledRules = [];
+    for (var j = 0; j < rules.length; j++) {
+      var rule = rules[j] || {};
+      var idx = _resolveColumnIndex_(map, rule.id);
+      if (idx < 0) continue;
+      var op = String(rule.op || 'contains').toLowerCase();
+      var values = _extractRuleValues_(rule);
+      var lowerValues = values.map(function(v){ return v.toLowerCase(); });
+      var numericTarget = null;
+      if (op === 'after' || op === 'before') {
+        numericTarget = values.length ? _parseNumberOrDate_(values[0]) : _parseNumberOrDate_(rule.value);
+      }
+      var rangeBounds = null;
+      if (op === 'range') {
+        var raw = rule.value != null ? String(rule.value) : '';
+        var parts = raw.split('..');
+        rangeBounds = {
+          min: parts.length ? _parseNumberOrDate_(parts[0]) : null,
+          max: parts.length > 1 ? _parseNumberOrDate_(parts[1]) : null
+        };
+      }
+      compiledRules.push({
+        idx: idx,
+        op: op,
+        values: values,
+        valuesLower: lowerValues,
+        numericValue: numericTarget,
+        range: rangeBounds
+      });
+    }
+    if (compiledRules.length) {
+      compiled.push({
+        mode: (group.mode === 'any') ? 'any' : 'all',
+        rules: compiledRules
+      });
+    }
+  }
+  return compiled;
+}
+
+function _ruleMatches_(compiledRule, row) {
+  var idx = compiledRule.idx;
+  if (idx == null || idx < 0 || idx >= row.length) return false;
+  var cell = row[idx];
+  var str = (cell == null) ? '' : String(cell).trim();
+  var lower = str.toLowerCase();
+  switch (compiledRule.op) {
+    case 'contains':
+      return compiledRule.valuesLower && compiledRule.valuesLower.length
+        ? compiledRule.valuesLower.some(function(v){ return lower.indexOf(v) >= 0; })
+        : false;
+    case 'is':
+      return compiledRule.valuesLower && compiledRule.valuesLower.length
+        ? compiledRule.valuesLower.some(function(v){ return lower === v; })
+        : false;
+    case 'isnot':
+      if (!compiledRule.valuesLower || !compiledRule.valuesLower.length) return str !== '';
+      return compiledRule.valuesLower.every(function(v){ return lower !== v; });
+    case 'isempty':
+      return str === '';
+    case 'isnotempty':
+      return str !== '';
+    case 'after': {
+      var cellNum = _parseNumberOrDate_(cell);
+      var target = compiledRule.numericValue;
+      return (cellNum != null && target != null) ? (cellNum > target) : false;
+    }
+    case 'before': {
+      var cellNumB = _parseNumberOrDate_(cell);
+      var targetB = compiledRule.numericValue;
+      return (cellNumB != null && targetB != null) ? (cellNumB < targetB) : false;
+    }
+    case 'range': {
+      var val = _parseNumberOrDate_(cell);
+      if (val == null || !compiledRule.range) return false;
+      var min = compiledRule.range.min;
+      var max = compiledRule.range.max;
+      if (min != null && val < min) return false;
+      if (max != null && val > max) return false;
+      return true;
+    }
+    default:
+      return false;
+  }
+}
+
+function _filterRowsByGroups_(rows, ids, header, filterGroups, combineMode) {
+  var compiled = _compileFilterGroups_(filterGroups, ids, header);
+  if (!compiled.length) return rows;
+  var combineAny = (combineMode === 'any');
+  return rows.filter(function(row){
+    var results = compiled.map(function(group){
+      if (group.mode === 'any') {
+        for (var i = 0; i < group.rules.length; i++) {
+          if (_ruleMatches_(group.rules[i], row)) return true;
+        }
+        return false;
+      }
+      for (var j = 0; j < group.rules.length; j++) {
+        if (!_ruleMatches_(group.rules[j], row)) return false;
+      }
+      return true;
+    });
+    if (!results.length) return true;
+    return combineAny ? results.some(Boolean) : results.every(Boolean);
+  });
+}
+
+function _compileSortSpecs_(sortList, ids, header) {
+  if (!Array.isArray(sortList) || !sortList.length) return [];
+  var map = _buildColumnIndexMap_(ids, header);
+  var compiled = [];
+  for (var i = 0; i < sortList.length; i++) {
+    var spec = sortList[i] || {};
+    if (!spec.id) continue;
+    var idx = _resolveColumnIndex_(map, spec.id);
+    if (idx < 0) continue;
+    compiled.push({
+      idx: idx,
+      dir: (spec.dir === 'desc') ? 'desc' : 'asc'
+    });
+  }
+  return compiled;
+}
+
+function _compareCellsForSort_(a, b) {
+  if (a === b) return 0;
+  var aNum = _parseNumberOrDate_(a);
+  var bNum = _parseNumberOrDate_(b);
+  if (aNum != null && bNum != null && aNum !== bNum) {
+    return aNum < bNum ? -1 : 1;
+  }
+  var aStr = (a == null) ? '' : String(a).toLowerCase();
+  var bStr = (b == null) ? '' : String(b).toLowerCase();
+  if (aStr === bStr) return 0;
+  return aStr < bStr ? -1 : 1;
+}
+
+function _sortRowsBySpecs_(rows, sortList, ids, header) {
+  var compiled = _compileSortSpecs_(sortList, ids, header);
+  if (!compiled.length) return rows;
+  var copy = rows.slice();
+  copy.sort(function(a,b){
+    for (var i = 0; i < compiled.length; i++) {
+      var spec = compiled[i];
+      var cmp = _compareCellsForSort_(a[spec.idx], b[spec.idx]);
+      if (cmp !== 0) return spec.dir === 'desc' ? -cmp : cmp;
+    }
+    return 0;
+  });
+  return copy;
+}
+
 /**
  * listRowsPage 縺ｮ繧ｳ繧｢螳溯｣・
  * 謌ｻ繧雁､: { columns: [...], rows: [...], meta: {...} }
@@ -554,7 +760,17 @@ function _listRowsPageCore_(params) {
   var header = data.header || [];
   var rows   = data.rows   || [];
 
-  var total = rows.length;
+  var workingRows = rows.slice();
+  var filters = Array.isArray(params.filterGroups) ? params.filterGroups : [];
+  var combineMode = (params.groupCombine === 'any') ? 'any' : 'all';
+  if (filters.length) {
+    workingRows = _filterRowsByGroups_(workingRows, ids, header, filters, combineMode);
+  }
+  if (Array.isArray(params.sort) && params.sort.length) {
+    workingRows = _sortRowsBySpecs_(workingRows, params.sort, ids, header);
+  }
+
+  var total = workingRows.length;
 
   var start = offset;
   if (start < 0) start = 0;
@@ -563,7 +779,7 @@ function _listRowsPageCore_(params) {
   var end = start + limit;
   if (end > total) end = total;
 
-  var sliced = rows.slice(start, end);
+  var sliced = workingRows.slice(start, end);
 
   var result = {
     ids:     ids,
