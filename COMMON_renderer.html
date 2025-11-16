@@ -1,4 +1,4 @@
-<!-- ===== FieldsAPI (strict, type-driven, full file) ===== -->
+﻿<!-- ===== FieldsAPI (strict, type-driven, full file) ===== -->
 <script>
 (function(){
   "use strict";
@@ -258,7 +258,7 @@
     var t=(o.type || (window.FIELD_TYPES||{})[o.fid] || "").toLowerCase();
     var fname = String(o.name || o.field_name || "").toLowerCase();
 
-    // shotview を�E通経路に統合（テーブルと同じポリシー�E�E    if (fname === "shotview" || t === "shotview") {
+    // shotview 繧貞・騾夂ｵ瑚ｷｯ縺ｫ邨ｱ蜷茨ｼ医ユ繝ｼ繝悶Ν縺ｨ蜷後§繝昴Μ繧ｷ繝ｼ・・    if (fname === "shotview" || t === "shotview") {
       var el = document.createElement("span");
       el.textContent = "";
 
@@ -267,7 +267,7 @@
         row["Shot ID"] || row["id"] || row["shot_id"] ||
         row["sh_id"] || row["shid"] || "";
 
-      // 1) 既存キャチE��ュ�E�テーブル由来�E�があれば即描画
+      // 1) 譌｢蟄倥く繝｣繝・す繝･・医ユ繝ｼ繝悶Ν逕ｱ譚･・峨′縺ゅｌ縺ｰ蜊ｳ謠冗判
       try{
         if (sid && window.PROXY_CACHE && window.PROXY_CACHE[sid]) {
           var urlC = window.PROXY_CACHE[sid];
@@ -278,7 +278,7 @@
         }
       }catch(_){}
 
-      // 2) 単発リゾルブ！Epps Script を段階的フォールバック�E�E      (async function(){
+      // 2) 蜊倡匱繝ｪ繧ｾ繝ｫ繝厄ｼ・pps Script 繧呈ｮｵ髫守噪繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ・・      (async function(){
         function best(res){
           try{
             if(!res) return "";
@@ -326,7 +326,7 @@
       return el;
     }
 
-    // 既存タイプ�E従来のレンダラに委譲
+    // 譌｢蟄倥ち繧､繝励・蠕捺擂縺ｮ繝ｬ繝ｳ繝繝ｩ縺ｫ蟋碑ｭｲ
     switch(t){
       case "id":          return R_id(o);
       case "text":        return R_text(o);
@@ -346,8 +346,10 @@
 
 /* ========= 4. entry ========= */
 
-/* ===== 4B.applyData shim�E�EDD�E�E===== */
-// 最低限の applyData を�Eに定義しておく、E// これにより listRowsPage 成功時�E applyData 呼び出しで落ちなぁE��Ewindow.applyData = window.applyData || function(p){
+/* ===== 4B.applyData shim (ADD) ===== */
+// 最低限の applyData を先に定義しておく。
+// これにより listRowsPage 成功時の applyData 呼び出しで落ちない。
+window.applyData = window.applyData || function(p){
   p = p || {};
   window.STATE = window.STATE || {};
 
@@ -394,26 +396,9 @@
     if(typeof window.persistViewerStateSnapshot === 'function'){
       window.persistViewerStateSnapshot({ source:'applyData' });
     }
-  }catch(_){}
+  }catch(_){ }
 };
-  window.STATE = window.STATE || {};
-  STATE.fieldIds = Array.isArray(p.ids) ? p.ids : [];
-  STATE.header   = Array.isArray(p.header) ? p.header : [];
-  STATE.rows     = Array.isArray(p.rows) ? p.rows : [];
-  var t = Number(p.total);
-  STATE.total    = (isFinite(t) && t >= 0) ? t : STATE.rows.length;
-
-  // ペ�Eジャなどの最低限のUI同期
-  if (typeof updatePagerUI === 'function') updatePagerUI();
-  try{
-    if(typeof window.persistViewerStateSnapshot === 'function'){
-      window.persistViewerStateSnapshot({ source:'applyData' });
-    }
-  }catch(_){}
-};
-
-
-  /* ========= 5. misc ========= */
+/* ========= 5. misc ========= */
   function getLabel(fid){ return (window.PAGE_LABELS && PAGE_LABELS[fid]) || (fid||""); }
   function attachCellEditor(){ return null; }
   function hydrateLinks(){ /* NOTE: legacy comment removed */ }
@@ -427,5 +412,8 @@
 
 
 </script>
+
+
+
 
 
