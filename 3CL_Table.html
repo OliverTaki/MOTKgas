@@ -121,6 +121,11 @@
  * 25. Save ドロップダウン UI（Save / Save as… / Revert）
  * 26. fetch + payload（buildServerPayload / fetchAndRenderPage / fetchPageOnlyFromCacheThenNetwork）
  * 27. ちょいユーティリティ（rid / labelForFieldId）
+ * 28. SaveAs モーダル (UI)
+ * 29. local_cache
+ * 30. prefetch_pages
+ * 31. link_labels
+
  * =========================*/
 
 ;(function(){
@@ -1144,18 +1149,19 @@
             (canon==='projectmembers'||canon==='projectmember'||canon==='member'||canon==='members') &&
             (id==='fi_0035') && isRowIdLike(rowId)
           ){
-            var urlPM=(window.scriptUrl||'')+'?entity=member&id='+encodeURIComponent(rowId);
-            html+='<td data-col-id="'+id+'"><a href="'+urlPM+'">'+escapeHTML(txt||'(role)')+'</a></td>';
+            var urlPM = Router.buildEntityUrl('member', rowId);
+            html+='<td data-col-id="'+id+'"><a href="'+escapeHTML(urlPM)+'">'+escapeHTML(txt||'(role)')+'</a></td>';
           }
           else if(shouldNameCellLinkToDetail(canon, headTxt, rowId)){
-            var ent=singularEntityFor(canon);
-            var url2=(window.scriptUrl||'')+'?entity='+ent+'&id='+encodeURIComponent(rowId);
-            html+='<td data-col-id="'+id+'"><a href="'+url2+'">'+escapeHTML(txt)+'</a></td>';
+            var ent = singularEntityFor(canon);
+            var url2 = Router.buildEntityUrl(ent, rowId);
+            html+='<td data-col-id="'+id+'"><a href="'+escapeHTML(url2)+'">'+escapeHTML(txt)+'</a></td>';
           }
           else if(/shotcode/i.test(headTxt) && isRowIdLike(rowId)){
-            var url3=(window.scriptUrl||'')+'?entity=shot&id='+encodeURIComponent(rowId);
-            html+='<td data-col-id="'+id+'"><a href="'+url3+'">'+escapeHTML(txt)+'</td>';
+            var url3 = Router.buildEntityUrl('shot', rowId);
+            html+='<td data-col-id="'+id+'"><a href="'+escapeHTML(url3)+'">'+escapeHTML(txt)+'</td>';
           }
+
           else{
             html+='<td data-col-id="'+id+'">'+escapeHTML(txt)+'</td>';
           }
@@ -1414,6 +1420,20 @@
 
   /* ===== 18. リンクレンダリングヘルパ ===== */
 
+  // Router（なければ素朴なフォールバック）
+  var Router = (window.__Router__ || {
+    buildEntityUrl: function(ent, id){
+      try{
+        var u = new URL(location.href);
+        u.searchParams.set("entity", ent);
+        u.searchParams.set("id", id);
+        return u.toString();
+      }catch(_){
+        return (window.scriptUrl||"")+"?entity="+encodeURIComponent(ent)+"&id="+encodeURIComponent(id);
+      }
+    }
+  });
+
   function splitTokens(s){
     return String(s||'').split(/[,\s;|、／]+/).filter(Boolean);
   }
@@ -1448,7 +1468,7 @@
   function shouldNameCellLinkToDetail(canon, header, rowId){
     if(!rowId) return false;
     var h=_norm(header);
-        if(canon==='projectmembers'||canon==='projectmember'||canon==='member'||canon==='members'){
+    if(canon==='projectmembers'||canon==='projectmember'||canon==='member'||canon==='members'){
       if(h==='role') return true;
     }
     return /name$/.test(h);
@@ -1463,8 +1483,10 @@
     else if(LINK_MAPS.members[pid]){ label=LINK_MAPS.members[pid]; ent='member'; }
 
     if(!ent){ ent=guessEntityFromId(pid); }
-    var url=(window.scriptUrl||'')+'?entity='+ent+'&id='+encodeURIComponent(pid);
-    return '<a href="'+url+'" title="'+escapeHTML(pid)+'">'+escapeHTML(label)+'</a>';
+
+    // ★ ここで Router.buildEntityUrl を使用
+    var url = Router.buildEntityUrl(ent, pid);
+    return '<a href="'+escapeHTML(url)+'" title="'+escapeHTML(pid)+'">'+escapeHTML(label)+'</a>';
   }
 
   function guessEntityFromId(id){
@@ -2410,13 +2432,13 @@
   }
 
   function getPageId(x){
-    return ((x&& (x.pageId||x.id||x.fi_0052||x['Page ID']))||'')+'';
+    return ((x&& (x.pageId||x.id||x.fi_0052||x['Page ID']))||'')+''; 
   }
   function getPageEnt(x){
-    return ((x&& (x.entity||x.Entity||x.fi_0055||x['Entity']))||'')+'';
+    return ((x&& (x.entity||x.Entity||x.fi_0055||x['Entity']))||'')+''; 
   }
   function getPageType(x){
-    return ((x&& (x.pageType||x['Page Type']||x.type||x.fi_0054))||'')+'';
+    return ((x&& (x.pageType||x['Page Type']||x.type||x.fi_0054))||'')+''; 
   }
 
   function entityFromPageId(pid){
@@ -2716,7 +2738,7 @@
       }
     }catch(_){}
 
-    try{ window.enableSpaNav && window.enableSpaNav(); }catch(_){}
+    // 左クリックの SPA ルーティングは使用しない（通常のページ遷移）
     try{ readUrlState && readUrlState(); }catch(_){}
 
     start();
@@ -2800,6 +2822,7 @@
   }else{
     onDom();
   }
+
 
   function handleNavigate(ev){
     var handledSignal=false;

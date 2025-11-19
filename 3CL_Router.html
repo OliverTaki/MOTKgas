@@ -128,20 +128,7 @@
     }
   })();
 
-  /* --- 4.Entity link rewrite (安定) --- */
-  document.addEventListener("click", function(ev){
-    var a = ev.target && ev.target.closest ? ev.target.closest("a[href]") : null;
-    if(!a) return;
-    try{
-      var u = new URL(a.href, location.origin);
-      var ent = u.searchParams.get("entity");
-      var id  = u.searchParams.get("id");
-      if(!(ent && id)) return;
-      ev.preventDefault();
-      var href = buildEntityUrl(ent, id);
-      try{ window.top.location.assign(href); }catch(_){ window.top.location.href = href; }
-    }catch(_){}
-  }, {capture:true});
+
 
   /* --- 5.Init --- */
   document.addEventListener("DOMContentLoaded", function(){
@@ -481,35 +468,70 @@
 </script>
 <!-- ===== 14b. End ===== -->
 
-
 <!-- ===== 41.detail-dom-normalize ===== -->
 <script>
 (function(){
-"use strict";
-function isDetail(){return !!document.querySelector("#detailBar,[data-detail-root],.detail-page");}
-function killSpacers(){
-  document.querySelectorAll(".spacer-top").forEach(function(n){ try{ n.parentNode.removeChild(n); }catch(_){ } });
-}
-function liftGrid(){
-  var grid=document.querySelector("#gridstackWrap")||document.querySelector("#grid")||document.querySelector(".grid-stack");
-  if(grid){
-    grid.style.marginTop="0";
-    grid.style.top="0";
+  "use strict";
+
+  function isDetail(){
+    return !!document.querySelector("#detailBar,[data-detail-root],.detail-page,main[data-detail-root]");
   }
-}
-function hideTopBands(){
-  ["#hScroll",".top-band",".grid-top-gap",".grid-overlay"].forEach(function(sel){
-    var el=document.querySelector(sel); if(el){ el.style.display="none"; }
-  });
-}
-function init(){
-  if(!isDetail()) return;
-  killSpacers();
-  hideTopBands();
-  liftGrid();
-}
-if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",init,{once:true});}else{init();}
-window.addEventListener("resize",function(){ if(isDetail()){ liftGrid(); } },{passive:true});
+
+  function killSpacers(){
+    document.querySelectorAll(".spacer-top").forEach(function(n){
+      try{
+        if(n.parentNode) n.parentNode.removeChild(n);
+      }catch(_){}
+    });
+  }
+
+  // スクロール帯やオーバーレイがクリックを食わないようにする
+  function relaxTopBands(){
+    ["#hScroll",".top-band",".grid-top-gap",".grid-overlay"].forEach(function(sel){
+      var el = document.querySelector(sel);
+      if(!el) return;
+
+      // 画面上部にかぶさる帯だけを対象にする
+      var r = el.getBoundingClientRect();
+      var fullWidth = (r.width >= (window.innerWidth * 0.9));
+      var nearTop   = (r.top <= 4);
+
+      if(fullWidth && nearTop){
+        // 完全に消すとレイアウトが崩れるリスクがあるので、
+        // まずクリックだけ殺す。視覚的に邪魔なら display:none に変更。
+        el.style.pointerEvents = "none";
+        el.style.backgroundColor = "transparent";
+      }
+    });
+  }
+
+  function liftGrid(){
+    var grid = document.querySelector("#gridstackWrap") ||
+               document.querySelector("#grid") ||
+               document.querySelector(".grid-stack");
+    if(grid){
+      grid.style.marginTop = "0";
+      grid.style.top = "0";
+    }
+  }
+
+  function init(){
+    if(!isDetail()) return;
+    killSpacers();
+    relaxTopBands();
+    liftGrid();
+  }
+
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", init, {once:true});
+  }else{
+    init();
+  }
+
+  window.addEventListener("resize", function(){
+    if(isDetail()) liftGrid();
+  }, {passive:true});
+
 })();
 /* ===== 41. End ===== */
 </script>

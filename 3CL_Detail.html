@@ -59,20 +59,41 @@
 <script>console.log("[MOTK][detail] marker:", document.body.getAttribute("data-nav-page"), location.search);</script>
 
   <!-- ===== 3. GNAVI / PNAVI ===== -->
-  <nav id="gNav" class="gnavi" aria-label="Global Navigation">
-    <span class="logo">MOTK</span>
-    <a class="mi" data-page="Dashboard" href="<?= scriptUrl ?>?page=Dashboard">Dashboard</a>
-    <a class="mi" data-page="Settings" href="<?= scriptUrl ?>?page=Settings">Settings</a>
-    <span class="spacer"></span>
-    <a class="mi debug" data-page="DebugPanelPage" href="<?= scriptUrl ?>?page=DebugPanelPage" target="_blank" rel="noopener" title="Debug Panel">&#x1F41E; Debug</a>
-  </nav>
-  <nav id="pNav" aria-label="Entity Navigation">
-    <a data-page="Shots" href="<?= scriptUrl ?>?page=Shots">Shots</a>
-    <a data-page="Assets" href="<?= scriptUrl ?>?page=Assets">Assets</a>
-    <a data-page="Tasks" href="<?= scriptUrl ?>?page=Tasks">Tasks</a>
-    <a data-page="ProjectMembers" href="<?= scriptUrl ?>?page=ProjectMembers">Members</a>
-    <a data-page="Users" href="<?= scriptUrl ?>?page=Users">Users</a>
-  </nav>
+<nav id="gNav" class="gnavi" aria-label="Global Navigation">
+  <span class="logo">MOTK</span>
+  <a class="mi" data-page="Dashboard" href="<?= scriptUrl ?>?page=Dashboard">Dashboard</a>
+  <a class="mi" data-page="Settings" href="<?= scriptUrl ?>?page=Settings">Settings</a>
+  <span class="spacer"></span>
+  <a class="mi debug"
+     data-page="DebugPanelPage"
+     href="<?= scriptUrl ?>?page=DebugPanelPage"
+     target="_blank"
+     title="Debug Panel">
+    &#x1F41E; Debug
+  </a>
+</nav>
+
+<nav id="pNav" aria-label="Entity Navigation">
+  <a data-page="Shots"
+     data-entity="shot"
+     href="<?= scriptUrl ?>?p=table&e=shots">Shots</a>
+
+  <a data-page="Assets"
+     data-entity="asset"
+     href="<?= scriptUrl ?>?p=table&e=assets">Assets</a>
+
+  <a data-page="Tasks"
+     data-entity="task"
+     href="<?= scriptUrl ?>?p=table&e=tasks">Tasks</a>
+
+  <a data-page="ProjectMembers"
+     data-entity="member"
+     href="<?= scriptUrl ?>?p=table&e=members">Members</a>
+
+  <a data-page="Users"
+     data-entity="user"
+     href="<?= scriptUrl ?>?p=table&e=users">Users</a>
+</nav>
 
   <!-- NOTE: legacy comment removed -->
   <?!= include('3CL_Router'); ?>

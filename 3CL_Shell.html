@@ -13,16 +13,39 @@
   <a class="mi" data-page="Dashboard" href="<?= scriptUrl ?>?page=Dashboard">Dashboard</a>
   <a class="mi" data-page="Settings" href="<?= scriptUrl ?>?page=Settings">Settings</a>
   <span class="spacer"></span>
-  <a class="mi debug" data-page="DebugPanelPage" href="<?= scriptUrl ?>?page=DebugPanelPage" target="_blank" title="Debug Panel">&#x1F41E; Debug</a>
+  <a class="mi debug"
+     data-page="DebugPanelPage"
+     href="<?= scriptUrl ?>?page=DebugPanelPage"
+     target="_blank"
+     title="Debug Panel">
+    &#x1F41E; Debug
+  </a>
 </nav>
 <!-- ===== 1.End ===== -->
+
+<!-- ===== 2.pnav ===== -->
 <nav id="pNav" aria-label="Entity Navigation">
-  <a data-page="Shots" data-entity="shot" href="<?= scriptUrl ?>?page=Shots&entity=shot">Shots</a>
-  <a data-page="Assets" data-entity="asset" href="<?= scriptUrl ?>?page=Assets&entity=asset">Assets</a>
-  <a data-page="Tasks" data-entity="task" href="<?= scriptUrl ?>?page=Tasks&entity=task">Tasks</a>
-  <a data-page="ProjectMembers" data-entity="member" href="<?= scriptUrl ?>?page=ProjectMembers&entity=member">Members</a>
-  <a data-page="Users" data-entity="user" href="<?= scriptUrl ?>?page=Users&entity=user">Users</a>
+  <a data-page="Shots"
+     data-entity="shot"
+     href="<?= scriptUrl ?>?p=table&e=shots">Shots</a>
+
+  <a data-page="Assets"
+     data-entity="asset"
+     href="<?= scriptUrl ?>?p=table&e=assets">Assets</a>
+
+  <a data-page="Tasks"
+     data-entity="task"
+     href="<?= scriptUrl ?>?p=table&e=tasks">Tasks</a>
+
+  <a data-page="ProjectMembers"
+     data-entity="member"
+     href="<?= scriptUrl ?>?p=table&e=members">Members</a>
+
+  <a data-page="Users"
+     data-entity="user"
+     href="<?= scriptUrl ?>?p=table&e=users">Users</a>
 </nav>
+<!-- ===== 2.End ===== -->
     <?!= include('3CL_Router'); ?>
 
     <main id="main-content">

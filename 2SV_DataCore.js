@@ -33,11 +33,11 @@ var PAGE_TEMPLATE_MAP = {
 
   'viewer':        '3CL_Shell',
 
-  'debugpanel':    '3CL_DebugPanel',
+  'debugpanel':    '1SA_DebugPanel',
 
-  'debugpanelpage':'3CL_DebugPanel',
+  'debugpanelpage':'1SA_DebugPanel',
 
-  'debug':         '3CL_DebugPanel'
+  'debug':         '1SA_DebugPanel'
 
 };
 
@@ -70,60 +70,52 @@ function _resolveTemplateName_(page, entity, id) {
 function _normalizePageAndEntity_(page, entity) {
 
   var pageRaw = String(page || '').trim().toLowerCase();
-
-  var entRaw = String(entity || '').trim().toLowerCase();
+  var entRaw  = String(entity || '').trim().toLowerCase();
 
   function normEntity(x) {
-
     if (x === 'assets' || x === 'asset') return 'asset';
-
     if (x === 'tasks'  || x === 'task')  return 'task';
-
     if (x === 'users'  || x === 'user')  return 'user';
-
     if (x === 'members'|| x === 'member' || x === 'projectmembers' || x === 'projectmember') return 'member';
-
     if (x === 'shots'  || x === 'shot' || x === 'table' || x === 'index' || x === '') return 'shot';
-
     return entRaw || 'shot';
-
   }
 
+  // DebugPanel 系
   if (pageRaw === 'debugpanel' || pageRaw === 'debug' || pageRaw === 'debugpanelpage') {
-
     return { page: 'DebugPanelPage', entity: entRaw || 'shot' };
-
   }
 
-  if (/^detail[a-z]+$/.test(pageRaw)) {
-
+  // Detail 系 (?p=detailShot など)
+  if (/^detail[a-z0-9_-]*$/.test(pageRaw)) {
     return { page: page || 'DetailShot', entity: entRaw || 'shot' };
-
   }
 
-  if (pageRaw === 'assets')  return { page: 'Assets', entity: entRaw || 'asset' };
-
-  if (pageRaw === 'shots')   return { page: 'Shots', entity: entRaw || 'shot' };
-
-  if (pageRaw === 'tasks')   return { page: 'Tasks', entity: entRaw || 'task' };
-
-  if (pageRaw === 'users')   return { page: 'Users', entity: entRaw || 'user' };
-
+  // 旧 style: ?page=Assets&entity=asset など
+  if (pageRaw === 'assets')  return { page: 'Assets',  entity: entRaw || 'asset' };
+  if (pageRaw === 'shots')   return { page: 'Shots',   entity: entRaw || 'shot'  };
+  if (pageRaw === 'tasks')   return { page: 'Tasks',   entity: entRaw || 'task'  };
+  if (pageRaw === 'users')   return { page: 'Users',   entity: entRaw || 'user'  };
   if (pageRaw === 'members' || pageRaw === 'projectmembers') {
-
     return { page: 'Members', entity: entRaw || 'member' };
-
   }
 
-  if (pageRaw === '' || pageRaw === 'table' || pageRaw === 'index' || pageRaw === 'list' || pageRaw === 'viewer') {
+  // 新 style: ?p=table&e=assets / ?p=table&e=shots など
+  if (pageRaw === 'table') {
+    var entKey = normEntity(entRaw || 'shot');
+    return { page: 'Table', entity: entKey };
+  }
 
+  // index/list/viewer/空 → デフォルトは Shots
+  if (pageRaw === '' || pageRaw === 'index' || pageRaw === 'list' || pageRaw === 'viewer') {
     return { page: 'Shots', entity: normEntity(entRaw || 'shot') };
-
   }
 
+  // その他はそのまま
   return { page: page || 'Shots', entity: normEntity(entRaw) };
-
 }
+
+
 
 function doGet(e) {
   var params = (e && e.parameter) || {};
@@ -166,12 +158,21 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
-  var page   = params.page   || 'Shots';
-  var entity = (params.entity || '').toLowerCase();
-  var id     = params.id     || '';
-  var normalized = _normalizePageAndEntity_(page, entity);
-  page   = normalized.page;
-  entity = normalized.entity;
+  // ★ ここだけ変更：page/entity と p/e の両方を受ける
+  var rawPage   = params.page   || params.p || '';
+  var rawEntity = params.entity || params.e || '';
+
+  // 何もなければデフォルトは Shots
+  if (!rawPage && !rawEntity) {
+    rawPage   = 'Shots';
+    rawEntity = '';
+  }
+
+  var id = params.id || '';
+
+  var normalized = _normalizePageAndEntity_(rawPage, rawEntity);
+  var page   = normalized.page;
+  var entity = normalized.entity;
 
   var templateName = _resolveTemplateName_(page, entity, id);
 
@@ -210,15 +211,14 @@ function doGet(e) {
   t.entity    = viewCtx.entity;
   t.id        = viewCtx.id;
   t.scriptUrl = viewCtx.scriptUrl;
-
   t.dataJson  = dataJson;
-
-  t.viewCtx = viewCtx;
+  t.viewCtx   = viewCtx;
 
   return t.evaluate()
     .setTitle(viewCtx.page || 'MOTK')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
+
 
 function _readFromDataHubOrSheet_(sheetName){
   var dh = SpreadsheetApp.getActive().getSheetByName('DataHub');
