@@ -2824,6 +2824,8 @@
   }
 
 
+/* ===== 3CL_Table.html の handleNavigate を修正 ===== */
+
   function handleNavigate(ev){
     var handledSignal=false;
     function markHandled(){
@@ -2831,56 +2833,103 @@
       handledSignal=true;
       try{ window.dispatchEvent(new CustomEvent('motk:navigate:handled')); }catch(_){}
     }
+
     try{
       var detail = ev && ev.detail || {};
       var pid = detail.page || '';
+      // entityの解決を厳密に行う
       var entityFromDetail = detail.entity ? singularEntityFor(detail.entity) : '';
       var entityFromPid = (!entityFromDetail && pid) ? singularEntityFor(pid) : '';
       var nextEntity = entityFromDetail || entityFromPid;
-      if(STATE){
-        STATE._navEntity = nextEntity || '';
+
+      // ナビゲーションイベントを捕捉したことを通知（リロード防止）
+      markHandled();
+
+      // 1. URLと内部ステートを即座に更新
+      if(nextEntity){
+        STATE.sheetName = nextEntity;
+        STATE._navEntity = nextEntity; // 強制的にエンティティを指定
       }
+
       if(pid){
         var usp = new URLSearchParams(location.search);
         usp.set('page', pid);
         if(nextEntity) usp.set('entity', nextEntity);
-        history.replaceState({page:pid},'',location.pathname+'?'+usp.toString());
+        // pushStateではなくreplaceStateでURLを書き換え（履歴汚染防止）
+        history.replaceState({page:pid}, '', location.pathname + '?' + usp.toString());
       }
-      if(nextEntity){
-        STATE.sheetName = nextEntity;
-      }
-      markHandled();
-      resolveEntityFromContext();
-      STATE.pageId = '';
+
+      // 2. 【重要】テーブルを一度クリアして「Loading」表示にする
+      // これにより「ツールバーだけ変わってテーブルが変わらない」見た目を防ぎます
+      var wrap = document.getElementById('tableWrap');
+      if(wrap) wrap.innerHTML = '<div style="padding:20px;opacity:0.6;">Loading ' + pluralEntityFor(STATE.sheetName) + '...</div>';
+      
+      // ステートの汚染を防ぐためにリセット
+      STATE.rows = [];
+      STATE.header = [];
+      STATE.pageId = ''; 
       STATE.filterGroups = [];
       STATE.groupCombine = 'all';
+      STATE.sort = [];
+      
+      // 安全のため内部フラグもリセット（start()相当の状態に戻す）
+      STATE._cfgReady = false;
+      STATE._dataReady = false;
+      
+      // ページャーなどもリセット
+      if(typeof updatePagerUI === 'function') updatePagerUI();
+      if(typeof showStatus === 'function') showStatus('Switching to ' + pluralEntityFor(STATE.sheetName) + '...');
+
+      // 3. 新しいエンティティの設定とデータを取得開始
       Promise.resolve().then(function(){
-        return fetchPagesForEntity(STATE.sheetName);
+        // プリセット（Page設定）を取得
+        // forceNetwork:true にすることで、前のEntityの設定がキャッシュから返ってくる事故を防ぐ
+        return fetchPagesForEntity(STATE.sheetName, {forceNetwork:true});
       }).then(function(){
+        // 初期ページID（pg_default等）を決定
         STATE.pageId = pickInitialPageId();
         rememberLastView();
+
+        // URLを最終確定（pidなどが決まったため）
         try{
           var usp2 = writeUrlState ? writeUrlState() : new URLSearchParams(location.search);
           if(STATE.pageId) usp2.set('pid', STATE.pageId);
           if(STATE.sheetName) usp2.set('entity', STATE.sheetName);
-          history.replaceState(null,'',location.pathname+'?'+usp2.toString());
+          history.replaceState(null, '', location.pathname + '?' + usp2.toString());
         }catch(_){}
-        var linksP = (typeof ensureLinkMaps==='function'
-          ? ensureLinkMaps()
-          : Promise.resolve(window.LINK_MAPS||{})).catch(function(){});
+
+        // リンクマップとページ設定の読み込み並列実行
+        var linksP = (typeof ensureLinkMaps==='function' ? ensureLinkMaps() : Promise.resolve(window.LINK_MAPS||{})).catch(function(){});
+        
         var cfgP = new Promise(function(res){
-          if(typeof loadPageConfigFromCacheThenNetwork!=='function'){
-            res(); return;
-          }
+          if(typeof loadPageConfigFromCacheThenNetwork!=='function'){ res(); return; }
+          // 設定読み込み（キャッシュ＋ネットワーク）
           loadPageConfigFromCacheThenNetwork(STATE.pageId, function(){ res(); });
         });
-        return Promise.all([linksP,cfgP]);
+        
+        return Promise.all([linksP, cfgP]);
+
       }).then(function(){
-        fetchPageOnlyFromCacheThenNetwork(1, function(){});
-      }).catch(function(){
+        // 設定読み込み完了
+        STATE._cfgReady = true;
+
+        // 4. 最後に行データを取得して描画
+        // ここで page=1 を指定して強制的に1ページ目から取得
+        // fetchAndRenderPage 内で renderCurrentPage(true) が呼ばれるため描画される
+        fetchAndRenderPage(1); 
+
+        // データ取得完了フラグ（fetchAndRenderPageは非同期だが、呼び出し自体は完了した扱いとする）
+        // ※厳密にはcallback内でやるべきだが、fetchAndRenderPageがUI更新まで責任を持つ設計のためここでOK
+        STATE._dataReady = true; 
+
+      }).catch(function(e){
+        console.error("Nav Error:", e);
+        // 万が一失敗したらリロードにフォールバック
         location.reload();
       });
+
     }catch(e){
+      console.error("Critical Nav Error:", e);
       location.reload();
     }
   }
