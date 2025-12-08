@@ -1,23 +1,69 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <title>Debug Panel</title>
   <base target="_top">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    .card { border: 1px solid #ccc; margin: 10px 0; padding: 10px; border-radius: 5px; }
-    .card h3 { margin-top: 0; }
-    .btn { background: #007bff; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; }
-    .btn:hover { background: #0056b3; }
-    .loading { color: #888; }
-    .error { color: red; }
-    .success { color: green; }
-    pre { background: #f8f9fa; padding: 10px; overflow: auto; }
-    a { color: #007bff; text-decoration: none; }
-    a:hover { text-decoration: underline; }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+
+    .card {
+      border: 1px solid #ccc;
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 5px;
+    }
+
+    .card h3 {
+      margin-top: 0;
+    }
+
+    .btn {
+      background: #007bff;
+      color: white;
+      padding: 5px 10px;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+
+    .btn:hover {
+      background: #0056b3;
+    }
+
+    .loading {
+      color: #888;
+    }
+
+    .error {
+      color: red;
+    }
+
+    .success {
+      color: green;
+    }
+
+    pre {
+      background: #f8f9fa;
+      padding: 10px;
+      overflow: auto;
+    }
+
+    a {
+      color: #007bff;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
+
 <body>
   <h1>Debug Panel</h1>
 
@@ -147,7 +193,7 @@
       updateElement('user-sample', JSON.stringify(lm.users || {}) || 'empty');
       updateElement('page-sample', 'n/a');
       // Originals resolver - trace.finalUrl使用
-      updateElement('resolver-context', JSON.stringify({entity: 'shot', id: 'sh_0001'}));
+      updateElement('resolver-context', JSON.stringify({ entity: 'shot', id: 'sh_0001' }));
       updateElement('expected-policy', 'root / 01shots / sh_0001__ 201A open Drive search originals_root_url ' + (res.meta.originals_root_url ? 'set' : 'not set'));
       var originalsUrl = globalRes.trace ? globalRes.trace.finalUrl : res.originalsUrl;
       var resolveText = originalsUrl ? '<span class="success">found: <a href="' + originalsUrl + '" target="_blank" rel="noopener">Open Folder</a></span>' : '(Originals not found)';
@@ -167,41 +213,41 @@
       updateElement('router-detected', 'no');
       updateElement('anchors-replaced', '3 / 3');
       updateElement('sample-diff', '[1] page: Dashboard before: - target: (none) after: [URL]?page=Dashboard target: _top [2] page: Settings ... [3] page: DebugPanelPage ...');
-      updateElement('dry-run-task', JSON.stringify({ent: 'task', id: 'ta_0001', final: res.taskLink || ''}));
+      updateElement('dry-run-task', JSON.stringify({ ent: 'task', id: 'ta_0001', final: res.taskLink || '' }));
       // Raw snapshot update
       const snap = {
         href: window.location.href,
         params: getUrlParams(),
         gsr: !!google.script.run,
         fieldTypesKeys: Object.keys(ft).reduce((acc, e) => acc + Object.keys(ft[e] || {}).length, 0),
-        linkMapsCounts: res.counts || {assets:0,shots:0,tasks:0,users:0,members:0},
+        linkMapsCounts: res.counts || { assets: 0, shots: 0, tasks: 0, users: 0, members: 0 },
         originalsUrl: originalsUrl || null,
         ts: Date.now()
       };
       document.getElementById('raw-snap').innerHTML = JSON.stringify(snap, null, 2);
     }
 
-    function setRunStatus(text, isError){
-      var el=document.getElementById('run-status');
-      if(!el) return;
-      el.innerHTML = isError ? ('<span class="error">'+text+'</span>') : text;
+    function setRunStatus(text, isError) {
+      var el = document.getElementById('run-status');
+      if (!el) return;
+      el.innerHTML = isError ? ('<span class="error">' + text + '</span>') : text;
     }
 
     async function runAllChecks() {
       log('Run all checks: begin');
       setRunStatus('running…');
       renderEntitySamples();
-      try{
+      try {
         await Promise.all([
           checkRuntimeAsync(),
           loadAppDataAsync(),
           checkOriginalsAsync()
         ]);
         log('Run all checks: done');
-        setRunStatus('completed at '+new Date().toLocaleTimeString());
-      }catch(err){
-        log('Run all checks: error '+err);
-        setRunStatus('error: '+err, true);
+        setRunStatus('completed at ' + new Date().toLocaleTimeString());
+      } catch (err) {
+        log('Run all checks: error ' + err);
+        setRunStatus('error: ' + err, true);
       }
     }
 
@@ -211,23 +257,23 @@
       const loc = document.getElementById('location');
       loc.innerHTML = 'Location: ' + window.location.href;
       updateElement('url-params', JSON.stringify(getUrlParams()));
-      return new Promise(function(resolve){
-        google.script.run.withSuccessHandler(function(res) {
+      return new Promise(function (resolve) {
+        google.script.run.withSuccessHandler(function (res) {
           updateElement('server-ping', 'ok ts=' + res.ts);
           log('checkRuntime: ping ok ' + res.ts);
           resolve();
-        }).withFailureHandler(function(err) {
+        }).withFailureHandler(function (err) {
           updateElement('server-ping', '<span class="error">failed: ' + err + '</span>');
           resolve();
         }).dp_debugPing();
       });
     }
 
-    function loadAppDataAsync(){
-      return new Promise(function(resolve){
+    function loadAppDataAsync() {
+      return new Promise(function (resolve) {
         google.script.run
-          .withSuccessHandler(function(res){ updateFromRes(res); resolve(); })
-          .withFailureHandler(function(err){
+          .withSuccessHandler(function (res) { updateFromRes(res); resolve(); })
+          .withFailureHandler(function (err) {
             log('Global res error: ' + err);
             updateElement('field-types', '<span class="error">error: ' + err + '</span>');
             resolve();
@@ -238,15 +284,15 @@
 
     function checkOriginalsAsync() {
       log('checkOriginals: start');
-      return new Promise(function(resolve){
-        google.script.run.withSuccessHandler(function(trace) {
+      return new Promise(function (resolve) {
+        google.script.run.withSuccessHandler(function (trace) {
           globalRes.trace = trace;
           updateFromRes(globalRes);
           resolve();
-        }).withFailureHandler(function(err) {
+        }).withFailureHandler(function (err) {
           updateElement('resolve-result', '<span class="error">failed: ' + err + '</span>');
           resolve();
-        }).dp_traceOriginals({entity: 'shot', id: 'sh_0001'});
+        }).dp_traceOriginals({ entity: 'shot', id: 'sh_0001' });
       });
     }
 
@@ -267,103 +313,103 @@
       navigator.clipboard.writeText(text).then(() => log('copyAll: length ' + text.length));
     }
 
-    var VIEWER_STATE_STORAGE_KEY='MOTK.viewer.state';
-    var VIEWER_STATE_STORAGE_KEY_LEGACY='motk:viewerStateSnapshot';
-    var viewerStateServerFetchInFlight=false;
+    var VIEWER_STATE_STORAGE_KEY = 'MOTK.viewer.state';
+    var VIEWER_STATE_STORAGE_KEY_LEGACY = 'motk:viewerStateSnapshot';
+    var viewerStateServerFetchInFlight = false;
 
-    function readViewerSnapshotFromStorage(){
-      try{
-        if(!window || !window.localStorage) return null;
-        var raw=localStorage.getItem(VIEWER_STATE_STORAGE_KEY)
+    function readViewerSnapshotFromStorage() {
+      try {
+        if (!window || !window.localStorage) return null;
+        var raw = localStorage.getItem(VIEWER_STATE_STORAGE_KEY)
           || localStorage.getItem(VIEWER_STATE_STORAGE_KEY_LEGACY);
-        if(!raw) return null;
-        var snap=JSON.parse(raw);
-        if(!snap || !snap.updatedAt) return null;
-        snap.source='storage';
+        if (!raw) return null;
+        var snap = JSON.parse(raw);
+        if (!snap || !snap.updatedAt) return null;
+        snap.source = 'storage';
         return snap;
-      }catch(_){
+      } catch (_) {
         return null;
       }
     }
 
-    function renderViewerSnapshot(snapshot){
-      if(!snapshot) return;
-      var labelPrefix=(snapshot.source==='storage')?'(stored) ':
-        (snapshot.source==='server')?'(server) ':
-        (snapshot.source==='window.opener')?'':'';
+    function renderViewerSnapshot(snapshot) {
+      if (!snapshot) return;
+      var labelPrefix = (snapshot.source === 'storage') ? '(stored) ' :
+        (snapshot.source === 'server') ? '(server) ' :
+          (snapshot.source === 'window.opener') ? '' : '';
       updateElement('viewer-state-status',
         labelPrefix +
         'sheet=' + (snapshot.sheetName || '(blank)') +
         ' rows=' + (snapshot.rowsLength != null ? snapshot.rowsLength : '') +
         ' total=' + (snapshot.total != null ? snapshot.total : '')
       );
-      var box=document.getElementById('viewer-state-json');
-      if(box){
-        box.textContent=JSON.stringify(snapshot, null, 2);
+      var box = document.getElementById('viewer-state-json');
+      if (box) {
+        box.textContent = JSON.stringify(snapshot, null, 2);
       }
     }
 
-    function fetchViewerStateFromServer(){
-      if(viewerStateServerFetchInFlight) return;
-      if(!window.google || !google.script || !google.script.run){
+    function fetchViewerStateFromServer() {
+      if (viewerStateServerFetchInFlight) return;
+      if (!window.google || !google.script || !google.script.run) {
         updateElement('viewer-state-status', '<span class="error">viewer state unavailable</span>');
         return;
       }
-      viewerStateServerFetchInFlight=true;
-      updateElement('viewer-state-status','fetching stored viewer state…');
+      viewerStateServerFetchInFlight = true;
+      updateElement('viewer-state-status', 'fetching stored viewer state…');
       google.script.run
-        .withSuccessHandler(function(res){
-          viewerStateServerFetchInFlight=false;
-          if(res && res.found && res.snapshot){
-            var snap=res.snapshot;
-            snap.source='server';
-            snap.storedAt=res.storedAt||snap.storedAt||null;
+        .withSuccessHandler(function (res) {
+          viewerStateServerFetchInFlight = false;
+          if (res && res.found && res.snapshot) {
+            var snap = res.snapshot;
+            snap.source = 'server';
+            snap.storedAt = res.storedAt || snap.storedAt || null;
             renderViewerSnapshot(snap);
             return;
           }
-          updateElement('viewer-state-status','<span class="error">viewer state unavailable</span>');
-          var box=document.getElementById('viewer-state-json');
-          if(box) box.textContent='{}';
+          updateElement('viewer-state-status', '<span class="error">viewer state unavailable</span>');
+          var box = document.getElementById('viewer-state-json');
+          if (box) box.textContent = '{}';
         })
-        .withFailureHandler(function(err){
-          viewerStateServerFetchInFlight=false;
-          updateElement('viewer-state-status','<span class="error">'+(err && err.message ? err.message : 'viewer state unavailable')+'</span>');
-          var box=document.getElementById('viewer-state-json');
-          if(box) box.textContent='{}';
+        .withFailureHandler(function (err) {
+          viewerStateServerFetchInFlight = false;
+          updateElement('viewer-state-status', '<span class="error">' + (err && err.message ? err.message : 'viewer state unavailable') + '</span>');
+          var box = document.getElementById('viewer-state-json');
+          if (box) box.textContent = '{}';
         })
         .dp_fetchViewerState();
     }
 
     function captureViewerState() {
       try {
-        var snapshot=null;
-        if(window.opener && window.opener.STATE){
-          var viewWin=window.opener;
-          var st=viewWin.STATE;
-          if(st){
-            var params=null;
-            try{ params=new URLSearchParams(viewWin.location.search); }catch(_){}
-            snapshot={
-              capturedAt:new Date().toISOString(),
-              origin:(viewWin.location&&viewWin.location.href)||'',
-              sheetName:st.sheetName||'',
-              pageId:st.pageId||'',
-              page:st.page||1,
-              perPage:st.perPage||'',
-              rowsLength:Array.isArray(st.rows)?st.rows.length:0,
-              total:st.total,
-              dataSource:st.dataSource||'',
-              entityParam:params?(params.get('entity')||''):'',
-              pageParam:params?(params.get('page')||''):'',
-              pidParam:params?(params.get('pid')||''):'',
-              source:'window.opener'
+        var snapshot = null;
+        if (window.opener && window.opener.STATE) {
+          var viewWin = window.opener;
+          var st = viewWin.STATE;
+          if (st) {
+            var params = null;
+            try { params = new URLSearchParams(viewWin.location.search); } catch (_) { }
+            snapshot = {
+              capturedAt: new Date().toISOString(),
+              origin: (viewWin.location && viewWin.location.href) || '',
+              sheetName: st.sheetName || '',
+              pageId: st.pageId || '',
+              page: st.page || 1,
+              perPage: st.perPage || '',
+              rowsLength: Array.isArray(st.rows) ? st.rows.length : 0,
+              total: st.total,
+              dataSource: st.dataSource || '',
+              entityParam: params ? (params.get('entity') || '') : '',
+              pageParam: params ? (params.get('page') || '') : '',
+              pidParam: params ? (params.get('pid') || '') : '',
+              source: 'window.opener'
             };
           }
         }
-        if(!snapshot){
-          snapshot=readViewerSnapshotFromStorage();
+        if (!snapshot) {
+          snapshot = readViewerSnapshotFromStorage();
         }
-        if(snapshot){
+        if (snapshot) {
           renderViewerSnapshot(snapshot);
           return;
         }
@@ -380,183 +426,227 @@
     setInterval(captureViewerState, 10000);
   </script>
 
-<!-- ===== 70.contract-inspector ===== -->
-<script>
-(function(){
-  "use strict";
+  <!-- ===== 70.contract-inspector ===== -->
+  <script>
+    (function () {
+      "use strict";
 
-  function logLine(s){ var el=document.getElementById('ciLog'); if(el){ el.textContent += s + "\n"; } }
-  function resetLog(){ var el=document.getElementById('ciLog'); if(el){ el.textContent = ""; } }
+      function logLine(s) { var el = document.getElementById('ciLog'); if (el) { el.textContent += s + "\n"; } }
+      function resetLog() { var el = document.getElementById('ciLog'); if (el) { el.textContent = ""; } }
 
-  // safer GAS proxy: try multiple function names, fail softly
-  function gasTry(candidates){
-    return new Promise(function(res, rej){
-      if (!window.google || !google.script || !google.script.run){
-        return rej(new Error("google.script.run not available"));
+      // safer GAS proxy: try multiple function names, fail softly
+      function gasTry(candidates) {
+        return new Promise(function (res, rej) {
+          if (!window.google || !google.script || !google.script.run) {
+            return rej(new Error("google.script.run not available"));
+          }
+          var run = google.script.run;
+          var fn = null, name = null;
+          for (var i = 0; i < candidates.length; i++) {
+            name = candidates[i];
+            if (typeof run[name] === "function") { fn = run[name]; break; }
+          }
+          if (!fn) {
+            return rej(new Error("No server function found: " + candidates.join(" | ")));
+          }
+          try {
+            run.withSuccessHandler(res).withFailureHandler(rej)[name]();
+          } catch (e) {
+            rej(e);
+          }
+        });
       }
-      var run = google.script.run;
-      var fn = null, name = null;
-      for (var i=0;i<candidates.length;i++){
-        name = candidates[i];
-        if (typeof run[name] === "function"){ fn = run[name]; break; }
-      }
-      if (!fn){
-        return rej(new Error("No server function found: " + candidates.join(" | ")));
-      }
-      try{
-        run.withSuccessHandler(res).withFailureHandler(rej)[name]();
-      }catch(e){
-        rej(e);
-      }
-    });
-  }
 
-  function gasCall(name, arg){
-    return new Promise(function(res, rej){
-      if (!window.google || !google.script || !google.script.run){
-        return rej(new Error("google.script.run not available"));
+      function gasCall(name, arg) {
+        return new Promise(function (res, rej) {
+          if (!window.google || !google.script || !google.script.run) {
+            return rej(new Error("google.script.run not available"));
+          }
+          var run = google.script.run;
+          if (typeof run[name] !== "function") {
+            return rej(new Error("Server function missing: " + name));
+          }
+          try {
+            if (arg === undefined) {
+              run.withSuccessHandler(res).withFailureHandler(rej)[name]();
+            } else {
+              run.withSuccessHandler(res).withFailureHandler(rej)[name](arg);
+            }
+          } catch (e) { rej(e); }
+        });
       }
-      var run = google.script.run;
-      if (typeof run[name] !== "function"){
-        return rej(new Error("Server function missing: " + name));
+
+      // UI
+      function ensurePanel() {
+        var root = document.getElementById('contractInspector');
+        if (root) return root;
+        root = document.createElement('section');
+        root.id = 'contractInspector';
+        root.innerHTML = [
+          '<div style="margin:8px 0;padding:8px;border:1px solid #ccc;border-radius:6px">',
+          '  <h3 style="margin:0 0 8px">Contract Inspector</h3>',
+          '  <pre id="ciLog" style="max-height:50vh;overflow:auto;background:#111;color:#eee;padding:8px;border-radius:6px"></pre>',
+          '</div>'
+        ].join('');
+        document.body.appendChild(root);
+        return root;
       }
-      try{
-        if (arg === undefined){
-          run.withSuccessHandler(res).withFailureHandler(rej)[name]();
-        }else{
-          run.withSuccessHandler(res).withFailureHandler(rej)[name](arg);
+
+      async function checkFieldsMatrix() {
+        logLine('== Fields matrix (entity × type) ==');
+        try {
+          // try getFieldsMatrix, else getFields and aggregate, else listFields
+          var rows = null;
+          try {
+            var m = await gasTry(['getFieldsMatrix']);
+            logLine(JSON.stringify(m, null, 2));
+            return m;
+          } catch (_) { }
+          try {
+            rows = await gasTry(['getFields', 'listFields']);
+          } catch (e) {
+            logLine('Fields fetch missing: ' + e.message);
+            return null;
+          }
+          var map = {};
+          (rows || []).forEach(function (r) {
+            var e = String(r.entity || '').toLowerCase();
+            var t = String(r.type || '').toLowerCase();
+            if (!map[e]) map[e] = {};
+            map[e][t] = (map[e][t] || 0) + 1;
+          });
+          logLine(JSON.stringify(map, null, 2));
+          return map;
+        } catch (e) {
+          logLine('Fields error: ' + e.message);
+          return null;
         }
-      }catch(e){ rej(e); }
-    });
-  }
-
-  // UI
-  function ensurePanel(){
-    var root = document.getElementById('contractInspector');
-    if (root) return root;
-    root = document.createElement('section');
-    root.id = 'contractInspector';
-    root.innerHTML = [
-      '<div style="margin:8px 0;padding:8px;border:1px solid #ccc;border-radius:6px">',
-      '  <h3 style="margin:0 0 8px">Contract Inspector</h3>',
-      '  <pre id="ciLog" style="max-height:50vh;overflow:auto;background:#111;color:#eee;padding:8px;border-radius:6px"></pre>',
-      '</div>'
-    ].join('');
-    document.body.appendChild(root);
-    return root;
-  }
-
-  async function checkFieldsMatrix(){
-    logLine('== Fields matrix (entity × type) ==');
-    try{
-      // try getFieldsMatrix, else getFields and aggregate, else listFields
-      var rows = null;
-      try{
-        var m = await gasTry(['getFieldsMatrix']);
-        logLine(JSON.stringify(m, null, 2));
-        return m;
-      }catch(_){}
-      try{
-        rows = await gasTry(['getFields', 'listFields']);
-      }catch(e){
-        logLine('Fields fetch missing: '+ e.message);
-        return null;
       }
-      var map = {};
-      (rows||[]).forEach(function(r){
-        var e = String(r.entity||'').toLowerCase();
-        var t = String(r.type||'').toLowerCase();
-        if(!map[e]) map[e]={};
-        map[e][t] = (map[e][t]||0)+1;
-      });
-      logLine(JSON.stringify(map, null, 2));
-      return map;
-    }catch(e){
-      logLine('Fields error: '+ e.message);
-      return null;
-    }
-  }
 
-  async function checkLinksShape(){
-    logLine('== Link type sanity (expect *_link only) ==');
-    try{
-      var rows = await gasTry(['getFields','listFields']);
-      var legacy=[], proper=[];
-      (rows||[]).forEach(function(r){
-        var t = String(r.type||'').toLowerCase();
-        if (t === 'entity_link') legacy.push(r);
-        else if (/^(shot|asset|task|member|user)_link$/.test(t)) proper.push(r);
-      });
-      logLine('legacy entity_link count: '+legacy.length);
-      if (legacy.length) logLine(JSON.stringify(legacy.slice(0,20), null, 2));
-      logLine('proper *_link count: '+proper.length);
-      return {legacy, proper};
-    }catch(e){
-      logLine('Fields fetch error: '+ e.message);
-      return null;
-    }
-  }
+      async function checkLinksShape() {
+        logLine('== Link type sanity (expect *_link only) ==');
+        try {
+          var rows = await gasTry(['getFields', 'listFields']);
+          var legacy = [], proper = [];
+          (rows || []).forEach(function (r) {
+            var t = String(r.type || '').toLowerCase();
+            if (t === 'entity_link') legacy.push(r);
+            else if (/^(shot|asset|task|member|user)_link$/.test(t)) proper.push(r);
+          });
+          logLine('legacy entity_link count: ' + legacy.length);
+          if (legacy.length) logLine(JSON.stringify(legacy.slice(0, 20), null, 2));
+          logLine('proper *_link count: ' + proper.length);
+          return { legacy, proper };
+        } catch (e) {
+          logLine('Fields fetch error: ' + e.message);
+          return null;
+        }
+      }
 
-  async function sampleListRows(entity){
-    logLine('== listRowsPage sample ==');
-    try{
-      var out = await gasCall('listRowsPage', { entity:entity, page:1, perPage:5 });
-      var shape = {
-        columns: (out&&out.columns)||[],
-        row0: (out&&out.rows&&out.rows[0])||null,
-        meta: (out&&out.meta)||{}
-      };
-      logLine(JSON.stringify(shape, null, 2));
-      var hasId = shape.columns.filter(c=>String(c.type).toLowerCase()==='id').length===1;
-      var hasName = shape.columns.filter(c=>String(c.type).toLowerCase()==='entity_name').length===1;
-      var badLink = shape.columns.filter(c=>{
-        var t=String(c.type||'').toLowerCase();
-        if (t!=='link') return false;
-        return !c.target || !/^(shot|asset|task|member|user)$/.test(String(c.target));
-      });
-      logLine('check: id=1:'+hasId+' entity_name=1:'+hasName+' badLink='+badLink.length);
-      return out;
-    }catch(e){
-      logLine('listRowsPage error: '+ e.message);
-      return null;
-    }
-  }
+      async function sampleListRows(entity) {
+        logLine('== listRowsPage sample ==');
+        try {
+          var out = await gasCall('listRowsPage', { entity: entity, page: 1, perPage: 5 });
+          var shape = {
+            columns: (out && out.columns) || [],
+            row0: (out && out.rows && out.rows[0]) || null,
+            meta: (out && out.meta) || {}
+          };
+          logLine(JSON.stringify(shape, null, 2));
+          var hasId = shape.columns.filter(c => String(c.type).toLowerCase() === 'id').length === 1;
+          var hasName = shape.columns.filter(c => String(c.type).toLowerCase() === 'entity_name').length === 1;
+          var badLink = shape.columns.filter(c => {
+            var t = String(c.type || '').toLowerCase();
+            if (t !== 'link') return false;
+            return !c.target || !/^(shot|asset|task|member|user)$/.test(String(c.target));
+          });
+          logLine('check: id=1:' + hasId + ' entity_name=1:' + hasName + ' badLink=' + badLink.length);
+          return out;
+        } catch (e) {
+          logLine('listRowsPage error: ' + e.message);
+          return null;
+        }
+      }
 
-  async function checkMeta(){
-    logLine('== project_meta roots ==');
-    try{
-      // これは動いている実績あり
-      var meta = await gasTry(['getProjectMeta','get_project_meta']);
-      logLine(JSON.stringify(meta, null, 2));
-      return meta;
-    }catch(e){
-      logLine('project_meta error: '+ e.message);
-      return null;
-    }
-  }
+      async function sampleDetailListRows(entity) {
+        logLine('== Detail-style listRowsPage sample (' + entity + ') ==');
+        try {
+          // Payload matching 3CL_Detail.html Take 12
+          var entStrict = String(entity).toLowerCase();
+          var entLabel = (entStrict === 'shot') ? 'Shots' :
+            (entStrict === 'asset') ? 'Assets' :
+              (entStrict === 'task') ? 'Tasks' :
+                (entStrict === 'user') ? 'Users' :
+                  (entStrict === 'member') ? 'ProjectMembers' : 'Shots';
+          var payload = {
+            entity: "Shots",
+            sheet: "Shots",
+            entityPlural: "Shots",
+            sheetName: "shot",
+            pageType: "detail",
+            offset: 0,
+            limit: 5000,
+            sort: [],
+            filterGroups: [],
+            groupCombine: "all"
+          };
+          logLine("payload: " + JSON.stringify(payload)); // Changed log to logLine
 
-  function start(){
-    ensurePanel();
-    (async function(){
-      resetLog();
-      await checkFieldsMatrix();
-      await checkLinksShape();
-      await sampleListRows('shot');
-      await sampleListRows('asset');
-      await checkMeta();
-      logLine('== done ==');
-    })().catch(function(err){
-      logLine('contract-inspector error: '+ String(err && err.message || err));
-    });
-  }
+          try {
+            var resp = await gasTry(["listRowsPage", "sv_listRowsPage"], payload); // Changed tryCall to gasTry
+            if (resp && resp.rows && resp.rows.length) {
+              logLine("OK: Rows returned. " + resp.rows.length); // Changed log to logLine
+            } else {
+              logLine("Detail listRowsPage error: No rows returned."); // Changed log to logLine
+            }
+            return resp; // Return resp here
+          } catch (e) {
+            logLine("Detail listRowsPage error: " + e.message); // Changed log to logLine
+            return null; // Return null on error
+          }
+        } catch (e) {
+          logLine('Detail listRowsPage error: ' + e.message);
+          return null;
+        }
+      }
 
-  if (document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', start, {once:true}); } else { start(); }
-})();
-</script>
-<!-- ===== 70. End ===== -->
+      async function checkMeta() {
+        logLine('== project_meta roots ==');
+        try {
+          // これは動いている実績あり
+          var meta = await gasTry(['getProjectMeta', 'get_project_meta']);
+          logLine(JSON.stringify(meta, null, 2));
+          return meta;
+        } catch (e) {
+          logLine('project_meta error: ' + e.message);
+          return null;
+        }
+      }
+
+      function start() {
+        ensurePanel();
+        (async function () {
+          resetLog();
+          await checkFieldsMatrix();
+          await checkLinksShape();
+          await sampleListRows('shot');
+          await sampleListRows('asset');
+          await sampleDetailListRows('shot');
+          await checkMeta();
+          logLine('== done ==');
+        })().catch(function (err) {
+          logLine('contract-inspector error: ' + String(err && err.message || err));
+        });
+      }
+
+      if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', start, { once: true }); } else { start(); }
+    })();
+  </script>
+  <!-- ===== 70. End ===== -->
 
 
 
 
 </body>
+
 </html>

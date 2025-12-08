@@ -1,90 +1,92 @@
 <!doctype html>
 <html>
-  <head>
-    <base target="_top" />
-    <meta charset="utf-8" />
-    <title>MOTKsheets G-Viewer</title>
-    <?!= include('3CL_CommonStyles'); ?>
-  </head>
-  <body data-nav-page="<?= page ?>">
-<!-- ===== 1.gnav ===== -->
-<nav id="gNav" class="gnavi" aria-label="Global Navigation">
-  <span class="logo">MOTK</span>
-  <a class="mi" data-page="Dashboard" href="<?= scriptUrl ?>?page=Dashboard">Dashboard</a>
-  <a class="mi" data-page="Settings" href="<?= scriptUrl ?>?page=Settings">Settings</a>
-  <span class="spacer"></span>
-  <a class="mi debug"
-     data-page="DebugPanelPage"
-     href="<?= scriptUrl ?>?page=DebugPanelPage"
-     target="_blank"
-     title="Debug Panel">
-    &#x1F41E; Debug
-  </a>
-</nav>
-<!-- ===== 1.End ===== -->
 
-<!-- ===== 2.pnav ===== -->
-<nav id="pNav" aria-label="Entity Navigation">
-  <a data-page="Shots"
-     data-entity="shot"
-     href="<?= scriptUrl ?>?p=table&e=shots">Shots</a>
+<head>
+  <base target="_top" />
+  <meta charset="utf-8" />
+  <title>MOTKsheets G-Viewer</title>
+  <?!= include('3CL_CommonStyles'); ?>
+</head>
 
-  <a data-page="Assets"
-     data-entity="asset"
-     href="<?= scriptUrl ?>?p=table&e=assets">Assets</a>
+<body data-nav-page="<?= page ?>" data-nav-entity="<?= entity ?>">
+  <!-- ===== 1.gnav ===== -->
+  <nav id="gNav" class="gnavi" aria-label="Global Navigation">
+    <span class="logo">MOTK</span>
+    <a class="mi" data-page="Dashboard" href="<?= scriptUrl ?>?page=Dashboard">Dashboard</a>
+    <a class="mi" data-page="Settings" href="<?= scriptUrl ?>?page=Settings">Settings</a>
+    <span class="spacer"></span>
+    <a class="mi debug" data-page="DebugPanelPage" href="<?= scriptUrl ?>?page=DebugPanelPage" target="_blank"
+      title="Debug Panel">
+      &#x1F41E; Debug
+    </a>
+  </nav>
+  <!-- ===== 1.End ===== -->
 
-  <a data-page="Tasks"
-     data-entity="task"
-     href="<?= scriptUrl ?>?p=table&e=tasks">Tasks</a>
+  <!-- ===== 2.pnav ===== -->
+  <nav id="pNav" aria-label="Entity Navigation">
+    <a data-page="Shots" data-entity="shot" href="<?= scriptUrl ?>?p=table&e=shots">Shots</a>
 
-  <a data-page="ProjectMembers"
-     data-entity="member"
-     href="<?= scriptUrl ?>?p=table&e=members">Members</a>
+    <a data-page="Assets" data-entity="asset" href="<?= scriptUrl ?>?p=table&e=assets">Assets</a>
 
-  <a data-page="Users"
-     data-entity="user"
-     href="<?= scriptUrl ?>?p=table&e=users">Users</a>
-</nav>
-<!-- ===== 2.End ===== -->
-    <?!= include('3CL_Router'); ?>
+    <a data-page="Tasks" data-entity="task" href="<?= scriptUrl ?>?p=table&e=tasks">Tasks</a>
 
-    <main id="main-content">
-      <div class="loader">Loading...</div>
-    </main>
+    <a data-page="ProjectMembers" data-entity="member" href="<?= scriptUrl ?>?p=table&e=members">Members</a>
 
-    <script>
-      const PAGE = "<?= page ?>";
-      window.SCRIPT_URL = "<?= scriptUrl ?>";
+    <a data-page="Users" data-entity="user" href="<?= scriptUrl ?>?p=table&e=users">Users</a>
+  </nav>
+  <!-- ===== 2.End ===== -->
+  <?!= include('3CL_Router'); ?>
+
+  <main id="main-content">
+    <div class="loader">Loading...</div>
+  </main>
+
+  <!-- ===== 4. Data bootstrapping ===== -->
+  <script>
+    const PAGE = "<?= page ?>";
+
+    // Bridge scriptUrl to all Router/Renderer consumers
+    (function () {
+      // Primary value from server (ScriptApp.getService().getUrl())
+      var url = "<?= scriptUrl ?>";
+
+      // Safety fallback in case scriptUrl is empty for some reason
+      if (!url) {
+        url = window.__SCRIPT_URL__ || window.SCRIPT_URL || (location.origin + location.pathname);
+      }
+
+      // Normalize to a single source of truth
+      window.__SCRIPT_URL__ = url;
+      window.SCRIPT_URL = url;
+      window.scriptUrl = url;
+
+      console.log("[MOTK][Shell] SCRIPT URL bridge set:", url);
+    })();
+
+    const raw = JSON.parse(<?= dataJson ?>);
+    window.__VIEW_CTX = raw.viewCtx;
+    window.__ALL_DATA = raw.data;
+    window.__SERVER_CONFIG = raw.config;
+
+    console.log("[MOTK][Shell] Bootstrapped view context:", window.__VIEW_CTX);
+
+    window.addEventListener("DOMContentLoaded", function () {
+      renderEntitySamples();
+      initAppShell(PAGE, window.__VIEW_CTX, window.__ALL_DATA);
+    });
+  </script>
 
 
-      const raw = JSON.parse(<?= dataJson ?>);
-      const ids      = raw.length > 0 ? raw[0] : [];
-      const header   = raw.length > 1 ? raw[1] : [];
-      const dataRows = raw.length > 2 ? raw.slice(2) : [];
+  <script src="<?= scriptUrl ?>?action=app-bundle"></script>
 
-      // viewer.html
-      const ALL_DATA = {
-        pageType: "table",
-        sheetName: PAGE,
-        ids: ids,
-        header: header,
-        total: dataRows.length,
-        rows: dataRows,
-        fieldMeta: [],
-        idMaps: {},
-      };
-    </script>
+  <?!= include('3CL_Table'); ?>
 
-    
-    <script src="<?= scriptUrl ?>?action=app-bundle"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const loader = document.querySelector('.loader');
+      if (loader) loader.style.display = 'none';
+    });
+  </script>
+</body>
 
-    <?!= include('3CL_Table'); ?>
-
-    <script>
-      document.addEventListener('DOMContentLoaded', () => {
-        const loader = document.querySelector('.loader');
-        if (loader) loader.style.display = 'none';
-      });
-    </script>
-  </body>
 </html>

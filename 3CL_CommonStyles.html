@@ -1,4 +1,3 @@
-<!-- ===== COMMON_styles.html ===== -->
 <style>
   .field-cell { display: inline-block; min-width: 100px; }
   .originals-link { color: #007bff; text-decoration: none; font-weight: bold; }
@@ -6,13 +5,16 @@
   .no-link { color: #6c757d; font-style: italic; }
   .entity-link { color: #28a745; text-decoration: none; }
   .entity-link:hover { text-decoration: underline; }
-  .card { border: 1px solid #ddd; padding: 10px; margin: 10px 0; }
+  
+  /* ★修正: marginを0にする。グリッド配置における「聖域」やズレの原因となるため */
+  .card { border: 1px solid #ddd; padding: 10px; margin: 0; }
+  
   .card-fields .field { margin: 5px 0; }
   .input { border: 1px solid #ccc; padding: 2px; }
+  /* Legacy Modal Styles */
   .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
   .modal-content { background: white; margin: 15% auto; padding: 20px; width: 80%; max-width: 500px; }
   table td { vertical-align: top; padding: 5px; }
-  /* Gridstack/Card/Pagination: Styled but structured in page files */
   .grid-stack { background: #f8f9fa; }
   .grid-stack-item { border: 1px solid #dee2e6; }
   .pagination { text-align: center; margin: 10px 0; }
@@ -27,7 +29,7 @@
     --link-color: #4ea3ff;
     --link-hover-color: #ff7e39;
     --header-height: 40px;
-    --pnav-height: 40px; /* NOTE: legacy comment removed */
+    --pnav-height: 40px; 
     --statusbar-height: 28px;
     --total-header-height: calc(var(--header-height) + var(--pnav-height));
   }
@@ -86,7 +88,6 @@
 
 
 /* ===== 2. Table View Styles ===== */
-/* Root vars for viewer-specific (merged with global) */
 :root{
   --surface:var(--bg-primary);
   --panel:var(--bg-secondary);
@@ -137,14 +138,10 @@
   overflow-x:auto;
   overflow-y:auto;
   background:var(--surface);
-
   padding-bottom:var(--footer-pad, 96px);
-
-
   scrollbar-color:#cbd5e1 #0f1420;
   scrollbar-width:thin;
 }
-/* WebKit */
 #tableWrap::-webkit-scrollbar,
 #table-view-container::-webkit-scrollbar{width:var(--sbw);height:var(--sbw);}
 #tableWrap::-webkit-scrollbar-thumb,
@@ -295,8 +292,12 @@ button:hover {
   /* ===== Detail Page ===== */
 html.detail-root{
       --bg:#0b0c0f; --fg:#e6eaf0; --fg-dim:#9aa3b2;
-      --gap:12px; --cols:12; --rowh:12px;
-      --min-col:120px;
+      --gap:4px; 
+      --cols:24; 
+      --rowh:12px;
+      --min-col:80px;
+      --col-width: 100px;
+
       --card-bg:rgba(255,255,255,.04); --card-bd:rgba(255,255,255,.12); --card-hd:rgba(255,255,255,.03);
       --panel:#151821; --panel-bd:rgba(255,255,255,.12);
       --toolbar-h:32px; --footer-h:22px; --sbw:12px;
@@ -309,14 +310,18 @@ body.detail-page{
     }
 body.detail-page .toolbar :is(button,
 body.detail-page [role="button"],
-
-
-
 body.detail-page .btn,
 body.detail-page a){pointer-events:auto!important;opacity:1!important}
-body.detail-page #gridWrap{position:relative;overflow-x:auto;overflow-y:visible;-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;}
-body.detail-page #gridWrap::-webkit-scrollbar{height:0;width:0;}
 
+/* Grid Layout Fix */
+body.detail-page #gridWrap{
+    position:absolute;
+    top: var(--top-offset); 
+    left: 0; right: 0; bottom: var(--footer-h);
+    overflow: auto;
+    padding: 0 12px 100px 12px;
+}
+body.detail-page #gridWrap::-webkit-scrollbar{height:0;width:0;}
 
 body.detail-page #hScroll{
       position:fixed;z-index:1201;left:0;width:100%;
@@ -363,13 +368,14 @@ body.detail-page .spacer-top{ height:calc(var(--gnav-height,40px) + var(--pnav-h
 body.detail-page .spacer-bottom{ height:var(--footer-h); }
 body.detail-page #grid{
       position:relative;overflow:visible;display:grid;gap:var(--gap);
-      grid-template-columns:repeat(var(--cols),var(--min-col));
+      grid-template-columns:repeat(var(--cols), var(--col-width));
       grid-auto-rows:var(--rowh);align-content:start;
-      min-width:calc(var(--cols)*var(--min-col) + (var(--cols)-1)*var(--gap));
+      margin-top: 0;
+      width: fit-content;
+      min-width: 100%;
       min-height:50vh;
     }
-body.detail-page /* NOTE: legacy comment removed */
-    #grid :is(.field-row,
+body.detail-page #grid :is(.field-row,
 body.detail-page .kv-row,
 body.detail-page .fields-grid){
       display:grid!important;grid-template-columns:max-content 1fr!important;align-items:start;gap:8px;
@@ -394,8 +400,6 @@ body.detail-page .kv-row,
 body.detail-page .fields-grid) textarea{
       pointer-events:none!important;background:transparent!important;border-color:transparent!important;
     }
-
-
 
 body.detail-page .btn,
 body.detail-page .select,
@@ -424,19 +428,17 @@ body.detail-page #presetSelect{
       padding:0 10px; height:30px; font-size:12px; line-height:28px;
     }
 body.detail-page #presetSelect option{ background:#fff; color:#000; }
-body.detail-page /* NOTE: legacy comment removed */
-    .menu{
+body.detail-page .menu{
       position:absolute; right:0; top:calc(100% + 6px);
       background:#fff; color:#000;
       border:1px solid rgba(0,0,0,.15);
       border-radius:10px; min-width:160px;
-      display:none; /* NOTE: legacy comment removed */
+      display:none; 
       flex-direction:column; overflow:hidden; z-index:1400;
       box-shadow:0 10px 24px rgba(0,0,0,.2);
     }
 body.detail-page .menu.open{ display:flex; }
-body.detail-page /* NOTE: legacy comment removed */
-    .menu .mi{
+body.detail-page .menu .mi{
       padding:8px 12px; cursor:pointer; font-size:12px;
       white-space:nowrap; color:#000; background:#fff;
     }
@@ -459,7 +461,8 @@ body.detail-page .toolbar[data-mode="edit"] .mode-toggle{
 body.detail-page .card{
       position:relative;background:var(--card-bg); border:1px solid var(--card-bd);
       border-radius:12px; overflow:hidden; display:flex; flex-direction:column;
-      --thwpx: 220px; min-height:calc(var(--rowh) * 6);
+      --thwpx: 120px; 
+      min-height:0;
     }
 body.detail-page .card-header{
       position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;
@@ -471,15 +474,27 @@ body.detail-page .card-title{flex:1 1 auto;min-width:0;margin-left:28px;white-sp
 body.detail-page .card-actions{display:none;align-items:center;gap:6px}
 body.detail-page.layout-edit .card-actions{display:flex}
 
-body.detail-page .card-remove{
+/* ★修正: クラス名を .btn-del に変更して非表示を徹底 */
+body.detail-page .card-remove,
+body.detail-page .btn-del {
       position:absolute;left:12px;top:50%;transform:translateY(-50%);
-      display:none;align-items:center;justify-content:center;width:22px;height:22px;
+      display:none !important; /* デフォルト非表示 */
+      align-items:center;justify-content:center;width:22px;height:22px;
       border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(255,255,255,.05);
       color:rgba(255,255,255,.7);cursor:pointer;transition:background .15s ease,color .15s ease;
-    }
-body.detail-page .card-remove:hover{background:rgba(255,255,255,.15);color:#fff;}
-body.detail-page .card-remove:focus{outline:2px solid rgba(255,255,255,.4);outline-offset:2px;}
-body.detail-page.layout-edit .card-remove{display:flex;}
+}
+body.detail-page:not(.layout-edit) .card-remove,
+body.detail-page:not(.layout-edit) .btn-del { 
+    display: none !important; 
+    visibility: hidden !important; 
+    opacity: 0 !important;
+}
+
+body.detail-page .card-remove:hover, body.detail-page .btn-del:hover{background:rgba(255,255,255,.15);color:#fff;}
+body.detail-page .card-remove:focus, body.detail-page .btn-del:focus{outline:2px solid rgba(255,255,255,.4);outline-offset:2px;}
+body.detail-page.layout-edit .card-remove,
+body.detail-page.layout-edit .btn-del{display:flex !important;}
+
 body.detail-page .card-remove svg{pointer-events:none;}
 body.detail-page .card-header:active{cursor:grabbing;}
 body.detail-page .cbody{min-height:0; flex:1 1 auto; overflow:auto;}
@@ -492,31 +507,59 @@ body.detail-page .table{width:100%;border-collapse:collapse;font-size:12px;table
 body.detail-page .table th,
 body.detail-page .table td{padding:6px 10px;vertical-align:top;border-bottom:1px dashed rgba(255,255,255,.06)}
 body.detail-page .table th{
-      width:1% !important; text-align:left !important; color:var(--fg-dim);
+      width:var(--thwpx, 80px) !important; 
+      min-width: 60px !important; 
+      max-width: var(--thwpx, 360px) !important;
+      text-align:left !important; color:var(--fg-dim);
       font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+      position: sticky; left: 0; z-index: 10; 
+      /* 背景色を透明にしてカードに馴染ませる */
+      background: var(--card-hd) !important;
+      border-right: 1px solid rgba(255,255,255,0.1);
+      box-shadow: 2px 0 4px rgba(0,0,0,0.3);
     }
+.th-resizer {
+    position: absolute; 
+    right: 0; 
+    top: 0; bottom: 0;
+    width: 6px; 
+    cursor: col-resize;
+    background: transparent;
+    z-index: 11;
+    display: none;
+}
+body.detail-page.layout-edit .th-resizer { display: block; }
+.th-resizer:hover { background: rgba(255,255,255,0.3); }
+
 body.detail-page .table td{color:var(--fg);word-break:break-word}
 body.detail-page .media{width:100%; height:100%; background:#0f1115;}
-body.detail-page .media.aspect{ position:relative; width:100%; }
-body.detail-page .media.aspect::before{ content:""; display:block; padding-top:56.25%; }
-body.detail-page .media.aspect .inner{ position:absolute; inset:0; }
+body.detail-page .media.aspect{ position:relative; width:100%; height:100%; min-height:100px; display:flex; align-items:center; justify-content:center; }
+body.detail-page .media.aspect::before{ display: none !important; }
+body.detail-page .media.aspect .inner{ position:relative; inset:auto; width:100%; height:100%; }
 body.detail-page .media iframe{ width:100%; height:100%; border:0; background:#0f1115; }
 body.detail-page .media-note{padding:8px 10px;font-size:12px;color:#9aa3b2}
-body.detail-page .modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center;
-      background:rgba(0,0,0,.45); z-index:40000; }
-body.detail-page .panel{
-      position:relative; z-index:40001;
-      width:min(640px,92vw); max-height:80vh; overflow:auto;
-      background:var(--panel); border:1px solid var(--panel-bd); border-radius:12px;
-      box-shadow:0 18px 48px rgba(0,0,0,.5);
-    }
-body.detail-page .panel .hd{padding:10px 12px; border-bottom:1px solid var(--panel-bd); font-weight:600}
-body.detail-page .panel .bd{padding:12px}
-body.detail-page .panel .ft{padding:10px 12px; border-top:1px solid var(--panel-bd); display:flex; gap:8px; justify-content:flex-end}
+
+/* モーダル */
+body.detail-page .v2-modal-overlay {
+  position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.6); z-index: 40000;
+  pointer-events: auto !important;
+}
+body.detail-page .v2-modal-panel {
+  position: relative; z-index: 40001;
+  width: min(640px, 92vw); max-height: 80vh; overflow: auto;
+  background: #1e2128; border: 1px solid rgba(255,255,255,.12); border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(0,0,0,.5);
+  display: flex; flex-direction: column;
+  pointer-events: auto !important;
+}
+body.detail-page .v2-modal-panel .hd { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.12); font-weight: 600; color:#eee; }
+body.detail-page .v2-modal-panel .bd { padding: 12px; color:#eee; }
+body.detail-page .v2-modal-panel .ft { padding: 10px 12px; border-top: 1px solid rgba(255,255,255,.12); display: flex; gap: 8px; justify-content: flex-end; }
+
 body.detail-page .row{display:flex; gap:8px; align-items:center; margin-bottom:8px}
 body.detail-page .row .grow{flex:1 1 auto}
-body.detail-page /* NOTE: legacy comment removed */
-    .field-row{
+body.detail-page .field-row{
       display:grid; grid-template-columns:auto 1fr; gap:8px; align-items:center;
       padding:6px 0; border-bottom:1px dashed rgba(255,255,255,.08);
     }
@@ -533,6 +576,16 @@ body.detail-page .chip{
       background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12);
       font-size:11px; white-space:nowrap;
     }
+
+/* ShotView画像: 横100%, 縦なりゆき, 全体表示 */
+body.detail-page .media.aspect img { 
+    width: 100% !important; 
+    height: auto !important; 
+    max-width: none !important; 
+    max-height: none !important; 
+    object-fit: contain !important;
+    display: block;
+}
 
   /* ===== 90.saveas-modal-styles ===== */
   #pgSaveAsMask{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:999}
@@ -566,14 +619,12 @@ body.detail-page .chip{
   inset: 0;
   background: rgba(0,0,0,0.4);
   z-index: 10001;
+  display:none;
+  pointer-events:none;
 }
 </style>
 
 <!-- ===== 91. End ===== -->
-
-
-
-
 
 <!-- ===== 92.modal-legacy-saveas ===== -->
 <style>
@@ -604,14 +655,6 @@ body.detail-page .chip{
 <style>
   .detail-page .spacer-top{
     height:calc(var(--gnav-height,0px) + var(--pnav-height,0px));
-  }
-  .detail-page #grid,
-  .detail-page #gridstackWrap,
-  .detail-page .grid-stack{
-    margin-top:-48px;
-  }
-  .detail-page.layout-edit .grid-stack{
-    min-height:70vh;
   }
 </style>
 <!-- ===== 94.detail-grid-offset ===== -->
@@ -659,31 +702,6 @@ body.motk-modal-open .motk-modal-backdrop{
 </style>
 <!-- ===== 96. End ===== -->
 
-<!-- ===== 97.detail-grid-offset-fix ===== -->
-<style>
-/* remove negative offsets and push content below toolbar height */
-.detail-page #grid,
-.detail-page #gridstackWrap,
-.detail-page .grid-stack{
-  margin-top: calc(
-    var(--gnav-height, 40px) +
-    var(--pnav-height, 40px) +
-    var(--toolbar-h, 32px)
-  ) !important;
-}
-
-/* safety: never negative */
-.detail-page #grid,
-.detail-page #gridstackWrap,
-.detail-page .grid-stack{
-  top: 0 !important;
-}
-
-/* card snap stability helpers stay intact */
-</style>
-<!-- ===== 97. End ===== -->
-
-
 <!-- ===== 41.field-chip-thumb ===== -->
 <style>
   .chip{ display:inline-block; padding:2px 8px; border-radius:12px; text-decoration:none; border:1px solid #ddd; font-size:12px; margin:0 4px 4px 0; }
@@ -696,5 +714,3 @@ body.motk-modal-open .motk-modal-backdrop{
 
 
 <!-- ===== COMMON_styles.html End ===== -->
-
-
