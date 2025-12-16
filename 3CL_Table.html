@@ -1072,10 +1072,10 @@
       }
 
       function bindLinkPickerInlineEdit() {
-        if (bindLinkPickerInlineEdit._bound) return;
-        bindLinkPickerInlineEdit._bound = true;
+        if (window.__MOTK_TABLE_INLINE_EDIT_BOUND) return;
+        window.__MOTK_TABLE_INLINE_EDIT_BOUND = true;
 
-        document.addEventListener('dblclick', function (e) {
+        document.addEventListener('click', function (e) {
           var td = e.target && e.target.closest ? e.target.closest('#tableWrap td[data-col-id]') : null;
           if (!td) return;
 
@@ -1159,7 +1159,7 @@
           }).then(function (out) {
             if (!out || out.cancelled) return;
           });
-        });
+        }, true);
       }
 
       function _rowValueByIdFid_(rowId, fid) {
@@ -2950,8 +2950,9 @@
         // 左クリックの SPA ルーティングは使用しない（通常のページ遷移）
         try { readUrlState && readUrlState(); } catch (_) { }
 
-        start();
-        bindLinkPickerInlineEdit();
+        Promise.resolve(start()).then(function () {
+          bindLinkPickerInlineEdit();
+        });
 
         var qs = document.getElementById('quickSearch');
         if (qs) {

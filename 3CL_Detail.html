@@ -1767,6 +1767,30 @@
           makeEditable(cell, fid, ftype, meta);
         });
 
+        function renderAllDetailCellsForFid(fid, meta, value, linkEntity) {
+          if (!(window.FieldsAPI && typeof FieldsAPI.renderCellByField === "function")) return;
+          var f = String(fid || "");
+          if (!f) return;
+          var nodes = document.querySelectorAll('td.v[data-fid="' + f + '"]');
+          for (var i = 0; i < nodes.length; i++) {
+            var td = nodes[i];
+            try {
+              td.innerHTML = "";
+              td.appendChild(FieldsAPI.renderCellByField({
+                fid: f,
+                val: value,
+                row: STATE.row || {},
+                labels: STATE.labels || {},
+                entity: STATE.entity,
+                type: (meta && meta.type) ? String(meta.type).trim().toLowerCase() : "",
+                linkEntity: linkEntity || null,
+                field: meta || null,
+                editable: false
+              }));
+            } catch (_) { }
+          }
+        }
+
         function makeEditable(cell, fid, ftype, meta) {
           var originalRaw = (STATE.row && STATE.row[fid] != null) ? STATE.row[fid] : cell.textContent.trim();
           var originalValue = (originalRaw == null) ? "" : String(originalRaw).trim();
@@ -1784,56 +1808,44 @@
             var id = STATE.id || (STATE.row && STATE.row["fi_0001"]) || "";
             if (!id) { showStatus("Error: No ID found", true); return; }
 
-            FieldsAPI.openLinkPicker({
-              fid: fid,
-              type: t,
-              value: originalRaw,
-              commit: function (out) {
-                return new Promise(function (resolve, reject) {
-                  showStatus("Updating...");
+            FieldsAPI.openLinkPicker({ fid: fid, type: t, value: originalRaw }).then(function (out) {
+              if (!out || out.cancelled) return;
 
-                  var patch = {}; patch[fid] = out.value;
-                  if (!(window.google && google.script && google.script.run)) {
-                    var eNo = new Error("google.script.run unavailable");
-                    reject(eNo);
+              var prev = (STATE.row && STATE.row[fid] != null) ? STATE.row[fid] : "";
+              var nextVal = out.value;
+              var linkEnt = out.targetEntity || null;
+
+              if (STATE.row) STATE.row[fid] = nextVal;
+              renderAllDetailCellsForFid(fid, meta, nextVal, linkEnt);
+              showStatus("Saving...");
+
+              if (!(window.google && google.script && google.script.run)) {
+                showStatus("Update Failed: google.script.run unavailable", true);
+                if (STATE.row) STATE.row[fid] = prev;
+                renderAllDetailCellsForFid(fid, meta, prev, linkEnt);
+                return;
+              }
+
+              var patch = {}; patch[fid] = nextVal;
+              google.script.run
+                .withSuccessHandler(function (res) {
+                  if (res == null || (res && res.ok)) {
+                    showStatus("Saved");
+                    renderAllDetailCellsForFid(fid, meta, nextVal, linkEnt);
                     return;
                   }
-
-                  google.script.run
-                    .withSuccessHandler(function (res) {
-                      if (res == null || (res && res.ok)) {
-                        if (STATE.row) STATE.row[fid] = out.value;
-                        cell.innerHTML = "";
-                        var node = FieldsAPI.renderCellByField({
-                          fid: fid,
-                          val: out.value,
-                          row: STATE.row || {},
-                          labels: STATE.labels || {},
-                          entity: STATE.entity,
-                          type: t,
-                          linkEntity: out.targetEntity || null,
-                          field: meta || null,
-                          editable: false
-                        });
-                        cell.appendChild(node);
-                        showStatus("Updated!", false);
-                        resolve(res);
-                        return;
-                      }
-                      var msg = (res && res.error) ? res.error : "Unknown";
-                      showStatus("Update Failed: " + msg, true);
-                      reject(new Error(msg));
-                    })
-                    .withFailureHandler(function (err) {
-                      var msg = String(err && err.message ? err.message : err);
-                      showStatus("Update Failed: " + msg, true);
-                      reject(err || new Error(msg));
-                    })
-                    .dp_updateEntityRecord(entity, id, patch);
-                });
-              }
-            }).then(function (out) {
-              if (!out || out.cancelled) return;
+                  var msg = (res && res.error) ? res.error : "Unknown";
+                  showStatus("Update Failed: " + msg, true);
+                  if (STATE.row) STATE.row[fid] = prev;
+                  renderAllDetailCellsForFid(fid, meta, prev, linkEnt);
+                })
+                .withFailureHandler(function (err) {
+                  var msg = String(err && err.message ? err.message : err);
+                  showStatus("Update Failed: " + msg, true);
+                  if (STATE.row) STATE.row[fid] = prev;
+                  renderAllDetailCellsForFid(fid, meta, prev, linkEnt);
+                })
+                .dp_updateEntityRecord(entity, id, patch);
             });
             return;
           }
