@@ -180,13 +180,15 @@ th.draggable{cursor:move;}
 #statusBar{
   position:sticky;        
   bottom:0;
-  z-index:101;
+  pointer-events:auto;
+  z-index:9999;
   flex:0 0 auto;
   background:var(--panel);
   border-top:1px solid var(--border);
   display:flex;align-items:center;gap:8px;
   padding:6px 8px;
 }
+#statusBar *{ pointer-events:auto; }
 #pager{display:flex;align-items:center;gap:8px;}
 #pager .btn{padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);cursor:pointer;min-width:34px;}
 #pager .btn:disabled{opacity:.5;cursor:not-allowed;}

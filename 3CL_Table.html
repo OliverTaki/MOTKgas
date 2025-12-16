@@ -1076,6 +1076,11 @@
         window.__MOTK_TABLE_INLINE_EDIT_BOUND = true;
 
         document.addEventListener('click', function (e) {
+          if (!window.__VIEW_CTX || window.__VIEW_CTX.p !== "table") return;
+
+          // do not intercept clicks on interactive elements (links/buttons/inputs)
+          if (e.target && e.target.closest && e.target.closest("a,button,input,select,textarea,label")) return;
+
           var td = e.target && e.target.closest ? e.target.closest('#tableWrap td[data-col-id]') : null;
           if (!td) return;
 
@@ -1101,6 +1106,10 @@
           var raw = _rowValueByIdFid_(rowId, fid);
           var prevValue = raw;
           var entity = singularEntityFor(STATE.sheetName || 'shot') || 'shot';
+
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
 
           FieldsAPI.openLinkPicker({
             fid: fid,

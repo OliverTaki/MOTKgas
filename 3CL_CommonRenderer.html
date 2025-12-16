@@ -580,7 +580,30 @@
         var bucket = _bucketForEntity_(targetEntity);
         var map = (window.LINK_MAPS && window.LINK_MAPS[bucket]) ? window.LINK_MAPS[bucket] : {};
 
-        var items = Object.keys(map || {}).map(function (id) {
+        function _isValidRecordIdForEntity(entity, id) {
+          id = String(id || "");
+          var e = String(entity || "");
+
+          // entity-specific prefixes (do NOT allow header labels)
+          if (e === "shot")   return /^sh_[0-9]{4,}$/.test(id);
+          if (e === "asset")  return /^as_[0-9]{4,}$/.test(id);
+          if (e === "task")   return /^tk_[0-9]{4,}$/.test(id);
+          if (e === "user")   return /^us_[0-9]{4,}$/.test(id);
+          if (e === "page")   return /^pg_[0-9]{4,}$/.test(id);
+
+          // member has legacy alias mb_ but normalized to pm_ elsewhere
+          if (e === "member") return /^(pm|mb)_[0-9]{4,}$/.test(id);
+
+          // fallback (still exclude field IDs)
+          if (/^fi_[0-9]{4,}$/.test(id)) return false;
+          return /^[a-z]{2}_[0-9]{4,}$/.test(id);
+        }
+
+        var ids = Object.keys(map || {}).filter(function (id) {
+          return _isValidRecordIdForEntity(targetEntity, id);
+        });
+
+        var items = ids.map(function (id) {
           return { id: String(id), name: String(map[id] == null ? id : map[id]) };
         });
         items.sort(function (a, b) { return a.name.localeCompare(b.name); });
