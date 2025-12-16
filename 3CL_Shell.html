@@ -69,14 +69,10 @@
     window.__SERVER_CONFIG = (raw && raw.config) ? raw.config : {};
 
     console.log("[MOTK][Shell] Bootstrapped view context:", window.__VIEW_CTX);
-
-    window.addEventListener("DOMContentLoaded", function () {
-      initAppShell(PAGE, window.__VIEW_CTX, window.__ALL_DATA);
-    });
   </script>
 
 
-  <script src="<?= scriptUrl ?>?action=app-bundle"></script>
+  <script src="<?= scriptUrl ?>?action=app-bundle" onload="initAppShell(PAGE, window.__VIEW_CTX, window.__ALL_DATA);"></script>
 
   <?!= include('3CL_Table'); ?>
 

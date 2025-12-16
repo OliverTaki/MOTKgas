@@ -573,6 +573,46 @@
           }, false);
       }
 
+      function installHardNavForInternalLinks() {
+        if (window.__MOTK_HARDNAV_INSTALLED__) return;
+        window.__MOTK_HARDNAV_INSTALLED__ = true;
+
+        document.addEventListener("click", function (e) {
+          try {
+            if (!e || e.defaultPrevented) return;
+            if (e.button !== 0) return;
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+
+            var t = e.target;
+            var a = (t && t.closest) ? t.closest("a") : null;
+            if (!a) return;
+
+            if (a.closest && (a.closest("#motk-modal-root") || a.closest("#motkLinkPicker") || a.closest(".motk-link-picker") || a.closest(".v2-modal-overlay"))) {
+              return;
+            }
+
+            var hrefAttr = a.getAttribute("href") || "";
+            if (!hrefAttr || hrefAttr.charAt(0) === "#") return;
+
+            var target = String(a.getAttribute("target") || "").toLowerCase();
+            if (target === "_blank") return;
+
+            var href = a.href || hrefAttr;
+            if (!href) return;
+
+            var isInternal = false;
+            if (hrefAttr.charAt(0) === "?") isInternal = true;
+            if (href.indexOf("script.google") >= 0) isInternal = true;
+            if (href.indexOf("googleusercontent") >= 0) isInternal = true;
+            if (!isInternal) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+            (window.top || window).location.href = href;
+          } catch (_) { }
+        }, true);
+      }
+
       function bindSaveUI() {
         var saveBtn = $("#saveBtnAll"), menu = $("#saveMenu");
         if (!saveBtn || !menu) return;
@@ -1619,6 +1659,7 @@
 
       async function init() {
         initModalHandlers();
+        installHardNavForInternalLinks();
         setLoading(true);
         
         var viewCtx = window.__VIEW_CTX__ || window.viewCtx || {}; window.__VIEW_CTX__ = viewCtx;
@@ -1760,7 +1801,7 @@
 
                   google.script.run
                     .withSuccessHandler(function (res) {
-                      if (res && res.ok) {
+                      if (res == null || (res && res.ok)) {
                         if (STATE.row) STATE.row[fid] = out.value;
                         cell.innerHTML = "";
                         var node = FieldsAPI.renderCellByField({
