@@ -883,9 +883,10 @@ function sv_listRowsPage(entity, options) {
     total = rows.length;
   }
 
-  var ftAll = getFieldTypes(entity) || {};
-  var entKey = String(entity || '').toLowerCase();
-  var fieldDefs = ftAll[entKey] || {};
+  var canonEnt = _normalizeEntityParams_({ entity: params.entity || entity || '' }).entity;
+  var ftAll = getFieldTypes(canonEnt) || {};
+  var fieldDefs = ftAll[canonEnt] || {};
+  var missingMeta = [];
 
   var columns = [];
   for (var i = 0; i < ids.length; i++) {
@@ -893,20 +894,30 @@ function sv_listRowsPage(entity, options) {
     var nameRaw = (i < names.length) ? names[i] : '';
 
     var fid = fidRaw != null ? String(fidRaw).trim() : '';
-    var def = fid && fieldDefs[fid] ? fieldDefs[fid] : {};
+    var def = fid && fieldDefs[fid] ? fieldDefs[fid] : null;
 
     var colName = (nameRaw != null && nameRaw !== '') ?
       String(nameRaw) :
-      (def.label || fid || '');
+      ((def && def.label) || fid || '');
+
+    var type = def && def.type ? String(def.type).trim().toLowerCase() : '';
+    var editable = !!(def && def.editable === true);
+    var required = !!(def && def.required === true);
+    var options = def && def.options ? def.options : [];
+    if (!Array.isArray(options)) options = _parseOptions_(options);
+
+    if (fid && !type) missingMeta.push(fid);
 
     columns.push({
       id: fid || null,
       fieldId: fid || null,
+      field_id: fid || null,
       name: colName,
       label: colName,
-      type: def.type || 'text',
-      editable: def.editable != null ? !!def.editable : true,
-      required: !!def.required,
+      type: type,
+      editable: editable,
+      required: required,
+      options: options,
       index: i,
       meta: {}
     });
@@ -923,7 +934,9 @@ function sv_listRowsPage(entity, options) {
       sheet: (base.meta && base.meta.sheet) ? base.meta.sheet : (params.sheet || ''),
       offset: (base.meta && base.meta.offset != null) ? base.meta.offset : (params.offset || 0),
       limit: (base.meta && base.meta.limit != null) ? base.meta.limit : (params.limit || 100),
-      entity: entity
+      entity: entity,
+      entityKey: canonEnt,
+      missingFieldsMeta: missingMeta
     }
   };
 }
@@ -944,6 +957,25 @@ function _hdrIndex_(hdr, name) {
   return -1;
 }
 function _norm_(s) { return String(s || "").trim().toLowerCase().replace(/[^\w]+/g, "_"); }
+function _normBool_(v) {
+  var s = String(v == null ? "" : v).trim().toLowerCase();
+  if (!s) return false;
+  if (s.charCodeAt && s.charCodeAt(0) === 0x2713) return true; // checkmark
+  return s === "true" || s === "1" || s === "yes" || s === "on" || s === "y" || s === "ok";
+}
+function _parseOptions_(v) {
+  if (v == null) return [];
+  if (Array.isArray(v)) return v.map(function (x) { return String(x == null ? "" : x).trim(); }).filter(Boolean);
+  var s = String(v).trim();
+  if (!s) return [];
+  if (/^\s*\[/.test(s)) {
+    try {
+      var a = JSON.parse(s);
+      if (Array.isArray(a)) return a.map(function (x) { return String(x == null ? "" : x).trim(); }).filter(Boolean);
+    } catch (_) { }
+  }
+  return s.split(/[\n\r|,]+/).map(function (t) { return String(t).trim(); }).filter(Boolean);
+}
 function _arrToObj_(hdr, row) {
   var o = {}, i;
   for (i = 0; i < hdr.length; i++) { o[String(hdr[i])] = row[i]; }
@@ -985,7 +1017,10 @@ function _readFields_() {
     type: H.type != null ? H.type : (H.kind != null ? H.kind : null),
     field_id: H.field_id != null ? H.field_id : (H.fi != null ? H.fi : null),
     column_name: H.column != null ? H.column : (H.column_name != null ? H.column_name : (H.col != null ? H.col : null)),
-    editable: (H.editable != null ? H.editable : (H.can_edit != null ? H.can_edit : null))
+    label: H.label != null ? H.label : (H.field_name != null ? H.field_name : (H.name != null ? H.name : null)),
+    options: H.options != null ? H.options : (H.option != null ? H.option : (H.choices != null ? H.choices : (H.choice != null ? H.choice : null))),
+    editable: (H.editable != null ? H.editable : (H.can_edit != null ? H.can_edit : null)),
+    required: (H.required != null ? H.required : (H.req != null ? H.req : null))
   };
   var out = [];
   for (var r = 0; r < rows.length; r++) {
@@ -995,7 +1030,10 @@ function _readFields_() {
       type: C.type != null ? row[C.type] : "",
       field_id: C.field_id != null ? row[C.field_id] : "",
       column_name: C.column_name != null ? row[C.column_name] : "",
-      editable: C.editable != null ? row[C.editable] : false
+      label: C.label != null ? row[C.label] : "",
+      options: C.options != null ? row[C.options] : "",
+      editable: C.editable != null ? row[C.editable] : false,
+      required: C.required != null ? row[C.required] : false
     };
     out.push(o);
   }
@@ -1005,11 +1043,23 @@ function _idAndLabelCols_(entity, sheetHdr) {
   var fields = _readFields_();
   var e = _norm_(entity);
   var idName = null, labelName = null;
+
+   // DataHub/Entity sheets: row 1 is Field IDs (fi_####)
+   if (idName == null) {
+     var idxFiId = _hdrIndex_(sheetHdr, "fi_0001");
+     if (idxFiId >= 0) idName = sheetHdr[idxFiId];
+   }
+   if (labelName == null) {
+     var idxFiLabel = _hdrIndex_(sheetHdr, "fi_0002");
+     if (idxFiLabel >= 0) labelName = sheetHdr[idxFiLabel];
+   }
+
   for (var i = 0; i < fields.length; i++) {
     if (_norm_(fields[i].entity) !== e) continue;
     var t = _norm_(fields[i].type);
-    if (t === "id" && fields[i].column_name) { idName = fields[i].column_name; }
-    if ((t === "entity_name" || t === "name") && fields[i].column_name) { labelName = fields[i].column_name; }
+    var colKey = fields[i].column_name || fields[i].field_id;
+    if (t === "id" && colKey) { idName = colKey; }
+    if ((t === "entity_name" || t === "name") && colKey) { labelName = colKey; }
   }
   if (idName == null) {
     var guess = ["id", e + "_id", e + "id", "code", "key"];
@@ -1032,9 +1082,10 @@ function _isEditable_(entity, colName) {
   var e = _norm_(entity), c = _norm_(colName);
   for (var i = 0; i < fields.length; i++) {
     if (_norm_(fields[i].entity) !== e) continue;
-    if (_norm_(fields[i].column_name) === c) {
-      var v = fields[i].editable;
-      return (String(v).toLowerCase() === "true" || String(v) === "1" || String(v).toLowerCase() === "yes");
+    if (/^fi_\d{4,}$/i.test(String(colName || ""))) {
+      if (_norm_(fields[i].field_id) === c) return _normBool_(fields[i].editable);
+    } else {
+      if (_norm_(fields[i].column_name) === c) return _normBool_(fields[i].editable);
     }
   }
   return false;
@@ -1112,38 +1163,48 @@ function dp_updateEntityRecord(entity, id, patch) {
   try {
     if (!patch || typeof patch !== "object") throw new Error("patch must be an object");
 
-    var sheetName = _entityToSheet_(entity);
+    var conf = _normalizeEntityParams_({ entity: entity });
+    var entityKey = conf.entity;
+    var sheetName = conf.sheet;
     var sh = _shByName_(sheetName);
     var values = sh.getDataRange().getValues();
-    var hdr = values[0];
-    var map = _idAndLabelCols_(entity, hdr);
-    if (!map.idName) throw new Error("ID column not resolved for entity: " + entity);
-    var idCol = _hdrIndex_(hdr, map.idName);
+    if (!values || values.length < 3) throw new Error("Entity sheet has no data rows: " + sheetName);
+
+    var hdr = values[0] || [];
+    var idCol = _hdrIndex_(hdr, "fi_0001");
+    if (idCol < 0) {
+      var map = _idAndLabelCols_(entityKey, hdr);
+      if (!map.idName) throw new Error("ID column not resolved for entity: " + entityKey);
+      idCol = _hdrIndex_(hdr, map.idName);
+    }
 
     var rIdx = -1, i;
-    for (i = 1; i < values.length; i++) {
+    for (i = 2; i < values.length; i++) { // skip label row
       if (String(values[i][idCol]) === String(id)) { rIdx = i; break; }
     }
-    if (rIdx < 0) return { ok: false, error: "Record not found", entity: entity, id: id };
+    if (rIdx < 0) return { ok: false, error: "Record not found", entity: entityKey, id: id };
 
     var row = values[rIdx].slice();
-    var warnings = [];
 
     for (var k in patch) {
       if (!patch.hasOwnProperty(k)) continue;
-      var colIdx = _hdrIndex_(hdr, k);
-      if (colIdx < 0) continue;
+      var fid = String(k || '').trim();
+      if (!fid) continue;
 
-      if (!_isEditable_(entity, k)) {
-        warnings.push("non_editable: " + k);
+      var colIdx = _hdrIndex_(hdr, fid);
+      if (colIdx < 0) {
+        return { ok: false, error: "Unknown field: " + fid, entity: entityKey, id: id };
       }
+      if (!_isEditable_(entityKey, fid)) {
+        return { ok: false, error: "Field not editable: " + fid, entity: entityKey, id: id };
+      }
+
       row[colIdx] = patch[k];
     }
 
     sh.getRange(rIdx + 1, 1, 1, hdr.length).setValues([row]);
 
-    var latest = dp_getEntityRecord(entity, id);
-    latest.warnings = warnings;
+    var latest = dp_getEntityRecord(entityKey, id);
     latest.ok = true;
     return latest;
 
@@ -1801,25 +1862,40 @@ function loadAppData() {
 
 function getFieldTypes(entity) {
   try {
-    var sh = SpreadsheetApp.getActive().getSheetByName('Fields');
-    if (!sh || sh.getLastRow() < 2) return {};
-
-    var data = sh.getDataRange().getValues();
-    var types = {};
-    var targetEntity = (entity || '').toLowerCase().trim();
-    for (var r = 1; r < data.length; r++) {
-      var fid = String(data[r][0] || '').trim();
-      var ent = String(data[r][1] || '').toLowerCase().trim();
-      if (fid && (!targetEntity || ent === targetEntity)) {
-        if (!types[ent]) types[ent] = {};
-        types[ent][fid] = {
-          label: String(data[r][2] || '').trim(),
-          type: String(data[r][3] || 'text').trim(),
-          editable: !!(data[r][4] || false),
-          required: !!(data[r][5] || false)
-        };
-      }
+    var targetKey = '';
+    if (entity != null && String(entity).trim()) {
+      targetKey = _normalizeEntityParams_({ entity: entity }).entity;
     }
+
+    var rows = _readFields_();
+    var types = {};
+
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i] || {};
+      var entRaw = String(r.entity || '').trim();
+      if (!entRaw) continue;
+      var entKey = _normalizeEntityParams_({ entity: entRaw }).entity;
+      if (targetKey && entKey !== targetKey) continue;
+
+      var fid = String(r.field_id || '').trim();
+      if (!fid) continue;
+
+      var type = String(r.type || '').trim().toLowerCase();
+      var label = String(r.label || '').trim();
+      var editable = _normBool_(r.editable);
+      var required = _normBool_(r.required);
+      var options = _parseOptions_(r.options);
+
+      if (!types[entKey]) types[entKey] = {};
+      types[entKey][fid] = {
+        label: label,
+        type: type,
+        editable: editable,
+        required: required,
+        options: options
+      };
+    }
+
     return types;
   } catch (e) {
     console.error('getFieldTypes error: ' + e.message);

@@ -78,25 +78,6 @@
       return "shot";
     }
 
-    /* NOTE: legacy comment removed */
-    window.FIELD_TYPES = Object.assign({
-      // Core defaults
-      fi_0001: "id",
-      fi_0002: "entity_name", // shot code
-      fi_0010: "originals",
-      fi_0016: "entity_name", // asset name
-      fi_0026: "entity_name", // task name
-      fi_0035: "entity_name", // member role
-      fi_0045: "entity_name", // user name
-      fi_0053: "text",
-      // Link fields (ID to detail navigation)
-      fi_0061: "entity_link", // asset
-      fi_0062: "entity_link", // task
-      fi_0063: "entity_link", // shot
-      fi_0064: "entity_link", // task
-      fi_0065: "entity_link"  // asset
-    }, window.FIELD_TYPES || {});
-
     window.KNOWN_LINK_FIELD_IDS = Object.assign({
       fi_0061: "asset", fi_0062: "task", fi_0063: "shot", fi_0064: "task", fi_0065: "asset"
     }, window.KNOWN_LINK_FIELD_IDS || {});
@@ -340,8 +321,19 @@
     }
 
     /* ========= 4. entry ========= */
+    var _missingTypeWarned = {};
     function renderCellByField(o) {
-      var t = (o.type || (window.FIELD_TYPES || {})[o.fid] || "").toLowerCase();
+      o = o || {};
+      var fid = o.fid != null ? String(o.fid) : "";
+      var t = String(o.type || "").trim().toLowerCase();
+      if (!t) {
+        if (fid && !_missingTypeWarned[fid]) {
+          _missingTypeWarned[fid] = 1;
+          console.warn("[FieldsAPI] Missing Fields meta for fid=" + fid + " (type undefined).", o);
+        }
+        t = "text";
+        o.editable = false;
+      }
       var fname = String(o.name || o.field_name || "").toLowerCase();
 
       // shotview を共通経路に統合（テーブルと同じポリシー）
@@ -429,6 +421,7 @@
 
 
       // 譌｢蟄倥ち繧､繝励・蠕捺擂縺ｮ繝ｬ繝ｳ繝€繝ｩ縺ｫ蟋碑ｭｲ
+      if (t && t !== "entity_link" && /_link$/i.test(t)) { t = "entity_link"; }
       switch (t) {
         case "id": return R_id(o);
         case "text": return R_text(o);

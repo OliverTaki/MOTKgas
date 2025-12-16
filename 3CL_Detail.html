@@ -900,7 +900,7 @@
              }
              showStatus("Saved!");
           } else {
-             showStatus("Save Failed: " + (res.error || "Unknown"), true);
+            showStatus("Save Failed: " + ((res && res.error) ? res.error : "Unknown"), true);
           }
         } catch (e) { 
           console.error(e);
@@ -964,16 +964,6 @@
 
       /* ===== 13.10 Card factory ===== */
       (function () {
-        window.FIELD_TYPES = Object.assign({
-          fi_0001: "id",
-          fi_0010: "originals",
-          fi_0061: "entity_link",
-          fi_0062: "entity_link",
-          fi_0063: "entity_link",
-          fi_0064: "entity_link",
-          fi_0065: "entity_link"
-        }, window.FIELD_TYPES || {});
-
         function renderShotViewContent(container) {
             container.innerHTML = "";
             var link = null, thumb = null, id = "";
@@ -1240,7 +1230,11 @@
               var td = document.createElement("td");
               td.className = "v";
               td.setAttribute("data-fid", fid);
-              var ftype = ((window.FIELD_TYPES && window.FIELD_TYPES[fid]) || "").toLowerCase();
+              var meta = (STATE.fieldsMeta && STATE.fieldsMeta[fid]) ? STATE.fieldsMeta[fid] : null;
+              var ftype = meta && meta.type ? String(meta.type).trim().toLowerCase() : "";
+              if (!ftype) {
+                console.warn("[DetailV2] Missing Fields meta for fid=" + fid + " (type undefined).");
+              }
               if (ftype) td.setAttribute("data-type", ftype);
               
               var val = "";
@@ -1255,12 +1249,14 @@
                     fid: fid,
                     val: val,
                     value: val,
-                    row: STATE.row || {},
-                    labels: STATE.labels || {},
-                    entity: STATE.entity,
-                    type: ftype
-                  });
-                } catch (err) {
+                     row: STATE.row || {},
+                     labels: STATE.labels || {},
+                     entity: STATE.entity,
+                     type: ftype,
+                     field: meta || null,
+                     editable: !!(meta && meta.editable === true)
+                   });
+                 } catch (err) {
                   console.error("[DetailV2] renderCellByField error", err);
                   node = null;
                 }
@@ -1459,7 +1455,11 @@
                     th.appendChild(resizer);
 
                     var td = document.createElement("td"); td.className = "v"; td.setAttribute("data-fid", fid);
-                    var ftype = ((window.FIELD_TYPES && window.FIELD_TYPES[fid]) || "").toLowerCase();
+                    var meta = (STATE.fieldsMeta && STATE.fieldsMeta[fid]) ? STATE.fieldsMeta[fid] : null;
+                    var ftype = meta && meta.type ? String(meta.type).trim().toLowerCase() : "";
+                    if (!ftype) {
+                      console.warn("[DetailV2] Missing Fields meta for fid=" + fid + " (type undefined).");
+                    }
                     if (ftype) td.setAttribute("data-type", ftype);
                     var val = (STATE.row && STATE.row[fid]) ? STATE.row[fid] : "";
                     var node = null;
@@ -1469,12 +1469,14 @@
                              fid: fid,
                              val: val,
                              value: val,
-                             row: STATE.row || {},
-                             labels: STATE.labels || {},
-                             entity: STATE.entity,
-                             type: ftype
-                           });
-                         } catch (err) {
+                              row: STATE.row || {},
+                              labels: STATE.labels || {},
+                              entity: STATE.entity,
+                              type: ftype,
+                              field: meta || null,
+                              editable: !!(meta && meta.editable === true)
+                            });
+                          } catch (err) {
                            console.error("[DetailV2] renderCellByField error", err);
                            node = null;
                          }
@@ -1636,7 +1638,7 @@
 
         var payload = { entity: entLabel, sheet: entLabel, entityPlural: entLabel, sheetName: entStrict, pageType: "detail", offset: 0, limit: 2000, sort: [], filterGroups: [], groupCombine: "all" };
         var resp;
-        try { resp = await tryCall(["listRowsPage", "sv_listRowsPage"], payload); } catch (err) { showError("Failed to load rows: " + err); }
+        try { resp = await tryCall(["sv_listRowsPage", "listRowsPage"], payload); } catch (err) { showError("Failed to load rows: " + err); }
 
         var norm = normalizeRowsPayload(resp);
         STATE.ids = norm.ids;
@@ -1700,48 +1702,98 @@
           var cell = target.closest("td.v"); if (!cell) return;
           
           /* ★修正: インライン編集を一時的に凍結 (サーバーID不整合回避のため) */
-          showStatus("Editing disabled temporarily", true);
-          return;
+          // Inline editing enabled (Fields-sheet-driven).
           
           /* --- 以下は到達不能となる --- */
           if (cell.querySelector("input, select, textarea")) return;
           var fid = cell.getAttribute("data-fid");
-          var ftype = cell.getAttribute("data-type") || "text";
-          
-          var isEditable = true;
-          if (STATE.fieldsMeta && STATE.fieldsMeta[fid]) {
-              isEditable = !!STATE.fieldsMeta[fid].editable;
-          } else {
-              if (ftype === "id") isEditable = false;
+          if (!fid) return;
+
+          var meta = (STATE.fieldsMeta && STATE.fieldsMeta[fid]) ? STATE.fieldsMeta[fid] : null;
+          var ftype = meta && meta.type ? String(meta.type).trim().toLowerCase() : "";
+          if (!ftype) {
+            showStatus("Missing Fields meta for fid=" + fid + " (type undefined).", true);
+            return;
           }
-          
-          if (!isEditable) {
-              showStatus("Read only", true);
-              return; 
+
+          var editable = !!(meta && meta.editable === true);
+          if (ftype === "id" || ftype === "originals") editable = false;
+          if (!editable) {
+            showStatus("Read only", true);
+            return;
           }
-          
-          if (ftype === "id" || ftype === "shotview" || ftype === "versions") return;
-          makeEditable(cell, fid, ftype);
+
+          makeEditable(cell, fid, ftype, meta);
         });
 
-        function makeEditable(cell, fid, ftype) {
-          var originalValue = cell.textContent.trim();
+        function makeEditable(cell, fid, ftype, meta) {
+          var originalRaw = (STATE.row && STATE.row[fid] != null) ? STATE.row[fid] : cell.textContent.trim();
+          var originalValue = (originalRaw == null) ? "" : String(originalRaw).trim();
           var originalHtml = cell.innerHTML;
-          var input = document.createElement("input");
-          input.type = "text"; input.value = originalValue;
-          input.style.width = "100%"; input.style.boxSizing = "border-box";
+          var t = String(ftype || "").trim().toLowerCase();
+          var input;
+
+          if (t === "select") {
+            input = document.createElement("select");
+            var opts = (meta && meta.options) ? meta.options : [];
+            if (!Array.isArray(opts)) opts = String(opts || "").split(/[\n\r|,]+/);
+            opts = opts.map(function (x) { return String(x == null ? "" : x).trim(); }).filter(Boolean);
+            if (opts.indexOf(originalValue) === -1 && originalValue) opts.unshift(originalValue);
+            opts.forEach(function (v) {
+              var o = document.createElement("option");
+              o.value = v; o.textContent = v;
+              input.appendChild(o);
+            });
+            input.value = originalValue;
+          } else if (t === "date") {
+            input = document.createElement("input");
+            input.type = "date";
+            var dt = new Date(originalValue);
+            if (!isNaN(dt.getTime())) {
+              var yyyy = String(dt.getFullYear());
+              var mm = ("0" + (dt.getMonth() + 1)).slice(-2);
+              var dd = ("0" + dt.getDate()).slice(-2);
+              input.value = yyyy + "-" + mm + "-" + dd;
+            } else {
+              input.value = "";
+            }
+          } else if (t === "checkbox") {
+            input = document.createElement("input");
+            input.type = "checkbox";
+            input.checked = (originalRaw === true) || (/^(true|yes|on|1)$/i.test(String(originalValue || "")));
+          } else if (t === "json") {
+            input = document.createElement("textarea");
+            input.value = originalValue;
+            input.style.minHeight = "140px";
+          } else {
+            input = document.createElement("input");
+            input.type = "text"; input.value = originalValue;
+          }
+
+          if (t !== "checkbox") {
+            input.style.width = "100%"; input.style.boxSizing = "border-box";
+          }
           input.style.background = "#222"; input.style.color = "#fff"; input.style.border = "1px solid #555";
-          cell.innerHTML = ""; cell.appendChild(input); input.focus();
+          cell.innerHTML = ""; cell.appendChild(input); try { input.focus(); } catch (_) {}
 
           function save() {
-            var newValue = input.value.trim();
-            if (newValue === originalValue) { cell.innerHTML = originalHtml; return; }
-            cell.textContent = newValue; 
-            if (STATE.row) STATE.row[fid] = newValue;
+            var newValue;
+            if (t === "checkbox") {
+              newValue = !!input.checked;
+              var origBool = (originalRaw === true) || (/^(true|yes|on|1)$/i.test(String(originalValue || "")));
+              if (newValue === origBool) { cell.innerHTML = originalHtml; return; }
+              cell.textContent = newValue ? "TRUE" : "FALSE";
+              if (STATE.row) STATE.row[fid] = newValue;
+            } else {
+              newValue = String(input.value == null ? "" : input.value).trim();
+              if (newValue === originalValue) { cell.innerHTML = originalHtml; return; }
+              cell.textContent = newValue;
+              if (STATE.row) STATE.row[fid] = newValue;
+            }
             showStatus("Updating...");
             
             /* ★修正: サーバー側のエンティティ名を「複数形(sheet)」に変更して送信 */
-            var entity = STATE.sheet || pluralEntityFor(STATE.entity) || "Shots";
+            var entity = singularEntityFor(STATE.entity) || STATE.entity || "shot";
             
             // STATE.id がない場合は row データから fi_0001 (ShotID) を探す
             var id = STATE.id;
@@ -1763,13 +1815,13 @@
             
             /* ★修正: patchのキーを「実際のカラム名(colName)」に変更 */
             var patch = {}; 
-            patch[colName] = newValue; 
+            patch[fid] = newValue; 
 
-            if (window.google && google.script) {
+            if (window.google && google.script && google.script.run) {
                 google.script.run
                   .withSuccessHandler(function(res) {
                       if (res && res.ok) showStatus("Updated!", false);
-                      else { showStatus("Update Failed: " + (res.error || "Unknown"), true); cell.innerHTML = originalHtml; }
+                      else { showStatus("Update Failed: " + ((res && res.error) ? res.error : "Unknown"), true); cell.innerHTML = originalHtml; }
                   })
                   .withFailureHandler(function() { showStatus("Network Error", true); cell.innerHTML = originalHtml; })
                   .dp_updateEntityRecord(entity, id, patch);
@@ -1779,7 +1831,8 @@
           }
           input.addEventListener("blur", save);
           input.addEventListener("keydown", function(e) {
-            if (e.key === "Enter") { input.blur(); } else if (e.key === "Escape") { cell.innerHTML = originalHtml; }
+            if (e.key === "Enter" && t !== "json") { input.blur(); }
+            else if (e.key === "Escape") { cell.innerHTML = originalHtml; if (STATE.row) STATE.row[fid] = originalRaw; }
           });
         }
       })();
