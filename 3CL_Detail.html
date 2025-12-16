@@ -1707,6 +1707,7 @@
           if (cell.querySelector("input, select, textarea")) return;
           var fid = cell.getAttribute("data-fid");
           if (!fid) return;
+          if (fid === "fi_0001") { showStatus("Read only", true); return; }
 
           var meta = (STATE.fieldsMeta && STATE.fieldsMeta[fid]) ? STATE.fieldsMeta[fid] : null;
           var ftype = meta && meta.type ? String(meta.type).trim().toLowerCase() : "";
@@ -1843,11 +1844,10 @@
               if (STATE.row) STATE.row[fid] = newValue;
             }
             showStatus("Updating...");
-            
-            /* FIX: send entity using the plural sheet key */
+
             var entity = singularEntityFor(STATE.entity) || STATE.entity || "shot";
-            
-            // STATE.id がない場合は row データから fi_0001 (ShotID) を探す
+
+            // If STATE.id is missing, fall back to fi_0001 from the current row.
             var id = STATE.id;
             if (!id && STATE.row && STATE.row['fi_0001']) {
                 id = STATE.row['fi_0001'];
@@ -1855,30 +1855,38 @@
             if (!id) {
                 showStatus("Error: No ID found", true);
                 cell.innerHTML = originalHtml;
+                if (STATE.row) STATE.row[fid] = originalRaw;
                 return;
             }
 
-            var colName = "";
-            if (STATE.header && STATE.ids) {
-                var idx = STATE.ids.indexOf(fid);
-                if (idx >= 0) colName = STATE.header[idx];
-            }
-            if (!colName) colName = fid;
-            
-            /* FIX: use actual column key (colName) for patch */
-            var patch = {}; 
-            patch[fid] = newValue; 
+            var patch = {};
+            patch[fid] = newValue;
 
             if (window.google && google.script && google.script.run) {
                 google.script.run
                   .withSuccessHandler(function(res) {
-                      if (res && res.ok) showStatus("Updated!", false);
-                      else { showStatus("Update Failed: " + ((res && res.error) ? res.error : "Unknown"), true); cell.innerHTML = originalHtml; }
+                      if (res == null) {
+                        showStatus("Updated (no response). Refresh to confirm.", true);
+                        return;
+                      }
+                      if (res && res.ok) {
+                        showStatus("Updated!", false);
+                        return;
+                      }
+                      showStatus("Update Failed: " + ((res && res.error) ? res.error : "Unknown"), true);
+                      cell.innerHTML = originalHtml;
+                      if (STATE.row) STATE.row[fid] = originalRaw;
                   })
-                  .withFailureHandler(function() { showStatus("Network Error", true); cell.innerHTML = originalHtml; })
+                  .withFailureHandler(function(err) {
+                    showStatus("Update Failed: " + String(err && err.message ? err.message : err), true);
+                    cell.innerHTML = originalHtml;
+                    if (STATE.row) STATE.row[fid] = originalRaw;
+                  })
                   .dp_updateEntityRecord(entity, id, patch);
             } else {
-                console.warn("No google script env");
+                showStatus("Update Failed: google.script.run unavailable", true);
+                cell.innerHTML = originalHtml;
+                if (STATE.row) STATE.row[fid] = originalRaw;
             }
           }
           input.addEventListener("blur", save);

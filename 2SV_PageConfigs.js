@@ -338,6 +338,39 @@ function LM_pickFirstNonEmpty_(row, candidates){
 
 
 /* ===== 3. name detectors ===== */
+function LM_detectNameIndex_ByFields_(entityKey, header) {
+  try {
+    if (!header || !header.length) return -1;
+    var hasFi = false;
+    for (var i = 0; i < header.length; i++) {
+      if (/^fi_\d{4,}$/i.test(String(header[i] || ''))) { hasFi = true; break; }
+    }
+    if (!hasFi) return -1;
+    if (typeof getFieldTypes !== "function") return -1;
+
+    var ent = String(entityKey || '').trim();
+    if (!ent) return -1;
+    try {
+      if (typeof _normalizeEntityParams_ === "function") ent = _normalizeEntityParams_({ entity: ent }).entity;
+    } catch (_) { }
+
+    var all = getFieldTypes(ent) || {};
+    var defs = all[ent] || {};
+
+    var labelFid = "";
+    for (var fid in defs) {
+      if (!defs.hasOwnProperty(fid)) continue;
+      var t = String(defs[fid] && defs[fid].type || '').trim().toLowerCase();
+      if (t === "entity_name" || t === "name") { labelFid = String(fid); break; }
+    }
+    if (!labelFid) return -1;
+
+    for (var j = 0; j < header.length; j++) {
+      if (String(header[j] || '').trim() === labelFid) return j;
+    }
+  } catch (_) { }
+  return -1;
+}
 function LM_detectNameIndex_Assets_(header){
   var pri=[/^(asset ?name)$/i,/^(name)$/i,/^(title)$/i];
   for(var i=0;i<pri.length;i++){ var j=LM_headerIndex_(header,pri[i]); if(j>=0) return j; }
@@ -349,10 +382,13 @@ function LM_detectNameIndex_Shots_(header){
   return Math.max(1,1);
 }
 function LM_detectNameIndex_Tasks_(header){
-  // より強い互換: TaskName / Task Name / Name / Title など
+  var byFields = LM_detectNameIndex_ByFields_("task", header);
+  if (byFields >= 0) return byFields;
+
+  // Legacy compatibility: TaskName / Task Name / Name / Title.
   var pri=[/^(task.?name)$/i,/^(task .*name)$/i,/^(name)$/i,/^(title)$/i];
   for(var i=0;i<pri.length;i++){ var j=LM_headerIndex_(header,pri[i]); if(j>=0) return j; }
-  // 「task を含み name も含む」ようなヘッダを探す
+  // Find a header that contains both "task" and "name".
   for(var k=0;k<header.length;k++){
     var h=String(header[k]||"").toLowerCase();
     if(h.includes("task") && h.includes("name")) return k;
@@ -360,6 +396,9 @@ function LM_detectNameIndex_Tasks_(header){
   return Math.max(1,1);
 }
 function LM_detectNameIndex_Users_(header){
+  var byFields = LM_detectNameIndex_ByFields_("user", header);
+  if (byFields >= 0) return byFields;
+
   var pri=[/^(user ?name)$/i,/^(display ?name)$/i,/^(name)$/i];
   for(var i=0;i<pri.length;i++){ var j=LM_headerIndex_(header,pri[i]); if(j>=0) return j; }
   return Math.max(1,1);

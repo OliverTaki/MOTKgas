@@ -646,8 +646,8 @@ body.detail-page .media.aspect img {
 
 <!-- ===== 93.modal-compat ===== -->
 <style>
-  html body .modal[aria-hidden="false"]{ display:flex !important; pointer-events:auto !important; z-index:4000 !important; }
-  html body .modal[aria-hidden="false"] .panel{ z-index:4001 !important; }
+  html body .modal[aria-hidden="false"]{ display:flex !important; pointer-events:auto !important; z-index:10002 !important; }
+  html body .modal[aria-hidden="false"] .panel{ z-index:10003 !important; }
 </style>
 <!-- ===== 93.modal-compat ===== -->
 
@@ -747,12 +747,10 @@ body.motk-modal-open .motk-modal-backdrop{
   .motk-link-picker .row input{ cursor: pointer; }
   .motk-link-picker .txt{ font-size: 13px; }
 
-  /* Make the date picker icon visible on dark backgrounds (Chrome/Edge). */
-  @media (prefers-color-scheme: dark) {
-    input[type="date"]::-webkit-calendar-picker-indicator{
-      filter: invert(1) brightness(1.25);
-      opacity: 0.9;
-    }
+  /* Make the date picker icon visible (Chrome/Edge). */
+  input[type="date"]::-webkit-calendar-picker-indicator{
+    filter: invert(1) brightness(1.25);
+    opacity: 0.9;
   }
 </style>
 <!-- ===== 97. End ===== -->

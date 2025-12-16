@@ -1085,6 +1085,7 @@
           var fid = td.getAttribute('data-col-id');
           var rowId = tr.getAttribute('data-row-id');
           if (!fid || !rowId) return;
+          if (fid === 'fi_0001') return;
 
           var meta = (STATE.fieldsMeta && STATE.fieldsMeta[fid]) ? STATE.fieldsMeta[fid] : null;
           if (!meta || meta.editable !== true) return;
@@ -1098,6 +1099,7 @@
           }
 
           var raw = _rowValueByIdFid_(rowId, fid);
+          var prevValue = raw;
           FieldsAPI.openLinkPicker({ fid: fid, type: type, value: raw }).then(function (out) {
             if (!out || out.cancelled) return;
             var entity = singularEntityFor(STATE.sheetName || 'shot') || 'shot';
@@ -1112,6 +1114,27 @@
 
             google.script.run
               .withSuccessHandler(function (res) {
+                if (res == null) {
+                  _setRowValueByIdFid_(rowId, fid, out.value);
+                  td.innerHTML = '';
+                  if (window.FieldsAPI && typeof FieldsAPI.renderCellByField === 'function') {
+                    td.appendChild(FieldsAPI.renderCellByField({
+                      fid: fid,
+                      val: out.value,
+                      row: {},
+                      labels: {},
+                      entity: entity,
+                      type: type,
+                      linkEntity: out.targetEntity || null,
+                      field: meta || null,
+                      editable: false
+                    }));
+                  } else {
+                    td.textContent = String(out.value || '');
+                  }
+                  try { if (typeof showStatus === 'function') showStatus('Updated (no response). Refresh to confirm.', true); } catch (_) { }
+                  return;
+                }
                 if (res && res.ok) {
                   _setRowValueByIdFid_(rowId, fid, out.value);
                   td.innerHTML = '';
@@ -1132,10 +1155,12 @@
                   }
                   try { if (typeof showStatus === 'function') showStatus('Updated!', false); } catch (_) { }
                 } else {
+                  _setRowValueByIdFid_(rowId, fid, prevValue);
                   try { if (typeof showStatus === 'function') showStatus('Update Failed: ' + ((res && res.error) ? res.error : 'Unknown'), true); } catch (_) { }
                 }
               })
               .withFailureHandler(function (err) {
+                _setRowValueByIdFid_(rowId, fid, prevValue);
                 try { if (typeof showStatus === 'function') showStatus('Update Failed: ' + String(err && err.message ? err.message : err), true); } catch (_) { }
               })
               .dp_updateEntityRecord(entity, rowId, patch);
