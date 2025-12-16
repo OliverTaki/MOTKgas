@@ -1100,70 +1100,64 @@
 
           var raw = _rowValueByIdFid_(rowId, fid);
           var prevValue = raw;
-          FieldsAPI.openLinkPicker({ fid: fid, type: type, value: raw }).then(function (out) {
-            if (!out || out.cancelled) return;
-            var entity = singularEntityFor(STATE.sheetName || 'shot') || 'shot';
-            var patch = {}; patch[fid] = out.value;
+          var entity = singularEntityFor(STATE.sheetName || 'shot') || 'shot';
 
-            try { if (typeof showStatus === 'function') showStatus('Updating...'); } catch (_) { }
+          FieldsAPI.openLinkPicker({
+            fid: fid,
+            type: type,
+            value: raw,
+            commit: function (out) {
+              return new Promise(function (resolve, reject) {
+                try { if (typeof showStatus === 'function') showStatus('Updating...'); } catch (_) { }
 
-            if (!(window.google && google.script && google.script.run)) {
-              try { if (typeof showStatus === 'function') showStatus('Update Failed: google.script.run unavailable', true); } catch (_) { }
-              return;
-            }
-
-            google.script.run
-              .withSuccessHandler(function (res) {
-                if (res == null) {
-                  _setRowValueByIdFid_(rowId, fid, out.value);
-                  td.innerHTML = '';
-                  if (window.FieldsAPI && typeof FieldsAPI.renderCellByField === 'function') {
-                    td.appendChild(FieldsAPI.renderCellByField({
-                      fid: fid,
-                      val: out.value,
-                      row: {},
-                      labels: {},
-                      entity: entity,
-                      type: type,
-                      linkEntity: out.targetEntity || null,
-                      field: meta || null,
-                      editable: false
-                    }));
-                  } else {
-                    td.textContent = String(out.value || '');
-                  }
-                  try { if (typeof showStatus === 'function') showStatus('Updated (no response). Refresh to confirm.', true); } catch (_) { }
+                if (!(window.google && google.script && google.script.run)) {
+                  var eNo = new Error('google.script.run unavailable');
+                  try { if (typeof showStatus === 'function') showStatus('Update Failed: ' + eNo.message, true); } catch (_) { }
+                  reject(eNo);
                   return;
                 }
-                if (res && res.ok) {
-                  _setRowValueByIdFid_(rowId, fid, out.value);
-                  td.innerHTML = '';
-                  if (window.FieldsAPI && typeof FieldsAPI.renderCellByField === 'function') {
-                    td.appendChild(FieldsAPI.renderCellByField({
-                      fid: fid,
-                      val: out.value,
-                      row: {},
-                      labels: {},
-                      entity: entity,
-                      type: type,
-                      linkEntity: out.targetEntity || null,
-                      field: meta || null,
-                      editable: false
-                    }));
-                  } else {
-                    td.textContent = String(out.value || '');
-                  }
-                  try { if (typeof showStatus === 'function') showStatus('Updated!', false); } catch (_) { }
-                } else {
-                  _setRowValueByIdFid_(rowId, fid, prevValue);
-                  try { if (typeof showStatus === 'function') showStatus('Update Failed: ' + ((res && res.error) ? res.error : 'Unknown'), true); } catch (_) { }
-                }
-              })
-              .withFailureHandler(function (err) {
-                _setRowValueByIdFid_(rowId, fid, prevValue);
-                try { if (typeof showStatus === 'function') showStatus('Update Failed: ' + String(err && err.message ? err.message : err), true); } catch (_) { }
-              })
-              .dp_updateEntityRecord(entity, rowId, patch);
+
+                var patch = {}; patch[fid] = out.value;
+                google.script.run
+                  .withSuccessHandler(function (res) {
+                    if (res == null || (res && res.ok)) {
+                      _setRowValueByIdFid_(rowId, fid, out.value);
+                      td.innerHTML = '';
+                      if (window.FieldsAPI && typeof FieldsAPI.renderCellByField === 'function') {
+                        td.appendChild(FieldsAPI.renderCellByField({
+                          fid: fid,
+                          val: out.value,
+                          row: {},
+                          labels: {},
+                          entity: entity,
+                          type: type,
+                          linkEntity: out.targetEntity || null,
+                          field: meta || null,
+                          editable: false
+                        }));
+                      } else {
+                        td.textContent = String(out.value || '');
+                      }
+                      try { if (typeof showStatus === 'function') showStatus(res == null ? 'Updated (no response). Refresh to confirm.' : 'Updated!', res == null); } catch (_) { }
+                      resolve(res);
+                      return;
+                    }
+                    _setRowValueByIdFid_(rowId, fid, prevValue);
+                    var msg = (res && res.error) ? res.error : 'Unknown';
+                    try { if (typeof showStatus === 'function') showStatus('Update Failed: ' + msg, true); } catch (_) { }
+                    reject(new Error(msg));
+                  })
+                  .withFailureHandler(function (err) {
+                    _setRowValueByIdFid_(rowId, fid, prevValue);
+                    var msg = String(err && err.message ? err.message : err);
+                    try { if (typeof showStatus === 'function') showStatus('Update Failed: ' + msg, true); } catch (_) { }
+                    reject(err || new Error(msg));
+                  })
+                  .dp_updateEntityRecord(entity, rowId, patch);
+              });
+            }
+          }).then(function (out) {
+            if (!out || out.cancelled) return;
           });
         });
       }

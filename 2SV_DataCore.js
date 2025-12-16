@@ -1185,6 +1185,12 @@ function dp_updateEntityRecord(entity, id, patch) {
     if (rIdx < 0) return { ok: false, error: "Record not found", entity: entityKey, id: id };
 
     var row = values[rIdx].slice();
+    var fieldDefs = {};
+    try {
+      var ftAll = (typeof getFieldTypes === "function") ? (getFieldTypes(entityKey) || {}) : {};
+      fieldDefs = (ftAll && ftAll[entityKey]) ? ftAll[entityKey] : {};
+    } catch (_) { fieldDefs = {}; }
+    var plainTextColIdx = {};
 
     for (var k in patch) {
       if (!patch.hasOwnProperty(k)) continue;
@@ -1199,8 +1205,26 @@ function dp_updateEntityRecord(entity, id, patch) {
         return { ok: false, error: "Field not editable: " + fid, entity: entityKey, id: id };
       }
 
-      row[colIdx] = patch[k];
+      var v = patch[k];
+      var ftype = "";
+      try { ftype = String(fieldDefs && fieldDefs[fid] && fieldDefs[fid].type || "").trim().toLowerCase(); } catch (_) { ftype = ""; }
+      if (ftype === "text" || ftype === "entity_name" || ftype === "name") {
+        plainTextColIdx[colIdx] = 1;
+        row[colIdx] = (v == null) ? "" : String(v);
+      } else {
+        row[colIdx] = v;
+      }
     }
+
+    try {
+      for (var c in plainTextColIdx) {
+        if (!plainTextColIdx.hasOwnProperty(c)) continue;
+        var idxNum = Number(c);
+        if (isFinite(idxNum) && idxNum >= 0) {
+          sh.getRange(rIdx + 1, idxNum + 1).setNumberFormat("@");
+        }
+      }
+    } catch (_) { }
 
     sh.getRange(rIdx + 1, 1, 1, hdr.length).setValues([row]);
 

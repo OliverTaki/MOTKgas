@@ -64,14 +64,13 @@
     })();
 
     const raw = JSON.parse(<?= dataJson ?>);
-    window.__VIEW_CTX = raw.viewCtx;
-    window.__ALL_DATA = raw.data;
-    window.__SERVER_CONFIG = raw.config;
+    window.__VIEW_CTX = (raw && raw.viewCtx) ? raw.viewCtx : {};
+    window.__ALL_DATA = (raw && raw.data) ? raw.data : {};
+    window.__SERVER_CONFIG = (raw && raw.config) ? raw.config : {};
 
     console.log("[MOTK][Shell] Bootstrapped view context:", window.__VIEW_CTX);
 
     window.addEventListener("DOMContentLoaded", function () {
-      renderEntitySamples();
       initAppShell(PAGE, window.__VIEW_CTX, window.__ALL_DATA);
     });
   </script>

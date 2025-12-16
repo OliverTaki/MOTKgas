@@ -505,6 +505,7 @@
       var backdrop = document.createElement("div");
       backdrop.id = "motkLinkPickerBackdrop";
       backdrop.className = "motk-modal-backdrop";
+      backdrop.style.display = "none";
 
       var panel = document.createElement("div");
       panel.id = "motkLinkPicker";
@@ -512,10 +513,12 @@
       panel.setAttribute("role", "dialog");
       panel.setAttribute("aria-modal", "true");
       panel.setAttribute("aria-hidden", "true");
+      panel.style.display = "none";
       panel.innerHTML = [
         '<div class="hd">Select Links</div>',
         '<div class="bd">',
         '  <input class="q" type="search" placeholder="Search by name or id" />',
+        '  <div class="msg" aria-live="polite"></div>',
         '  <div class="list" role="listbox" aria-multiselectable="true"></div>',
         '</div>',
         '<div class="ft">',
@@ -624,17 +627,32 @@
         function close() {
           document.body.classList.remove("motk-modal-open");
           panel.setAttribute("aria-hidden", "true");
+          panel.style.display = "none";
+          backdrop.style.display = "none";
         }
 
         function open() {
           document.body.classList.add("motk-modal-open");
           panel.setAttribute("aria-hidden", "false");
+          panel.style.display = "block";
+          backdrop.style.display = "block";
           q.value = "";
           render("");
           try { q.focus(); } catch (_) { }
         }
 
         return new Promise(function (resolve) {
+          var msg = panel.querySelector(".msg");
+          if (msg) msg.textContent = "";
+
+          function setBusy(isBusy, message) {
+            try {
+              btnCancel.disabled = !!isBusy;
+              btnApply.disabled = !!isBusy;
+              if (msg) msg.textContent = message ? String(message) : "";
+            } catch (_) { }
+          }
+
           function onCancel() {
             cleanup();
             close();
@@ -644,9 +662,27 @@
             var ids = Object.keys(selected);
             ids.sort();
             var val = ids.join(delimiter);
+            var out = { cancelled: false, ids: ids, value: val, delimiter: delimiter, targetEntity: targetEntity };
+
+            if (typeof opts.commit === "function") {
+              setBusy(true, "Saving...");
+              Promise.resolve()
+                .then(function () { return opts.commit(out); })
+                .then(function () {
+                  cleanup();
+                  close();
+                  resolve(out);
+                })
+                .catch(function (err) {
+                  var msgText = (err && err.message) ? err.message : String(err);
+                  setBusy(false, "Save failed: " + msgText);
+                });
+              return;
+            }
+
             cleanup();
             close();
-            resolve({ cancelled: false, ids: ids, value: val, delimiter: delimiter, targetEntity: targetEntity });
+            resolve(out);
           }
           function onBackdrop(e) {
             if (e.target === backdrop) onCancel();
