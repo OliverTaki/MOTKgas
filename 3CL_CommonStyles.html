@@ -6,7 +6,7 @@
   .entity-link { color: #28a745; text-decoration: none; }
   .entity-link:hover { text-decoration: underline; }
   
-  /* ★修正: marginを0にする。グリッド配置における「聖域」やズレの原因となるため */
+  /* FIX: eliminate card margin to avoid grid gaps */
   .card { border: 1px solid #ddd; padding: 10px; margin: 0; }
   
   .card-fields .field { margin: 5px 0; }
@@ -474,11 +474,11 @@ body.detail-page .card-title{flex:1 1 auto;min-width:0;margin-left:28px;white-sp
 body.detail-page .card-actions{display:none;align-items:center;gap:6px}
 body.detail-page.layout-edit .card-actions{display:flex}
 
-/* ★修正: クラス名を .btn-del に変更して非表示を徹底 */
+/* FIX: enforce delete button hidden via .btn-del */
 body.detail-page .card-remove,
 body.detail-page .btn-del {
       position:absolute;left:12px;top:50%;transform:translateY(-50%);
-      display:none !important; /* デフォルト非表示 */
+      display:none !important; /* default hidden */
       align-items:center;justify-content:center;width:22px;height:22px;
       border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(255,255,255,.05);
       color:rgba(255,255,255,.7);cursor:pointer;transition:background .15s ease,color .15s ease;
@@ -665,7 +665,7 @@ body.detail-page .media.aspect img {
 .detail-root,.table-host,.gs-host{ position:relative; }
 
 /* modal helpers for legacy markup too */
-.modal-backdrop{ display:none !important; } /* 旧バックドロップは抑止。新バックドロップのみ使用 */
+.modal-backdrop{ display:none !important; } /* legacy backdrops disabled (use motk-modal-backdrop only) */
 </style>
 <!-- ===== 95. End ===== -->
 
@@ -680,7 +680,7 @@ html body .modal{
   background: transparent !important;
   display:none !important;
   pointer-events:auto !important;
-  z-index: 10002;                  /* under our center class if併用 */
+  z-index: 10002;                  /* keep below center modal */
 }
 html body .modal[aria-hidden="false"]{ display:flex !important; }
 html body .modal[aria-hidden="true"]{  display:none !important; }
@@ -701,6 +701,61 @@ body.motk-modal-open .motk-modal-backdrop{
 .motk-center-modal{ z-index:10003; }
 </style>
 <!-- ===== 96. End ===== -->
+
+<!-- ===== 97.link-picker-and-date-indicator ===== -->
+<style>
+  .motk-link-picker{
+    min-width: min(900px, 92vw);
+    max-height: 85vh;
+    background: #151515;
+    color: #eee;
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 12px;
+    box-shadow: 0 18px 48px rgba(0,0,0,.35);
+    padding: 0;
+  }
+  .motk-link-picker .hd{ padding: 12px 14px; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,.12); }
+  .motk-link-picker .bd{ padding: 12px 14px; display: grid; gap: 10px; }
+  .motk-link-picker .ft{ padding: 12px 14px; border-top: 1px solid rgba(255,255,255,.12); display:flex; gap:8px; justify-content:flex-end; }
+  .motk-link-picker input.q{
+    width: 100%;
+    padding: 10px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,.18);
+    background: #222;
+    color: #fff;
+    box-sizing: border-box;
+  }
+  .motk-link-picker .list{
+    display: grid;
+    gap: 6px;
+    max-height: 55vh;
+    overflow: auto;
+    padding-right: 4px;
+  }
+  .motk-link-picker .row{
+    display:flex;
+    gap:10px;
+    align-items:center;
+    padding: 6px 8px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,.06);
+    background: rgba(255,255,255,.04);
+    cursor: pointer;
+  }
+  .motk-link-picker .row:hover{ background: rgba(255,255,255,.08); }
+  .motk-link-picker .row input{ cursor: pointer; }
+  .motk-link-picker .txt{ font-size: 13px; }
+
+  /* Make the date picker icon visible on dark backgrounds (Chrome/Edge). */
+  @media (prefers-color-scheme: dark) {
+    input[type="date"]::-webkit-calendar-picker-indicator{
+      filter: invert(1) brightness(1.25);
+      opacity: 0.9;
+    }
+  }
+</style>
+<!-- ===== 97. End ===== -->
 
 <!-- ===== 41.field-chip-thumb ===== -->
 <style>

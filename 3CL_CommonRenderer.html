@@ -24,7 +24,7 @@
     function chip(href, label, newTab) {
       var a = el("a", "chip", label || href || "");
       if (href) a.href = href;
-      /* ★修正: newTab=true なら常に _blank & noopener noreferrer を付与 (左クリック対応) */
+      /* FIX: when newTab=true, always open in a new tab with noopener+noreferrer */
       if (newTab) { 
           a.target = "_blank"; 
           a.rel = "noopener noreferrer"; 
@@ -67,12 +67,12 @@
       if (/member/i.test(fid)) return "member";
       if (/shot/i.test(fid)) return "shot";
       
-      /* ★修正: IDプレフィックス判定の修正 (tk_, pm_) */
+      /* FIX: id prefix mapping (tk_, pm_) */
       var val = String(fallbackId || "").trim();
       if (/^as[_-]/i.test(val)) return "asset";
-      if (/^tk[_-]/i.test(val)) return "task";   // ta -> tk に修正
+      if (/^tk[_-]/i.test(val)) return "task";   // Normalize legacy id prefix (ta -> tk).
       if (/^us[_-]/i.test(val)) return "user";
-      if (/^pm[_-]/i.test(val)) return "member"; // mb -> pm に修正
+      if (/^pm[_-]/i.test(val)) return "member"; // Normalize legacy id prefix (mb -> pm).
       if (/^sh[_-]/i.test(val)) return "shot";
       
       return "shot";
@@ -103,7 +103,7 @@
     };
 
     Router.entityPageName = function (entity) {
-      /* ★修正: 全エンティティのページ名定義を追加 (Tableへの戻り先解決) */
+      /* FIX: page name mapping for all entities */
       var e = String(entity || "").toLowerCase().trim();
       if (!e) return "Dashboard";
       if (e === "shot" || e === "shots") return "Shots";
@@ -115,7 +115,7 @@
     };
 
     Router.detailPageNameForEntity = function (entity) {
-      /* ★修正: Shot/Asset以外のエンティティも適切なDetailページへルーティングする */
+      /* FIX: route all entities to the correct Detail page */
       var e = String(entity || "").toLowerCase().trim();
       if (!e) return "Dashboard";
       if (e === "shot" || e === "shots") return "DetailShot";
@@ -124,12 +124,12 @@
       if (e === "user" || e === "users") return "DetailUser";
       if (e === "member" || e === "members" || e === "projectmember" || e === "projectmembers") return "DetailMember";
       
-      // デフォルトフォールバック
+      // Default fallback.
       return "DetailShot";
     };
 
     // Detail entity URL builder
-    // NOTE: v2 では ts パラメータを付けず、page/entity/id のみで構成する
+    // NOTE: v2 omits ts and uses only page/entity/id.
     Router.buildEntityUrl = function (entity, id, opts) {
       if (!entity || !id) return SCRIPT_URL;
       var params = Object.assign(
@@ -239,7 +239,7 @@
       return el("span", null, name);
     }
     function R_entity_link(o) {
-      var entity = fidToEntity(o.fid, String(o.val || ""));
+      var entity = o.linkEntity ? String(o.linkEntity) : fidToEntity(o.fid, String(o.val || ""));
       var ids = parseList(o.val);
       var box = el("span");
       if (!ids.length) { box.appendChild(document.createTextNode("")); return box; }
@@ -252,7 +252,7 @@
       return box;
     }
     function R_originals(o) {
-      /* ★修正: newTab=true で chip を生成することで、左クリックでも newtab (target="_blank") で開くようにする */
+      /* FIX: originals chip opens in a new tab */
       var a = chip("", "Loading Originals...", true);
       a.setAttribute("data-pending", "1");
       var ctx = {
@@ -302,7 +302,7 @@
       list.forEach(function (tok) {
         var url = /^https?:\/\//i.test(tok) ? tok : ("https://drive.google.com/thumbnail?sz=w256&id=" + extractDriveId(tok));
         var img = el("img", "thumb"); img.loading = "lazy"; img.decoding = "async"; img.src = url;
-        /* ★修正: サムネイルも a タグで包んで newtab & noopener */
+        /* FIX: wrap thumbnails in a link (new tab, noopener+noreferrer) */
         var a = el("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; a.appendChild(img);
         box.appendChild(a);
       });
@@ -336,7 +336,7 @@
       }
       var fname = String(o.name || o.field_name || "").toLowerCase();
 
-      // shotview を共通経路に統合（テーブルと同じポリシー）
+      // Render shotview via shared path (same policy as Table).
       if (fname === "shotview" || t === "shotview") {
         var el = document.createElement("span");
         el.textContent = "";
@@ -344,14 +344,14 @@
         var row = o.row || {};
         var sid = row["Shot ID"] || row["id"] || row["shot_id"] || row["sh_id"] || row["shid"] || "";
 
-        // 1) 既存キャッシュ（テーブル由来）があれば即描画
+        // 1) Render from cache first (Table-provided).
         try {
           if (sid && window.PROXY_CACHE && window.PROXY_CACHE[sid]) {
             var urlC = window.PROXY_CACHE[sid];
             var idmC = (String(urlC).match(/[-\w]{25,}/) || [])[0] || "";
             var thumbC = idmC ? ("https://drive.google.com/thumbnail?id=" + idmC + "&sz=w320") : urlC;
             
-            /* ★修正: 共通レンダラ側も <a>タグで包んで 403回避(noreferrer) */
+            /* FIX: wrap image link with noreferrer */
             var a = document.createElement("a");
             a.href = urlC;
             a.target = "_blank";
@@ -368,7 +368,7 @@
           }
         } catch (_) { }
 
-        // 2) 単発リゾルブ（Apps Script フォールバック）
+        // 2) Fallback: one-off resolve via Apps Script.
         (async function () {
           function best(res) {
             try {
@@ -406,7 +406,7 @@
               var idm = (String(url).match(/[-\w]{25,}/) || [])[0] || "";
               var thumb = idm ? ("https://drive.google.com/thumbnail?id=" + idm + "&sz=w320") : url;
               
-              /* ★修正: 非同期読み込み時も <a>タグ + noreferrer */
+              /* FIX: async load uses <a> with noreferrer */
               el.innerHTML = '<a href="' + url + '" target="_blank" rel="noopener noreferrer"><img loading="lazy" decoding="async" style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px" src="' + thumb + '"></a>';
             } else {
               el.textContent = "";
@@ -420,7 +420,7 @@
       }
 
 
-      // 譌｢蟄倥ち繧､繝励・蠕捺擂縺ｮ繝ｬ繝ｳ繝€繝ｩ縺ｫ蟋碑ｭｲ
+      // Normalize *_link types to entity_link for rendering.
       if (t && t !== "entity_link" && /_link$/i.test(t)) { t = "entity_link"; }
       switch (t) {
         case "id": return R_id(o);
@@ -442,8 +442,8 @@
     /* ========= 4. entry ========= */
 
     /* ===== 4B.applyData shim (ADD) ===== */
-    // 最低限の applyData を先に定義しておく。
-    // これにより listRowsPage 成功時の applyData 呼び出しで落ちない。
+    // Define a minimal applyData early.
+    // Prevent crashes when listRowsPage calls applyData before Table loads.
     window.applyData = window.applyData || function (p) {
       p = p || {};
       window.STATE = window.STATE || {};
@@ -498,8 +498,184 @@
     function attachCellEditor() { return null; }
     function hydrateLinks() { /* NOTE: legacy comment removed */ }
 
+    /* ========= 5B. Link Picker Modal ========= */
+    function _ensureLinkPickerUI_() {
+      if (document.getElementById("motkLinkPicker")) return;
+
+      var backdrop = document.createElement("div");
+      backdrop.id = "motkLinkPickerBackdrop";
+      backdrop.className = "motk-modal-backdrop";
+
+      var panel = document.createElement("div");
+      panel.id = "motkLinkPicker";
+      panel.className = "motk-center-modal motk-link-picker";
+      panel.setAttribute("role", "dialog");
+      panel.setAttribute("aria-modal", "true");
+      panel.setAttribute("aria-hidden", "true");
+      panel.innerHTML = [
+        '<div class="hd">Select Links</div>',
+        '<div class="bd">',
+        '  <input class="q" type="search" placeholder="Search by name or id" />',
+        '  <div class="list" role="listbox" aria-multiselectable="true"></div>',
+        '</div>',
+        '<div class="ft">',
+        '  <button type="button" class="btn cancel">Cancel</button>',
+        '  <button type="button" class="btn apply">Apply</button>',
+        '</div>'
+      ].join("");
+
+      document.body.appendChild(backdrop);
+      document.body.appendChild(panel);
+    }
+
+    function _delimiterFor_(raw) {
+      var s = String(raw == null ? "" : raw);
+      if (s.indexOf("|") >= 0) return "|";
+      if (s.indexOf(",") >= 0) return ",";
+      if (s.indexOf(";") >= 0) return ";";
+      return " ";
+    }
+
+    function _bucketForEntity_(entity) {
+      var e = String(entity || "").toLowerCase().trim();
+      if (e === "asset" || e === "assets") return "assets";
+      if (e === "task" || e === "tasks") return "tasks";
+      if (e === "user" || e === "users") return "users";
+      if (e === "member" || e === "members" || e === "projectmembers" || e === "projectmember") return "members";
+      return "shots";
+    }
+
+    function _targetEntityFromType_(type, fid, currentIds) {
+      var t = String(type || "").toLowerCase().trim();
+      if (t && t !== "entity_link" && /_link$/.test(t)) {
+        var base = t.replace(/_link$/, "");
+        if (base === "shot" || base === "asset" || base === "task" || base === "user" || base === "member") return base;
+      }
+      var first = (currentIds && currentIds.length) ? String(currentIds[0]) : "";
+      return fidToEntity(String(fid || ""), first);
+    }
+
+    function openLinkPicker(opts) {
+      opts = opts || {};
+      var fid = String(opts.fid || "");
+      var type = String(opts.type || "");
+      var raw = String(opts.value == null ? "" : opts.value);
+      var current = parseList(raw);
+      var delimiter = _delimiterFor_(raw);
+
+      return ensureLinkMaps().then(function () {
+        _ensureLinkPickerUI_();
+
+        var panel = document.getElementById("motkLinkPicker");
+        var backdrop = document.getElementById("motkLinkPickerBackdrop");
+        var q = panel.querySelector("input.q");
+        var list = panel.querySelector(".list");
+        var btnCancel = panel.querySelector("button.cancel");
+        var btnApply = panel.querySelector("button.apply");
+
+        var targetEntity = _targetEntityFromType_(type, fid, current);
+        var bucket = _bucketForEntity_(targetEntity);
+        var map = (window.LINK_MAPS && window.LINK_MAPS[bucket]) ? window.LINK_MAPS[bucket] : {};
+
+        var items = Object.keys(map || {}).map(function (id) {
+          return { id: String(id), name: String(map[id] == null ? id : map[id]) };
+        });
+        items.sort(function (a, b) { return a.name.localeCompare(b.name); });
+
+        var selected = {};
+        current.forEach(function (id) { selected[String(id)] = 1; });
+
+        function render(query) {
+          query = String(query || "").trim().toLowerCase();
+          list.innerHTML = "";
+          var max = 500;
+          var n = 0;
+          for (var i = 0; i < items.length; i++) {
+            var it = items[i];
+            if (query) {
+              if (it.id.toLowerCase().indexOf(query) === -1 && it.name.toLowerCase().indexOf(query) === -1) continue;
+            }
+            var row = document.createElement("label");
+            row.className = "row";
+
+            var cb = document.createElement("input");
+            cb.type = "checkbox";
+            cb.checked = !!selected[it.id];
+            cb.addEventListener("change", function (id) {
+              return function (e) {
+                if (e.target.checked) selected[id] = 1;
+                else delete selected[id];
+              };
+            }(it.id));
+
+            var text = document.createElement("span");
+            text.className = "txt";
+            text.textContent = it.name + " (" + it.id + ")";
+
+            row.appendChild(cb);
+            row.appendChild(text);
+            list.appendChild(row);
+
+            n++;
+            if (n >= max) break;
+          }
+        }
+
+        function close() {
+          document.body.classList.remove("motk-modal-open");
+          panel.setAttribute("aria-hidden", "true");
+        }
+
+        function open() {
+          document.body.classList.add("motk-modal-open");
+          panel.setAttribute("aria-hidden", "false");
+          q.value = "";
+          render("");
+          try { q.focus(); } catch (_) { }
+        }
+
+        return new Promise(function (resolve) {
+          function onCancel() {
+            cleanup();
+            close();
+            resolve({ cancelled: true, ids: current.slice(), value: raw });
+          }
+          function onApply() {
+            var ids = Object.keys(selected);
+            ids.sort();
+            var val = ids.join(delimiter);
+            cleanup();
+            close();
+            resolve({ cancelled: false, ids: ids, value: val, delimiter: delimiter, targetEntity: targetEntity });
+          }
+          function onBackdrop(e) {
+            if (e.target === backdrop) onCancel();
+          }
+          function onKey(e) {
+            if (e.key === "Escape") onCancel();
+          }
+          function cleanup() {
+            backdrop.removeEventListener("click", onBackdrop);
+            document.removeEventListener("keydown", onKey);
+            btnCancel.removeEventListener("click", onCancel);
+            btnApply.removeEventListener("click", onApply);
+            q.removeEventListener("input", onInput);
+          }
+          function onInput() { render(q.value); }
+
+          backdrop.addEventListener("click", onBackdrop);
+          document.addEventListener("keydown", onKey);
+          btnCancel.addEventListener("click", onCancel);
+          btnApply.addEventListener("click", onApply);
+          q.addEventListener("input", onInput);
+
+          open();
+        });
+      });
+    }
+
     /* ========= 6. export ========= */
-    window.FieldsAPI = { renderCellByField, getLabel, attachCellEditor, hydrateLinks, ensureLinkMaps };
+    window.FieldsAPI = { renderCellByField, getLabel, attachCellEditor, hydrateLinks, ensureLinkMaps, openLinkPicker };
     ensureLinkMaps().catch(function () { });
   })();
 

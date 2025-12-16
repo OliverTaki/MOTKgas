@@ -252,20 +252,19 @@
       }
       function deriveRecordTitle() {
         var row = STATE.row || {};
-        var ent = STATE.entity;
-        var preferMap = {
-          shot: ['fi_0002', 'fi_0003', 'fi_0008'],
-          asset: ['fi_0016', 'fi_0002', 'fi_0003'],
-          task: ['fi_0002', 'fi_0003'],
-          user: ['fi_0002', 'fi_0003'],
-          member: ['fi_0035', 'fi_0002']
-        };
-        var prefer = preferMap[ent] || [];
-        for (var i = 0; i < prefer.length; i++) {
-          if (row[prefer[i]]) return String(row[prefer[i]]);
+        var ids = Array.isArray(STATE.ids) ? STATE.ids : [];
+        for (var i = 0; i < ids.length; i++) {
+          var fid = ids[i];
+          var meta = (STATE.fieldsMeta && STATE.fieldsMeta[fid]) ? STATE.fieldsMeta[fid] : null;
+          var t = meta && meta.type ? String(meta.type).trim().toLowerCase() : "";
+          if (t === "entity_name" || t === "name") {
+            var v = row[fid];
+            if (v != null && String(v).trim()) return String(v);
+          }
         }
+        if (row["fi_0002"] != null && String(row["fi_0002"]).trim()) return String(row["fi_0002"]);
         if (STATE.id) return String(STATE.id);
-        return '';
+        return "";
       }
 
       function entityFromPageKey(pg) {
@@ -894,7 +893,7 @@
              if (res.pageId) {
                STATE.currentPreset = res.pageId;
                updateUrlState(res.pageId);
-               /* ★修正: 保存後、プリセットリストをリロードして即時反映 */
+               /* FIX: reload presets after save */
                await loadPresets(); 
                var sel = $("#presetSelect"); if (sel) sel.value = res.pageId;
              }
@@ -1014,7 +1013,7 @@
                img.style.objectFit = "contain";
                
                if (link) {
-                   /* ★修正: imgクリックを <a>タグ化して 403回避(noreferrer) */
+                   /* FIX: wrap img in <a> to avoid 403 (noreferrer) */
                    var a = document.createElement("a");
                    a.href = link;
                    a.target = "_blank";
@@ -1043,7 +1042,7 @@
                    if(card2) autoFitHeight(card2, true);
                 };
                 
-                /* ★修正: <a>タグで包んで 403回避(noreferrer) */
+                /* FIX: wrap in <a> to avoid 403 (noreferrer) */
                 var aImg = document.createElement("a");
                 aImg.href = link;
                 aImg.target = "_blank";
@@ -1058,7 +1057,7 @@
                     var safeLink = link; 
                     a.href = safeLink;
                     a.target = "_blank"; 
-                    /* ★修正: 403回避のため noreferrer 追加 */
+                    /* FIX: add noreferrer to avoid 403 */
                     a.rel = "noopener noreferrer";
                     a.className = "btn"; a.textContent = "Open Originals";
                     container.style.display = "flex"; container.style.alignItems = "center"; container.style.justifyContent = "center";
@@ -1113,7 +1112,7 @@
           card.dataset.type = type;
 
           applyXYWH(card, def.x, def.y, def.w, def.h);
-          /* ★修正: 初期幅を100pxに */
+          /* FIX: set initial width to 100px */
           card.style.setProperty("--thwpx", (def.thwpx || 100) + "px");
 
           var hd = document.createElement("div");
@@ -1161,7 +1160,7 @@
 
           act.appendChild(btnEdit); act.appendChild(btnDup); act.appendChild(btnFit);
 
-          /* ★修正: card-removeクラスを明示的に付与 */
+          /* FIX: explicitly add card-remove class */
           var delBtn = document.createElement("button");
           delBtn.className = "btn btn-del card-remove";
           delBtn.type = "button";
@@ -1294,7 +1293,7 @@
             if (!STATE.drag.active || STATE.drag.mode !== "move") return;
             var gx = Math.max(0, (ev.pageX - STATE.drag.gridLeft) - offX);
             
-            /* ★修正: Y座標計算に負のオフセット(-5px)を加え、上部聖域(Row0判定漏れ)を解消 */
+            /* FIX: add -5px Y offset to avoid top sanctuary edge */
             var gy = Math.max(0, (ev.pageY - STATE.drag.gridTop) - offY - 5);
             
             var x = Math.round(gx / (STATE.drag.colW + m.gap));
@@ -1309,7 +1308,7 @@
           function onUp() {
             if (!STATE.drag.active || STATE.drag.mode !== "move") return cleanup();
             
-            /* ★修正: 確定時もdatasetから再計算し、Floor気味に丸めて上に詰まりやすくする */
+            /* FIX: recompute from dataset on commit and floor for stability */
             var finalX = Math.round(+card.dataset.x); 
             var finalY = Math.round(+card.dataset.y); 
             
@@ -1367,7 +1366,7 @@
             }
             
             targetH += 28; 
-            /* ★修正: 余白計算を +20px から +4px に削減し、聖域(余白)を減らす */
+            /* FIX: reduce padding calculation from +20px to +4px */
             var rows = Math.ceil( (targetH + m.gap + 4) / m.rowStep );
             rows = Math.max(4, rows);
             
@@ -1385,7 +1384,7 @@
         var extra = padBody + padCard;
         var contentHeight = 0;
         if (content) { contentHeight = Math.max(content.scrollHeight, content.offsetHeight); } else { contentHeight = body.scrollHeight; }
-        /* ★修正: 余白計算を +20px から +4px に削減 */
+        /* FIX: reduce padding calculation from +20px to +4px */
         var needPx = (header.offsetHeight || 0) + contentHeight + extra + 4;
         
         var rows2 = Math.ceil( (needPx + m.gap) / m.rowStep );
@@ -1553,7 +1552,7 @@
         var detailTitle = defaultDetailTitle();
         var t = $("#title"); if (t) t.textContent = recordTitle;
         var f = $("#footerPage"); if (f) f.textContent = detailTitle;
-        /* ★修正: ページタイトルにエンティティ名を反映 */
+        /* FIX: include entity name in page title */
         if (typeof document !== 'undefined' && document.title) { 
             var entLabel = capitalize(STATE.entity || "Detail");
             document.title = entLabel + ' | ' + recordTitle; 
@@ -1701,10 +1700,10 @@
           var target = e.target;
           var cell = target.closest("td.v"); if (!cell) return;
           
-          /* ★修正: インライン編集を一時的に凍結 (サーバーID不整合回避のため) */
-          // Inline editing enabled (Fields-sheet-driven).
+          // Inline edit entrypoint.
+          // Inline editing (Fields-sheet-driven).
           
-          /* --- 以下は到達不能となる --- */
+          // Guard: do not start a second editor instance.
           if (cell.querySelector("input, select, textarea")) return;
           var fid = cell.getAttribute("data-fid");
           if (!fid) return;
@@ -1731,6 +1730,59 @@
           var originalValue = (originalRaw == null) ? "" : String(originalRaw).trim();
           var originalHtml = cell.innerHTML;
           var t = String(ftype || "").trim().toLowerCase();
+
+          // Link fields are edited via picker modal (no direct id typing).
+          if (t === "entity_link" || /_link$/.test(t)) {
+            if (!(window.FieldsAPI && typeof FieldsAPI.openLinkPicker === "function")) {
+              showStatus("Link picker unavailable", true);
+              return;
+            }
+
+            var entity = singularEntityFor(STATE.entity) || STATE.entity || "shot";
+            var id = STATE.id || (STATE.row && STATE.row["fi_0001"]) || "";
+            if (!id) { showStatus("Error: No ID found", true); return; }
+
+            FieldsAPI.openLinkPicker({ fid: fid, type: t, value: originalRaw }).then(function (out) {
+              if (!out || out.cancelled) return;
+              showStatus("Updating...");
+
+              var patch = {}; patch[fid] = out.value;
+              if (!(window.google && google.script && google.script.run)) {
+                showStatus("Update Failed: google.script.run unavailable", true);
+                return;
+              }
+
+              google.script.run
+                .withSuccessHandler(function (res) {
+                  if (res && res.ok) {
+                    if (STATE.row) STATE.row[fid] = out.value;
+                    cell.innerHTML = "";
+                    var node = FieldsAPI.renderCellByField({
+                      fid: fid,
+                      val: out.value,
+                      row: STATE.row || {},
+                      labels: STATE.labels || {},
+                      entity: STATE.entity,
+                      type: t,
+                      linkEntity: out.targetEntity || null,
+                      field: meta || null,
+                      editable: false
+                    });
+                    cell.appendChild(node);
+                    showStatus("Updated!", false);
+                  } else {
+                    showStatus("Update Failed: " + ((res && res.error) ? res.error : "Unknown"), true);
+                    cell.innerHTML = originalHtml;
+                  }
+                })
+                .withFailureHandler(function (err) {
+                  showStatus("Update Failed: " + String(err && err.message ? err.message : err), true);
+                  cell.innerHTML = originalHtml;
+                })
+                .dp_updateEntityRecord(entity, id, patch);
+            });
+            return;
+          }
           var input;
 
           if (t === "select") {
@@ -1792,7 +1844,7 @@
             }
             showStatus("Updating...");
             
-            /* ★修正: サーバー側のエンティティ名を「複数形(sheet)」に変更して送信 */
+            /* FIX: send entity using the plural sheet key */
             var entity = singularEntityFor(STATE.entity) || STATE.entity || "shot";
             
             // STATE.id がない場合は row データから fi_0001 (ShotID) を探す
@@ -1813,7 +1865,7 @@
             }
             if (!colName) colName = fid;
             
-            /* ★修正: patchのキーを「実際のカラム名(colName)」に変更 */
+            /* FIX: use actual column key (colName) for patch */
             var patch = {}; 
             patch[fid] = newValue; 
 

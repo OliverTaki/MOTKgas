@@ -84,11 +84,11 @@
 
   <script>
     /** =========================================
-     *  viewer.html (ナンバリング整理版)
-     *  - addGlobalClosers / removeGlobalClosers を単一実装に統合
-     *  - openPanel の上書きラップを廃止し、単一定義に集約
-     *  - applyData の上書きフックを廃止（Distinct は fetch 後に更新）
-     *  - 既存 UI/動作は極力変更せずに構造のみ整理
+     *  viewer.html (renumbered / organized)
+     *  - unify addGlobalClosers/removeGlobalClosers
+     *  - avoid openPanel wrapper overrides
+     *  - avoid applyData override hooks (Distinct updates after fetch)
+     *  - keep existing UI/behavior; refactor structure only
      * =========================================*/
 
     /* ===== Section Index =====
@@ -638,6 +638,15 @@
         STATE.fieldIds = Array.isArray(p.ids) ? p.ids.slice() : [];
         STATE.header = Array.isArray(p.header) ? p.header.slice() : [];
         STATE.rows = Array.isArray(p.rows) ? p.rows.slice() : [];
+        STATE.columns = Array.isArray(p.columns) ? p.columns.slice() : [];
+        STATE.fieldsMeta = {};
+        if (STATE.columns && STATE.columns.length) {
+          for (var i = 0; i < STATE.columns.length; i++) {
+            var c = STATE.columns[i] || {};
+            var fid = String(c.id || c.field_id || c.fieldId || '').trim();
+            if (fid) STATE.fieldsMeta[fid] = c;
+          }
+        }
         var total = Number(p.total);
         STATE.total = (isFinite(total) && total >= 0) ? total : STATE.rows.length;
         if (typeof updatePagerUI === 'function') {
@@ -656,6 +665,8 @@
       STATE.pageList = STATE.pageList || [];
       STATE.pageId = STATE.pageId || 'pg_default';
       STATE.pageCfgRaw = STATE.pageCfgRaw || null;
+      STATE.columns = STATE.columns || [];
+      STATE.fieldsMeta = STATE.fieldsMeta || {};
       STATE.widths = STATE.widths || {};
       STATE.hiddenCols = STATE.hiddenCols || {};
       STATE.dirty = !!STATE.dirty;
@@ -912,7 +923,7 @@
                     rows.length)
             );
             if (!isFinite(total) || total < 0) total = rows.length;
-            return { ids: ids, header: header, rows: rows, total: total };
+            return { ids: ids, header: header, rows: rows, total: total, columns: res.columns };
           }
           var ids2 = Array.isArray(res.ids) ? res.ids : [];
           var head2 = Array.isArray(res.header) ? res.header : [];
@@ -1060,6 +1071,111 @@
         return '';
       }
 
+      function bindLinkPickerInlineEdit() {
+        if (bindLinkPickerInlineEdit._bound) return;
+        bindLinkPickerInlineEdit._bound = true;
+
+        document.addEventListener('dblclick', function (e) {
+          var td = e.target && e.target.closest ? e.target.closest('#tableWrap td[data-col-id]') : null;
+          if (!td) return;
+
+          var tr = td.closest('tr[data-row-id]');
+          if (!tr) return;
+
+          var fid = td.getAttribute('data-col-id');
+          var rowId = tr.getAttribute('data-row-id');
+          if (!fid || !rowId) return;
+
+          var meta = (STATE.fieldsMeta && STATE.fieldsMeta[fid]) ? STATE.fieldsMeta[fid] : null;
+          if (!meta || meta.editable !== true) return;
+
+          var type = meta && meta.type ? String(meta.type).trim().toLowerCase() : '';
+          if (!(type === 'entity_link' || /_link$/.test(type))) return;
+
+          if (!(window.FieldsAPI && typeof FieldsAPI.openLinkPicker === 'function')) {
+            try { if (typeof showStatus === 'function') showStatus('Link picker unavailable', true); } catch (_) { }
+            return;
+          }
+
+          var raw = _rowValueByIdFid_(rowId, fid);
+          FieldsAPI.openLinkPicker({ fid: fid, type: type, value: raw }).then(function (out) {
+            if (!out || out.cancelled) return;
+            var entity = singularEntityFor(STATE.sheetName || 'shot') || 'shot';
+            var patch = {}; patch[fid] = out.value;
+
+            try { if (typeof showStatus === 'function') showStatus('Updating...'); } catch (_) { }
+
+            if (!(window.google && google.script && google.script.run)) {
+              try { if (typeof showStatus === 'function') showStatus('Update Failed: google.script.run unavailable', true); } catch (_) { }
+              return;
+            }
+
+            google.script.run
+              .withSuccessHandler(function (res) {
+                if (res && res.ok) {
+                  _setRowValueByIdFid_(rowId, fid, out.value);
+                  td.innerHTML = '';
+                  if (window.FieldsAPI && typeof FieldsAPI.renderCellByField === 'function') {
+                    td.appendChild(FieldsAPI.renderCellByField({
+                      fid: fid,
+                      val: out.value,
+                      row: {},
+                      labels: {},
+                      entity: entity,
+                      type: type,
+                      linkEntity: out.targetEntity || null,
+                      field: meta || null,
+                      editable: false
+                    }));
+                  } else {
+                    td.textContent = String(out.value || '');
+                  }
+                  try { if (typeof showStatus === 'function') showStatus('Updated!', false); } catch (_) { }
+                } else {
+                  try { if (typeof showStatus === 'function') showStatus('Update Failed: ' + ((res && res.error) ? res.error : 'Unknown'), true); } catch (_) { }
+                }
+              })
+              .withFailureHandler(function (err) {
+                try { if (typeof showStatus === 'function') showStatus('Update Failed: ' + String(err && err.message ? err.message : err), true); } catch (_) { }
+              })
+              .dp_updateEntityRecord(entity, rowId, patch);
+          });
+        });
+      }
+
+      function _rowValueByIdFid_(rowId, fid) {
+        try {
+          var idIdx = indexOf(STATE.fieldIds, 'fi_0001');
+          if (idIdx < 0) idIdx = 0;
+          var colIdx = indexOf(STATE.fieldIds, fid);
+          if (colIdx < 0) return '';
+          for (var i = 0; i < (STATE.rows || []).length; i++) {
+            var r = STATE.rows[i];
+            if (String(r && r[idIdx] || '').trim() === String(rowId)) {
+              return r && colIdx < r.length ? r[colIdx] : '';
+            }
+          }
+        } catch (_) { }
+        return '';
+      }
+
+      function _setRowValueByIdFid_(rowId, fid, value) {
+        try {
+          var idIdx = indexOf(STATE.fieldIds, 'fi_0001');
+          if (idIdx < 0) idIdx = 0;
+          var colIdx = indexOf(STATE.fieldIds, fid);
+          if (colIdx < 0) return;
+          for (var i = 0; i < (STATE.rows || []).length; i++) {
+            var r = STATE.rows[i];
+            if (String(r && r[idIdx] || '').trim() === String(rowId)) {
+              if (!Array.isArray(r)) return;
+              r[colIdx] = value;
+              return;
+            }
+          }
+        } catch (_) { }
+      }
+
       /* ===== 16. テーブルレンダリング本体（renderCurrentPage） ===== */
 
       function renderCurrentPage() {
@@ -1072,6 +1188,8 @@
         for (var i = 0; i < cols.length; i++) {
           colIdx[i] = indexOf(STATE.fieldIds, cols[i]);
         }
+        var idIdxForRow = indexOf(STATE.fieldIds, 'fi_0001');
+        if (idIdxForRow < 0) idIdxForRow = 0;
         var colW = [];
         for (var j = 0; j < cols.length; j++) {
           colW[j] = STATE.widths[cols[j]] || defaultWidthFor(cols[j], STATE.header[colIdx[j]]);
@@ -1120,7 +1238,7 @@
           var html = ''; var prevGrpKeys = null;
 
           for (var r = from; r < to; r++) {
-            var row = rowsSlice[r]; var rowId = String(row && row[0] || '').trim();
+            var row = rowsSlice[r]; var rowId = String(row && row[idIdxForRow] || '').trim();
 
             if (useGrouping) {
               var curKeys = [];
@@ -1517,7 +1635,7 @@
 
         if (!ent) { ent = guessEntityFromId(pid); }
 
-        // ★ ここで Router.buildEntityUrl を使用
+        // Use Router.buildEntityUrl to build the Detail URL.
         var url = Router.buildEntityUrl(ent, pid);
         return '<a href="' + escapeHTML(url) + '" title="' + escapeHTML(pid) + '">' + escapeHTML(label) + '</a>';
       }
@@ -2814,6 +2932,7 @@
         try { readUrlState && readUrlState(); } catch (_) { }
 
         start();
+        bindLinkPickerInlineEdit();
 
         var qs = document.getElementById('quickSearch');
         if (qs) {
