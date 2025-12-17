@@ -224,6 +224,108 @@
         presets: [], currentPreset: ""
       };
 
+      // ===== Detail field write coordinator (last-write-wins, coalesced) =====
+      window.__MOTK_DETAIL_FIELD_WRITES = window.__MOTK_DETAIL_FIELD_WRITES || {};
+
+      function _dwKey(entity, id, fid) {
+        return String(entity || '') + '|' + String(id || '') + '|' + String(fid || '');
+      }
+
+      function _dwGetSlot(entity, id, fid) {
+        var k = _dwKey(entity, id, fid);
+        var slot = window.__MOTK_DETAIL_FIELD_WRITES[k];
+        if (!slot) {
+          slot = window.__MOTK_DETAIL_FIELD_WRITES[k] = {
+            inFlight: false,
+            pending: null,
+            confirmed: undefined
+          };
+        }
+        if (slot.confirmed === undefined && typeof STATE === 'object' && STATE && STATE.row && fid in STATE.row) {
+          slot.confirmed = STATE.row[fid];
+        }
+        return slot;
+      }
+
+      /**
+       * Coalesced field write:
+       * - Always keep only the latest desired value while a write is in-flight.
+       * - Do not apply intermediate server responses to DOM if a newer pending value exists.
+       *
+       * onFinalConfirm(confirmedVal, res)
+       * onRollback(rollbackVal, err)
+       */
+      function dv2_queueFieldWrite(entity, id, fid, desiredVal, onFinalConfirm, onRollback) {
+        var slot = _dwGetSlot(entity, id, fid);
+
+        // Always coalesce to the latest desired value
+        slot.pending = { value: desiredVal, onFinalConfirm: onFinalConfirm, onRollback: onRollback };
+
+        if (slot.inFlight) return;
+
+        (function flush() {
+          if (slot.inFlight) return;
+          if (!slot.pending) return;
+
+          var job = slot.pending;
+          slot.pending = null;
+          slot.inFlight = true;
+
+          var patch = {};
+          patch[fid] = job.value;
+
+          try { if (typeof showStatus === 'function') showStatus('Updating...'); } catch (_e) {}
+
+          google.script.run
+            .withSuccessHandler(function (res) {
+              slot.inFlight = false;
+
+              var confirmedVal = job.value;
+              try {
+                if (res && res.ok && res.fields && Object.prototype.hasOwnProperty.call(res.fields, fid)) {
+                  confirmedVal = res.fields[fid];
+                }
+              } catch (_e) {}
+
+              // Track last confirmed server value
+              slot.confirmed = confirmedVal;
+
+              // Do NOT stomp newer optimistic UI/state
+              try {
+                if (typeof STATE === 'object' && STATE && STATE.row) {
+                  if (STATE.row[fid] === job.value) {
+                    STATE.row[fid] = confirmedVal;
+                  }
+                }
+              } catch (_e) {}
+
+              // If a newer desired value exists, continue flushing WITHOUT finalizing UI to this intermediate state
+              if (slot.pending) {
+                flush();
+                return;
+              }
+
+              try {
+                if (typeof job.onFinalConfirm === 'function') job.onFinalConfirm(confirmedVal, res);
+              } catch (_e) {}
+
+            })
+            .withFailureHandler(function (err) {
+              slot.inFlight = false;
+
+              // On failure, drop any newer pending value (server state is unknown; keep UI consistent with last confirmed)
+              slot.pending = null;
+
+              var rollbackVal = slot.confirmed;
+
+              try {
+                if (typeof job.onRollback === 'function') job.onRollback(rollbackVal, err);
+              } catch (_e) {}
+            })
+            .dp_updateEntityRecord(entity, id, patch);
+        })();
+      }
+
       /* ===== 13.4 Link maps & Proxy ===== */
       window.LINK_MAPS = window.LINK_MAPS || { assets: {}, shots: {}, tasks: {}, users: {}, members: {} };
       var PROXY_CACHE = {};
@@ -1812,6 +1914,7 @@
               if (!out || out.cancelled) return;
 
               var prev = (STATE.row && STATE.row[fid] != null) ? STATE.row[fid] : "";
+              var prevVal = prev;
               var nextVal = out.value;
               var linkEnt = out.targetEntity || null;
 
@@ -1819,33 +1922,31 @@
               renderAllDetailCellsForFid(fid, meta, nextVal, linkEnt);
               showStatus("Saving...");
 
-              if (!(window.google && google.script && google.script.run)) {
-                showStatus("Update Failed: google.script.run unavailable", true);
-                if (STATE.row) STATE.row[fid] = prev;
-                renderAllDetailCellsForFid(fid, meta, prev, linkEnt);
-                return;
-              }
+              dv2_queueFieldWrite(entity, id, fid, nextVal,
+                function (confirmedVal, _res) {
+                  try {
+                    if (typeof STATE === 'object' && STATE && STATE.row) STATE.row[fid] = confirmedVal;
+                  } catch (_e) {}
+                  try {
+                    renderAllDetailCellsForFid(fid, meta, confirmedVal, linkEnt);
+                  } catch (_e) {}
+                  try { if (typeof showStatus === 'function') showStatus('Updated!'); } catch (_e) {}
+                },
+                function (rollbackVal, err) {
+                  var msg = (err && (err.message || err)) ? String(err.message || err) : 'unknown error';
+                  try { if (typeof showError === 'function') showError('Update Failed: ' + msg); } catch (_e) {}
 
-              var patch = {}; patch[fid] = nextVal;
-              google.script.run
-                .withSuccessHandler(function (res) {
-                  if (res == null || (res && res.ok)) {
-                    showStatus("Saved");
-                    renderAllDetailCellsForFid(fid, meta, nextVal, linkEnt);
-                    return;
-                  }
-                  var msg = (res && res.error) ? res.error : "Unknown";
-                  showStatus("Update Failed: " + msg, true);
-                  if (STATE.row) STATE.row[fid] = prev;
-                  renderAllDetailCellsForFid(fid, meta, prev, linkEnt);
-                })
-                .withFailureHandler(function (err) {
-                  var msg = String(err && err.message ? err.message : err);
-                  showStatus("Update Failed: " + msg, true);
-                  if (STATE.row) STATE.row[fid] = prev;
-                  renderAllDetailCellsForFid(fid, meta, prev, linkEnt);
-                })
-                .dp_updateEntityRecord(entity, id, patch);
+                  // Revert to last confirmed value when available, else keep previous value
+                  var v = (rollbackVal !== undefined) ? rollbackVal : prevVal;
+                  try {
+                    if (typeof STATE === 'object' && STATE && STATE.row) STATE.row[fid] = v;
+                  } catch (_e) {}
+                  try {
+                    renderAllDetailCellsForFid(fid, meta, v, linkEnt);
+                  } catch (_e) {}
+                  try { if (typeof showStatus === 'function') showStatus('Update Failed'); } catch (_e) {}
+                }
+              );
             });
             return;
           }
@@ -1927,32 +2028,36 @@
             var patch = {};
             patch[fid] = newValue;
 
-            if (window.google && google.script && google.script.run) {
-                google.script.run
-                  .withSuccessHandler(function(res) {
-                      if (res == null) {
-                        showStatus("Updated (no response). Refresh to confirm.", true);
-                        return;
-                      }
-                      if (res && res.ok) {
-                        showStatus("Updated!", false);
-                        return;
-                      }
-                      showStatus("Update Failed: " + ((res && res.error) ? res.error : "Unknown"), true);
-                      cell.innerHTML = originalHtml;
-                      if (STATE.row) STATE.row[fid] = originalRaw;
-                  })
-                  .withFailureHandler(function(err) {
-                    showStatus("Update Failed: " + String(err && err.message ? err.message : err), true);
-                    cell.innerHTML = originalHtml;
-                    if (STATE.row) STATE.row[fid] = originalRaw;
-                  })
-                  .dp_updateEntityRecord(entity, id, patch);
-            } else {
-                showStatus("Update Failed: google.script.run unavailable", true);
-                cell.innerHTML = originalHtml;
-                if (STATE.row) STATE.row[fid] = originalRaw;
+            if (!(window.google && google.script && google.script.run)) {
+              showStatus("Update Failed: google.script.run unavailable", true);
+              cell.innerHTML = originalHtml;
+              if (STATE.row) STATE.row[fid] = originalRaw;
+              return;
             }
+
+            var nextVal = newValue;
+            dv2_queueFieldWrite(entity, id, fid, nextVal,
+              function (confirmedVal, _res) {
+                try {
+                  if (confirmedVal !== nextVal) {
+                    cell.textContent = (confirmedVal == null) ? '' : String(confirmedVal);
+                    if (STATE && STATE.row) STATE.row[fid] = confirmedVal;
+                  }
+                } catch (_e) {}
+                try { if (typeof showStatus === 'function') showStatus('Updated!'); } catch (_e) {}
+              },
+              function (rollbackVal, err) {
+                var msg = (err && (err.message || err)) ? String(err.message || err) : 'unknown error';
+                try { if (typeof showError === 'function') showError('Update Failed: ' + msg); } catch (_e) {}
+
+                var v = (rollbackVal !== undefined) ? rollbackVal : originalRaw;
+                try {
+                  cell.textContent = (v == null) ? '' : String(v);
+                  if (STATE && STATE.row) STATE.row[fid] = v;
+                } catch (_e) {}
+                try { if (typeof showStatus === 'function') showStatus('Update Failed'); } catch (_e) {}
+              }
+            );
           }
           input.addEventListener("blur", save);
           input.addEventListener("keydown", function(e) {
