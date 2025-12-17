@@ -328,14 +328,24 @@
 
       /* ===== 13.4 Link maps & Proxy ===== */
       window.LINK_MAPS = window.LINK_MAPS || { assets: {}, shots: {}, tasks: {}, users: {}, members: {} };
-      var PROXY_CACHE = {};
+      var PROXY_CACHE = (window.PROXY_CACHE = (window.PROXY_CACHE || {}));
 
       function prefetchProxyIndex() {
         if (!gsr()) return;
         tryCall(['sv_indexAllProxies'], {}).then(function (idx) {
             try {
               var latest = (idx && idx.latestByShotId) ? idx.latestByShotId : {};
-              for (var k in latest) { PROXY_CACHE[String(k)] = latest[k] || null; }
+              for (var k in latest) {
+                var v = latest[k] || null;
+                try {
+                  if (v && typeof v === "object") {
+                    if (!v.url && v.id) v.url = "https://drive.google.com/file/d/" + encodeURIComponent(String(v.id)) + "/view";
+                  }
+                } catch (_) { }
+                PROXY_CACHE[String(k)] = v;
+              }
+              try { if (typeof window.__MOTK_PROXY_PREVIEW_REFRESH__ === "function") window.__MOTK_PROXY_PREVIEW_REFRESH__(); } catch (_) { }
+              try { if (window.CommonRenderer && typeof CommonRenderer.refreshPendingPreviews === "function") CommonRenderer.refreshPendingPreviews(document); } catch (_) { }
               var grid = document.getElementById("grid");
               if(grid) {
                   var svCards = grid.querySelectorAll('.card[data-type="shotview"]');
@@ -1898,6 +1908,7 @@
           var originalValue = (originalRaw == null) ? "" : String(originalRaw).trim();
           var originalHtml = cell.innerHTML;
           var t = String(ftype || "").trim().toLowerCase();
+          var didChange = false;
 
           // Link fields are edited via picker modal (no direct id typing).
           if (t === "entity_link" || /_link$/.test(t)) {
@@ -1954,9 +1965,16 @@
 
           if (t === "select") {
             input = document.createElement("select");
+            input.className = "motk-inline-editor";
             var opts = (meta && meta.options) ? meta.options : [];
             if (!Array.isArray(opts)) opts = String(opts || "").split(/[\n\r|,]+/);
             opts = opts.map(function (x) { return String(x == null ? "" : x).trim(); }).filter(Boolean);
+            if (!opts.length) {
+              showStatus("Select options missing", true);
+              cell.innerHTML = originalHtml;
+              return;
+            }
+            if (!meta || meta.required !== true) opts.unshift("");
             if (opts.indexOf(originalValue) === -1 && originalValue) opts.unshift(originalValue);
             opts.forEach(function (v) {
               var o = document.createElement("option");
@@ -1964,38 +1982,39 @@
               input.appendChild(o);
             });
             input.value = originalValue;
+            input.addEventListener("change", function () { didChange = true; });
           } else if (t === "date") {
             input = document.createElement("input");
             input.type = "date";
-            var dt = new Date(originalValue);
-            if (!isNaN(dt.getTime())) {
-              var yyyy = String(dt.getFullYear());
-              var mm = ("0" + (dt.getMonth() + 1)).slice(-2);
-              var dd = ("0" + dt.getDate()).slice(-2);
-              input.value = yyyy + "-" + mm + "-" + dd;
-            } else {
-              input.value = "";
-            }
+            input.className = "motk-inline-editor";
+            input.value = (window.FieldsAPI && typeof FieldsAPI.normalizeDateValue === "function")
+              ? FieldsAPI.normalizeDateValue(originalValue)
+              : (function () {
+                var dt = new Date(originalValue);
+                if (isNaN(dt.getTime())) return "";
+                var yyyy = String(dt.getFullYear());
+                var mm = ("0" + (dt.getMonth() + 1)).slice(-2);
+                var dd = ("0" + dt.getDate()).slice(-2);
+                return yyyy + "-" + mm + "-" + dd;
+              })();
           } else if (t === "checkbox") {
             input = document.createElement("input");
             input.type = "checkbox";
             input.checked = (originalRaw === true) || (/^(true|yes|on|1)$/i.test(String(originalValue || "")));
           } else if (t === "json") {
             input = document.createElement("textarea");
+            input.className = "motk-inline-editor motk-inline-textarea";
             input.value = originalValue;
-            input.style.minHeight = "140px";
           } else {
             input = document.createElement("input");
+            input.className = "motk-inline-editor";
             input.type = "text"; input.value = originalValue;
           }
 
-          if (t !== "checkbox") {
-            input.style.width = "100%"; input.style.boxSizing = "border-box";
-          }
-          input.style.background = "#222"; input.style.color = "#fff"; input.style.border = "1px solid #555";
           cell.innerHTML = ""; cell.appendChild(input); try { input.focus(); } catch (_) {}
 
           function save() {
+            if (t === "select" && !didChange) { cell.innerHTML = originalHtml; return; }
             var newValue;
             if (t === "checkbox") {
               newValue = !!input.checked;

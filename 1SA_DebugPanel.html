@@ -159,6 +159,18 @@
       console.info(msg);
     }
 
+    function logInfo(msg) {
+      consoleLog.push(new Date().toISOString() + ' INFO ' + msg);
+      document.getElementById('console-log').innerHTML = consoleLog.slice(-20).join('\n');  // 最新20行
+      console.info(msg);
+    }
+
+    function logWarn(msg) {
+      consoleLog.push(new Date().toISOString() + ' WARN ' + msg);
+      document.getElementById('console-log').innerHTML = consoleLog.slice(-20).join('\n');  // 最新20行
+      console.warn(msg);
+    }
+
     function updateElement(id, text) {
       const el = document.getElementById(id);
       if (el) el.innerHTML = text || 'N/A';
@@ -243,6 +255,8 @@
           loadAppDataAsync(),
           checkOriginalsAsync()
         ]);
+        checkTableInlineEdit();
+        runTableTake18Checks_();
         log('Run all checks: done');
         setRunStatus('completed at ' + new Date().toLocaleTimeString());
       } catch (err) {
@@ -267,6 +281,526 @@
           resolve();
         }).dp_debugPing();
       });
+    }
+
+    function checkTableInlineEdit() {
+      logInfo("checkTableInlineEdit: start");
+      try {
+        var op = window.opener;
+        if (!op) {
+          logWarn("checkTableInlineEdit: no window.opener");
+          return;
+        }
+        var sig = op.__MOTK_TABLE_INLINE_EDIT_IMPL__ || null;
+        if (!sig) {
+          logWarn("checkTableInlineEdit: missing __MOTK_TABLE_INLINE_EDIT_IMPL__");
+          return;
+        }
+        logInfo("checkTableInlineEdit: ok " + JSON.stringify(sig));
+      } catch (e) {
+        logWarn("checkTableInlineEdit error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function runTableTake18Checks_() {
+      var ctx = checkOpenerContext();
+      if (!ctx) return;
+      checkTableRendererWiring(ctx);
+      checkTableQuickSearch(ctx);
+      checkShotviewRender(ctx);
+      checkFieldsMetaCompleteness(ctx);
+      checkDateFormatHealth(ctx);
+      checkSelectOptionsAvailability(ctx);
+      checkSelectOptionsHydrated(ctx);
+      checkLinkRenderingConsistency(ctx);
+      checkOriginalsRendering(ctx);
+      checkOriginalsNotFoundRate(ctx);
+      checkOriginalsLazyResolve(ctx);
+      checkInlineEditSignature(ctx);
+      checkRenderPerfGuard(ctx);
+      checkEditorThemeParity(ctx);
+      checkVersionsPreviewHealth(ctx);
+    }
+
+    function checkOpenerContext() {
+      logInfo("checkOpenerContext: start");
+      try {
+        var op = window.opener;
+        if (!op) {
+          logInfo("checkOpenerContext: SKIP (no Table context)");
+          return null;
+        }
+        var doc = op.document;
+        if (!doc || !doc.querySelector) {
+          logInfo("checkOpenerContext: SKIP (no Table context)");
+          return null;
+        }
+        var wrap = doc.querySelector("#tableWrap");
+        if (!wrap) {
+          logInfo("checkOpenerContext: SKIP (no Table context)");
+          return null;
+        }
+        logInfo("checkOpenerContext: ok");
+        return { op: op, doc: doc, wrap: wrap };
+      } catch (e) {
+        logWarn("checkOpenerContext error: " + String(e && e.message ? e.message : e));
+        return null;
+      }
+    }
+
+    function checkTableRendererWiring(ctx) {
+      logInfo("checkTableRendererWiring: start");
+      try {
+        var op = ctx.op;
+        if (!op.FieldsAPI) logWarn("checkTableRendererWiring: missing opener.FieldsAPI");
+        else if (typeof op.FieldsAPI.renderCellByField !== "function") logWarn("checkTableRendererWiring: opener.FieldsAPI.renderCellByField not a function");
+        else logInfo("checkTableRendererWiring: FieldsAPI.renderCellByField ok");
+
+        if (!op.STATE) logWarn("checkTableRendererWiring: missing opener.STATE");
+        else if (!op.STATE.fieldsMeta) logWarn("checkTableRendererWiring: missing opener.STATE.fieldsMeta");
+        else logInfo("checkTableRendererWiring: STATE.fieldsMeta ok");
+      } catch (e) {
+        logWarn("checkTableRendererWiring error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkTableQuickSearch(ctx) {
+      logInfo("checkTableQuickSearch: start");
+      try {
+        var op = ctx.op;
+        if (typeof op.serverSearch === "function") logInfo("checkTableQuickSearch: ok");
+        else logWarn("checkTableQuickSearch: ERROR serverSearch missing");
+      } catch (e) {
+        logWarn("checkTableQuickSearch error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkShotviewRender(ctx) {
+      logInfo("checkShotviewRender: start");
+      try {
+        var op = ctx.op;
+        if (!op.CommonRenderer || typeof op.CommonRenderer.renderCellByField !== "function") {
+          logWarn("checkShotviewRender: missing opener.CommonRenderer.renderCellByField");
+          return;
+        }
+
+        var meta = { label: "shotview", type: "versions" };
+        var node = null;
+        try {
+          node = op.CommonRenderer.renderCellByField("shot", "fi_0013", (op.__dbg_sampleShotviewValue || ""), meta);
+        } catch (e) {
+          logWarn("checkShotviewRender: render threw " + String(e && e.message ? e.message : e));
+          return;
+        }
+
+        var ok = !!(node && node.nodeType === 1);
+        if (!ok) logWarn("checkShotviewRender: ERROR non-element node " + String(node && node.nodeType));
+        else logInfo("checkShotviewRender: ok tag=" + String(node.tagName || ""));
+      } catch (e) {
+        logWarn("checkShotviewRender error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkFieldsMetaCompleteness(ctx) {
+      logInfo("checkFieldsMetaCompleteness: start");
+      try {
+        var op = ctx.op;
+        var st = op.STATE || {};
+        var fids = Array.isArray(st.fieldIds) ? st.fieldIds : [];
+        var meta = st.fieldsMeta || {};
+        var missing = 0;
+        var emptySelect = 0;
+
+        for (var i = 0; i < fids.length; i++) {
+          var fid = String(fids[i] || "");
+          if (!fid) continue;
+          var m = meta[fid];
+          if (!m) {
+            missing++;
+            logWarn("checkFieldsMetaCompleteness: missing meta " + fid);
+            continue;
+          }
+          var t = String(m.type || "");
+          if (t === "select") {
+            var opts = Array.isArray(m.options) ? m.options : [];
+            if (opts.length === 0) {
+              emptySelect++;
+              logWarn("checkFieldsMetaCompleteness: select " + fid + " meta.options empty");
+            }
+          }
+        }
+
+        logInfo("checkFieldsMetaCompleteness: done missing=" + missing + " selectOptionsEmpty=" + emptySelect);
+      } catch (e) {
+        logWarn("checkFieldsMetaCompleteness error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkDateFormatHealth(ctx) {
+      logInfo("checkDateFormatHealth: start");
+      try {
+        var op = ctx.op;
+        var st = op.STATE || {};
+        var fids = Array.isArray(st.fieldIds) ? st.fieldIds : [];
+        var meta = st.fieldsMeta || {};
+        var rows = Array.isArray(st.rows) ? st.rows : [];
+        var sampleN = Math.min(5, rows.length);
+        var isoRe = /^\d{4}-\d{2}-\d{2}$/;
+
+        for (var i = 0; i < fids.length; i++) {
+          var fid = String(fids[i] || "");
+          var m = meta[fid];
+          if (!m || String(m.type || "") !== "date") continue;
+          var idx = fids.indexOf(fid);
+          var ok = 0;
+          var tot = 0;
+          for (var r = 0; r < sampleN; r++) {
+            var row = rows[r] || [];
+            var v = row[idx];
+            if (v == null || v === "") continue;
+            tot++;
+            var s = String(v);
+            if (isoRe.test(s)) ok++;
+            else logWarn("checkDateFormatHealth: " + fid + " non-ISO value " + s);
+          }
+          var ratio = tot ? Math.round((ok / tot) * 100) : 100;
+          logInfo("checkDateFormatHealth: " + fid + " ISO ratio " + ratio + "% (" + ok + "/" + tot + ")");
+        }
+      } catch (e) {
+        logWarn("checkDateFormatHealth error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkSelectOptionsAvailability(ctx) {
+      logInfo("checkSelectOptionsAvailability: start");
+      try {
+        var op = ctx.op;
+        var st = op.STATE || {};
+        var fids = Array.isArray(st.fieldIds) ? st.fieldIds : [];
+        var meta = st.fieldsMeta || {};
+        for (var i = 0; i < fids.length; i++) {
+          var fid = String(fids[i] || "");
+          var m = meta[fid];
+          if (!m || String(m.type || "") !== "select") continue;
+          var opts = Array.isArray(m.options) ? m.options : [];
+          if (!opts.length) logWarn("checkSelectOptionsAvailability: select " + fid + " has no options");
+        }
+        logInfo("checkSelectOptionsAvailability: done");
+      } catch (e) {
+        logWarn("checkSelectOptionsAvailability error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkSelectOptionsHydrated(ctx) {
+      logInfo("checkSelectOptionsHydrated: start");
+      try {
+        var op = ctx.op;
+        var st = op.STATE || {};
+        var fids = Array.isArray(st.fieldIds) ? st.fieldIds : [];
+        var meta = st.fieldsMeta || {};
+        var missing = [];
+
+        for (var i = 0; i < fids.length; i++) {
+          var fid = String(fids[i] || "");
+          var m = meta[fid];
+          if (!m || String(m.type || "") !== "select") continue;
+          var opts = Array.isArray(m.options) ? m.options : [];
+          if (!opts.length) missing.push(fid);
+        }
+
+        if (missing.length) logWarn("checkSelectOptionsHydrated: missing options for " + missing.join(", "));
+        else logInfo("checkSelectOptionsHydrated: ok");
+      } catch (e) {
+        logWarn("checkSelectOptionsHydrated error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkLinkRenderingConsistency(ctx) {
+      logInfo("checkLinkRenderingConsistency: start");
+      try {
+        var op = ctx.op;
+        var doc = ctx.doc;
+        var st = op.STATE || {};
+        var fids = Array.isArray(st.fieldIds) ? st.fieldIds : [];
+        var meta = st.fieldsMeta || {};
+
+        for (var i = 0; i < fids.length; i++) {
+          var fid = String(fids[i] || "");
+          var m = meta[fid];
+          if (!m || !/_link$/.test(String(m.type || ""))) continue;
+          var cells = doc.querySelectorAll('#tableWrap td[data-col-id=\"' + fid + '\"]');
+          if (!cells || !cells.length) continue;
+
+          var withAnchor = 0;
+          var withChip = 0;
+          for (var c = 0; c < cells.length; c++) {
+            var td = cells[c];
+            if (td.querySelector && td.querySelector('a[href]')) withAnchor++;
+            if (td.querySelector && td.querySelector('a.chip[href]')) withChip++;
+          }
+
+          var pct = Math.round((withChip / Math.max(1, cells.length)) * 100);
+          if (withAnchor === 0) logWarn("checkLinkRenderingConsistency: link " + fid + " no anchors found");
+          else if (withChip === 0) logWarn("checkLinkRenderingConsistency: link " + fid + " no chip anchors found");
+          logInfo("checkLinkRenderingConsistency: " + fid + " chip% " + pct + "% (" + withChip + "/" + cells.length + ")");
+        }
+      } catch (e) {
+        logWarn("checkLinkRenderingConsistency error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkOriginalsRendering(ctx) {
+      logInfo("checkOriginalsRendering: start");
+      try {
+        var op = ctx.op;
+        var doc = ctx.doc;
+        var st = op.STATE || {};
+        var fids = Array.isArray(st.fieldIds) ? st.fieldIds : [];
+        var meta = st.fieldsMeta || {};
+        for (var i = 0; i < fids.length; i++) {
+          var fid = String(fids[i] || "");
+          var m = meta[fid];
+          if (!m || String(m.type || "") !== "originals") continue;
+          var cells = doc.querySelectorAll('#tableWrap td[data-col-id=\"' + fid + '\"]');
+          if (!cells || !cells.length) continue;
+
+          var ok = 0;
+          var chip = 0;
+          var idle = 0;
+          var loading = 0;
+          var resolved = 0;
+          var failed = 0;
+          for (var c = 0; c < cells.length; c++) {
+            var td = cells[c];
+            if (!td.querySelector) continue;
+
+            var a = td.querySelector('a[data-originals-state]');
+            if (a) {
+              chip++;
+              var st2 = String(a.getAttribute('data-originals-state') || '');
+              if (st2 === 'idle') idle++;
+              else if (st2 === 'loading') loading++;
+              else if (st2 === 'resolved') resolved++;
+              else if (st2 === 'failed') failed++;
+              if (a.getAttribute && a.getAttribute('href') && /drive\\.google\\.com\\/drive\\/folders\\//.test(String(a.getAttribute('href')))) ok++;
+              continue;
+            }
+
+            if (td.querySelector('a[href*=\"drive.google.com/drive/folders/\"]')) ok++;
+          }
+
+          if (chip === 0 && ok === 0) {
+            logWarn("checkOriginalsRendering: originals " + fid + " missing originals chip");
+            continue;
+          }
+          logInfo("checkOriginalsRendering: originals " + fid + " chip=" + chip + " idle=" + idle + " loading=" + loading + " resolved=" + resolved + " failed=" + failed + " folderLink=" + ok);
+          if (loading > 0) logWarn("checkOriginalsRendering: originals " + fid + " should not auto-resolve (loading detected)");
+        }
+      } catch (e) {
+        logWarn("checkOriginalsRendering error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkOriginalsNotFoundRate(ctx) {
+      logInfo("checkOriginalsNotFoundRate: start");
+      try {
+        var op = ctx.op;
+        var doc = ctx.doc;
+        var wrap = ctx.wrap;
+        var st = op.STATE || {};
+        var fids = Array.isArray(st.fieldIds) ? st.fieldIds : [];
+        var meta = st.fieldsMeta || {};
+        var vr = wrap.getBoundingClientRect ? wrap.getBoundingClientRect() : null;
+        var maxSamples = 30;
+
+        var total = 0;
+        var notFound = 0;
+        var loading = 0;
+
+        function isInView(td) {
+          try {
+            if (!vr || !td.getBoundingClientRect) return true;
+            var r = td.getBoundingClientRect();
+            return (r.bottom >= vr.top && r.top <= vr.bottom);
+          } catch (_) { return true; }
+        }
+
+        for (var i = 0; i < fids.length; i++) {
+          var fid = String(fids[i] || "");
+          var m = meta[fid];
+          if (!m || String(m.type || "") !== "originals") continue;
+          var cells = doc.querySelectorAll('#tableWrap td[data-col-id=\"' + fid + '\"]');
+          for (var c = 0; c < cells.length; c++) {
+            if (total >= maxSamples) break;
+            var td = cells[c];
+            if (!isInView(td)) continue;
+            total++;
+
+             var t = (td.textContent || "").trim();
+             if (/originals not found/i.test(t) || /not found/i.test(t) || t === "NOT FOUND") notFound++;
+             if (td.querySelector) {
+               var a = td.querySelector('a[data-originals-state]');
+               if (a) {
+                 var st2 = String(a.getAttribute('data-originals-state') || '');
+                 if (st2 === 'loading') loading++;
+                 if (st2 === 'failed') notFound++;
+               }
+             }
+           }
+         }
+
+        if (total === 0) {
+          logInfo("checkOriginalsNotFoundRate: SKIP (no originals cells in view)");
+          return;
+        }
+
+        var rate = notFound / Math.max(1, total);
+        logInfo("checkOriginalsNotFoundRate: notFound=" + notFound + " loading=" + loading + " total=" + total + " rate=" + Math.round(rate * 100) + "%");
+        if (rate > 0.5 && loading === 0) logWarn("checkOriginalsNotFoundRate: high NOT FOUND rate");
+      } catch (e) {
+        logWarn("checkOriginalsNotFoundRate error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkOriginalsLazyResolve(ctx) {
+      logInfo("checkOriginalsLazyResolve: start");
+      try {
+        var doc = ctx.doc;
+        var chips = doc.querySelectorAll('a[data-originals-state]');
+        if (!chips || !chips.length) {
+          logInfo("checkOriginalsLazyResolve: SKIP (no originals chips found)");
+          return;
+        }
+
+        var total = 0, idle = 0, loading = 0, failed = 0, resolved = 0;
+        for (var i = 0; i < chips.length && i < 20; i++) {
+          var st = String(chips[i].getAttribute('data-originals-state') || '');
+          total++;
+          if (st === 'idle') idle++;
+          else if (st === 'loading') loading++;
+          else if (st === 'failed') failed++;
+          else if (st === 'resolved') resolved++;
+        }
+        logInfo("checkOriginalsLazyResolve: sample total=" + total + " idle=" + idle + " loading=" + loading + " resolved=" + resolved + " failed=" + failed);
+        if (loading > 0) logWarn("checkOriginalsLazyResolve: originals should not auto-resolve (loading detected)");
+      } catch (e) {
+        logWarn("checkOriginalsLazyResolve error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkVersionsPreviewHealth(ctx) {
+      logInfo("checkVersionsPreviewHealth: start");
+      try {
+        var op = ctx.op;
+        var doc = ctx.doc;
+
+        var pending = doc.querySelector('[data-proxy-pending=\"1\"][data-proxy-id]');
+        var img = doc.querySelector('#tableWrap td[data-col-id] a img');
+
+        if (!pending && !img) {
+          logInfo("checkVersionsPreviewHealth: SKIP (no preview/pending nodes found)");
+          return;
+        }
+
+        if (pending) {
+          var rid = String(pending.getAttribute('data-proxy-id') || '');
+          var hasCache = false;
+          try { hasCache = !!(rid && op.PROXY_CACHE && op.PROXY_CACHE[rid]); } catch (_) { hasCache = false; }
+          if (hasCache) logWarn("checkVersionsPreviewHealth: pending preview despite PROXY_CACHE hit for " + rid);
+          else logInfo("checkVersionsPreviewHealth: pending ok (cache not ready for sample " + rid + ")");
+        }
+
+        if (img) {
+          var src = String(img.getAttribute('src') || '');
+          if (!src || /undefined|null/.test(src)) logWarn("checkVersionsPreviewHealth: broken preview img src=" + src);
+          else logInfo("checkVersionsPreviewHealth: preview ok src=" + src);
+        }
+      } catch (e) {
+        logWarn("checkVersionsPreviewHealth error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkInlineEditSignature(ctx) {
+      logInfo("checkInlineEditSignature: start");
+      try {
+        var sig = ctx.op.__MOTK_TABLE_INLINE_EDIT_IMPL__ || null;
+        var ok = !!(sig &&
+          sig.linkPicker === "dblclick" &&
+          sig.primitive === "dblclick" &&
+          sig.checkbox === "click" &&
+          Object.keys(sig).length === 3);
+        if (!ok) logWarn("checkInlineEditSignature: mismatch " + JSON.stringify(sig));
+        else logInfo("checkInlineEditSignature: ok");
+      } catch (e) {
+        logWarn("checkInlineEditSignature error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkRenderPerfGuard(ctx) {
+      logInfo("checkRenderPerfGuard: start");
+      try {
+        var v = ctx.op.__MOTK_TABLE_LAST_RENDER_MS__;
+        if (v === undefined || v === null) {
+          logWarn("checkRenderPerfGuard: missing __MOTK_TABLE_LAST_RENDER_MS__");
+          return;
+        }
+        var n = Number(v);
+        if (!isFinite(n)) {
+          logWarn("checkRenderPerfGuard: invalid __MOTK_TABLE_LAST_RENDER_MS__ " + String(v));
+          return;
+        }
+        if (n > 500) logWarn("checkRenderPerfGuard: slow render " + Math.round(n) + "ms");
+        else logInfo("checkRenderPerfGuard: ok " + Math.round(n) + "ms");
+      } catch (e) {
+        logWarn("checkRenderPerfGuard error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkEditorThemeParity(ctx) {
+      logInfo("checkEditorThemeParity: start");
+      try {
+        var op = ctx.op;
+        var doc = ctx.doc;
+
+        // Verify shared editor class exists in opener CSS.
+        var hasRule = false;
+        try {
+          var sheets = doc.styleSheets || [];
+          for (var i = 0; i < sheets.length; i++) {
+            var s = sheets[i];
+            var rules = null;
+            try { rules = s.cssRules || s.rules; } catch (_) { rules = null; }
+            if (!rules) continue;
+            for (var j = 0; j < rules.length; j++) {
+              var txt = String(rules[j] && rules[j].cssText ? rules[j].cssText : "");
+              if (txt.indexOf(".motk-inline-editor") >= 0) { hasRule = true; break; }
+            }
+            if (hasRule) break;
+          }
+        } catch (_) { }
+
+        if (!hasRule) logWarn("checkEditorThemeParity: missing .motk-inline-editor CSS rule");
+        else logInfo("checkEditorThemeParity: CSS ok");
+
+        // If an editor is currently open in Table, verify it uses the shared class and is not white-background.
+        var el = doc.querySelector("#tableWrap .motk-inline-editor");
+        if (!el) {
+          logInfo("checkEditorThemeParity: SKIP (no open Table editor)");
+          return;
+        }
+        if (String(el.tagName || "").toLowerCase() === "input" && el.type === "date") {
+          logInfo("checkEditorThemeParity: date editor found");
+        }
+        var cs = op.getComputedStyle ? op.getComputedStyle(el) : null;
+        var bg = cs ? String(cs.backgroundColor || "") : "";
+        if (bg === "rgb(255, 255, 255)" || bg === "rgba(255, 255, 255, 1)") {
+          logWarn("checkEditorThemeParity: editor background appears white");
+        } else {
+          logInfo("checkEditorThemeParity: editor background ok " + bg);
+        }
+      } catch (e) {
+        logWarn("checkEditorThemeParity error: " + String(e && e.message ? e.message : e));
+      }
     }
 
     function loadAppDataAsync() {
@@ -312,6 +846,10 @@
       const text = document.body.innerText;
       navigator.clipboard.writeText(text).then(() => log('copyAll: length ' + text.length));
     }
+
+    // Ensure inline onclick handlers can always find these in global scope.
+    window.runAllChecks = runAllChecks;
+    window.copyPageText = copyPageText;
 
     var VIEWER_STATE_STORAGE_KEY = 'MOTK.viewer.state';
     var VIEWER_STATE_STORAGE_KEY_LEGACY = 'motk:viewerStateSnapshot';

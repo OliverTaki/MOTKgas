@@ -267,9 +267,33 @@
         return 'Shots';
       }
 
-      function showStatus(msg) {
+      function showStatus(msg, isError, restoreMs) {
         var s = document.getElementById('statusLeft');
-        if (s) s.textContent = msg || '';
+        if (!s) return;
+
+        // Stable status baseline: update only when called with exactly 1 argument.
+        window.__MOTK_TABLE_STATUS_STABLE = window.__MOTK_TABLE_STATUS_STABLE || '';
+        if (arguments.length === 1) {
+          window.__MOTK_TABLE_STATUS_STABLE = msg || '';
+        }
+
+        s.textContent = msg || '';
+        s.style.color = isError ? 'crimson' : '';
+
+        window.__MOTK_TABLE_STATUS_TIMER = window.__MOTK_TABLE_STATUS_TIMER || null;
+        if (window.__MOTK_TABLE_STATUS_TIMER) {
+          clearTimeout(window.__MOTK_TABLE_STATUS_TIMER);
+          window.__MOTK_TABLE_STATUS_TIMER = null;
+        }
+
+        if (restoreMs && restoreMs > 0) {
+          window.__MOTK_TABLE_STATUS_TIMER = setTimeout(function () {
+            var back = window.__MOTK_TABLE_STATUS_STABLE || '';
+            s.textContent = back;
+            s.style.color = '';
+            window.__MOTK_TABLE_STATUS_TIMER = null;
+          }, restoreMs);
+        }
       }
 
       function _entityFromUrl() {
@@ -689,6 +713,199 @@
 
       if (!Array.isArray(STATE.group)) STATE.group = [];
 
+      // ===== Take21: Quick search (fix serverSearch undefined) =====
+
+      // Keep a copy of the user’s existing filters when quick-search is active.
+      STATE._preQuickSearchFilterGroups = STATE._preQuickSearchFilterGroups || null;
+      STATE._quickSearchActive = STATE._quickSearchActive || false;
+
+      function serverSearch(rawQuery) {
+        try {
+          const q = String(rawQuery || "").trim();
+
+          // First activation: snapshot current filters.
+          if (!STATE._quickSearchActive && q) {
+            STATE._preQuickSearchFilterGroups = deepClone_(STATE.filterGroups || []);
+            STATE._quickSearchActive = true;
+          }
+
+          // If cleared: restore snapshot.
+          if (!q) {
+            if (STATE._quickSearchActive) {
+              STATE.filterGroups = deepClone_(STATE._preQuickSearchFilterGroups || []);
+              STATE._preQuickSearchFilterGroups = null;
+              STATE._quickSearchActive = false;
+            }
+            return fetchAndRenderPage(1);
+          }
+
+          // Build an OR group across sensible fields (id + entity_name + text).
+          const searchable = getQuickSearchFieldIds_();
+
+          const rules = searchable.map(fid => ({
+            id: fid,
+            op: "contains",
+            value: q
+          }));
+
+          // If we have nothing, fail safe: keep page usable.
+          if (!rules.length) {
+            return fetchAndRenderPage(1);
+          }
+
+          // Replace ONLY the quick-search group; preserve any user filters by building on the snapshot.
+          const base = deepClone_(STATE._preQuickSearchFilterGroups || STATE.filterGroups || []);
+          const withoutOld = base.filter(g => g && g.__quickSearch !== true);
+
+          const qsGroup = {
+            id: "qs_" + Date.now(),
+            name: "Quick Search",
+            mode: "any",
+            rules,
+            __quickSearch: true
+          };
+
+          STATE.filterGroups = [...withoutOld, qsGroup];
+          STATE._quickSearchActive = true;
+
+          return fetchAndRenderPage(1);
+        } catch (e) {
+          console.error("[Table] serverSearch failed", e);
+          // Never crash the table for search.
+          return fetchAndRenderPage(1);
+        }
+      }
+
+      function getQuickSearchFieldIds_() {
+        // Use normalized field meta (added in Take21 below) so type/label are reliable.
+        const ids = [];
+        const seen = {};
+
+        (STATE.fieldIds || []).forEach(fid => {
+          const m = getNormalizedFieldMeta_(STATE.sheetName || "", fid);
+          const t = (m.type || "").toLowerCase();
+
+          // Search these types by default.
+          const ok = (t === "id" || t === "entity_name" || t === "text" || t === "select");
+          if (!ok) return;
+
+          if (!seen[fid]) {
+            ids.push(fid);
+            seen[fid] = true;
+          }
+        });
+
+        // Ensure id/entity_name are included even if hidden.
+        const idFid = findFieldIdByType_("id");
+        const nameFid = findFieldIdByType_("entity_name");
+        [idFid, nameFid].forEach(fid => {
+          if (fid && !seen[fid]) {
+            ids.unshift(fid);
+            seen[fid] = true;
+          }
+        });
+
+        return ids;
+      }
+
+      function findFieldIdByType_(wantType) {
+        const wt = String(wantType || "").toLowerCase();
+        const all = collectAllFieldMetaForEntity_(STATE.sheetName || "");
+        const keys = Object.keys(all);
+        for (let i = 0; i < keys.length; i++) {
+          const fid = keys[i];
+          const t = String(all[fid] && all[fid].type || "").toLowerCase();
+          if (t === wt) return fid;
+        }
+        return null;
+      }
+
+      function deepClone_(obj) {
+        try { return JSON.parse(JSON.stringify(obj)); } catch (_) { return obj; }
+      }
+
+      // ===== Take21: Robust FieldMeta normalization for CommonRenderer parity =====
+
+      function getNormalizedFieldMeta_(entitySingular, fid) {
+        const entity = String(entitySingular || STATE.sheetName || "").trim();
+        const fieldId = String(fid || "").trim();
+
+        // 1) Prefer Table column meta (visible columns).
+        const fromColumns = (STATE.fieldsMeta && STATE.fieldsMeta[fieldId]) ? STATE.fieldsMeta[fieldId] : null;
+
+        // 2) Prefer global FIELD_TYPES map if present (DebugPanel shows it exists).
+        const fromGlobal = (window.FIELD_TYPES && window.FIELD_TYPES[entity] && window.FIELD_TYPES[entity][fieldId])
+          ? window.FIELD_TYPES[entity][fieldId]
+          : null;
+
+        // 3) Prefer FieldsAPI if it exposes a meta getter (safe-checked).
+        let fromApi = null;
+        if (window.FieldsAPI && typeof window.FieldsAPI.getFieldMeta === "function") {
+          try { fromApi = window.FieldsAPI.getFieldMeta(entity, fieldId); } catch (_) { fromApi = null; }
+        }
+
+        const src = fromColumns || fromApi || fromGlobal || {};
+
+        // Normalize key variants.
+        const label = src.label || src.name || src.field_name || src.fieldName || src.header || "";
+        const type = src.type || src.fieldType || src.field_type || "";
+
+        const out = Object.assign({}, src, {
+          id: fieldId,
+          fid: fieldId,
+          label,
+          name: src.name || label,
+          field_name: src.field_name || label,
+          type
+        });
+
+        // If still missing label, fall back to the column header label if available.
+        if (!out.label && Array.isArray(STATE.columns)) {
+          const col = STATE.columns.find(c => (c && (c.fieldId === fieldId || c.id === fieldId)));
+          if (col) {
+            out.label = col.label || col.name || col.fieldName || out.label;
+            out.name = out.name || out.label;
+            out.field_name = out.field_name || out.label;
+            out.type = out.type || col.type || col.fieldType || col.field_type || out.type;
+          }
+        }
+
+        // If column meta exists but is incomplete, fill critical bits from global/api meta.
+        const fb = fromApi || fromGlobal || null;
+        if (fb) {
+          try {
+            if (!out.type) out.type = fb.type || fb.fieldType || fb.field_type || out.type;
+            if (!out.label) out.label = fb.label || fb.name || fb.field_name || fb.fieldName || out.label;
+            if (!out.name) out.name = fb.name || out.label || out.name;
+            if (!out.field_name) out.field_name = fb.field_name || out.label || out.field_name;
+            if ((String(out.type || "").toLowerCase() === "select") && (!out.options || !Array.isArray(out.options) || out.options.length === 0)) {
+              if (Array.isArray(fb.options) && fb.options.length) out.options = fb.options.slice();
+            }
+          } catch (_) { }
+        }
+
+        return out;
+      }
+
+      function collectAllFieldMetaForEntity_(entitySingular) {
+        const entity = String(entitySingular || STATE.sheetName || "").trim();
+        const merged = {};
+
+        // Merge: global map is usually the most complete.
+        if (window.FIELD_TYPES && window.FIELD_TYPES[entity]) {
+          Object.assign(merged, window.FIELD_TYPES[entity]);
+        }
+
+        // Merge visible columns meta.
+        if (STATE.fieldsMeta) {
+          Object.keys(STATE.fieldsMeta).forEach(fid => {
+            merged[fid] = merged[fid] || STATE.fieldsMeta[fid];
+          });
+        }
+
+        return merged;
+      }
+
       function maybeRender() {
         if (!(STATE && STATE._dataReady && STATE._cfgReady)) return;
         if (typeof showStatus === 'function') showStatus('applying page…');
@@ -844,7 +1061,7 @@
 
       /* ===== 11. Proxy index（ShotView/AssetView 用） ===== */
 
-      var PROXY_CACHE = {};
+      var PROXY_CACHE = (window.PROXY_CACHE = (window.PROXY_CACHE || {}));
 
       function prefetchProxyIndex() {
         if (!hasGoogle()) return;
@@ -852,7 +1069,15 @@
           function (idx) {
             try {
               var latest = (idx && idx.latestByShotId) ? idx.latestByShotId : {};
-              for (var k in latest) { PROXY_CACHE[String(k)] = latest[k] || null; }
+              for (var k in latest) {
+                var v = latest[k] || null;
+                try {
+                  if (v && typeof v === "object") {
+                    if (!v.url && v.id) v.url = "https://drive.google.com/file/d/" + encodeURIComponent(String(v.id)) + "/view";
+                  }
+                } catch (_) { }
+                PROXY_CACHE[String(k)] = v;
+              }
               var wrap = document.getElementById('tableWrap');
               if (wrap) {
                 try {
@@ -862,6 +1087,8 @@
                 }
                 try { wrap.dispatchEvent(new Event('proxies:ready')); } catch (_) { }
               }
+              try { if (typeof window.__MOTK_PROXY_PREVIEW_REFRESH__ === "function") window.__MOTK_PROXY_PREVIEW_REFRESH__(); } catch (_) { }
+              try { if (window.CommonRenderer && typeof CommonRenderer.refreshPendingPreviews === "function") CommonRenderer.refreshPendingPreviews(document); } catch (_) { }
             } catch (e) { }
           },
           function () { }
@@ -1082,6 +1309,11 @@
       window.__MOTK_TABLE_WRITE_LWW__ = window.__MOTK_TABLE_WRITE_LWW__ || Object.create(null);
 
       function _tableWriteKey_(entity, rowId, fid) {
+        if (arguments.length === 2) {
+          fid = rowId;
+          rowId = entity;
+          try { entity = singularEntityFor(_entityForUI()); } catch (_) { entity = (STATE && STATE.sheetName) || ''; }
+        }
         return String(entity || '') + '|' + String(rowId || '') + '|' + String(fid || '');
       }
 
@@ -1089,13 +1321,32 @@
         return Date.now().toString(36) + ':' + Math.random().toString(36).slice(2);
       }
 
-      function _extractFieldValue_(v) {
+      function _extractFieldValue_(v, fid, fallback) {
+        function rawOf_(x) {
+          try {
+            if (x && typeof x === 'object') {
+              if (Object.prototype.hasOwnProperty.call(x, 'raw')) return x.raw;
+              if (Object.prototype.hasOwnProperty.call(x, 'value')) return x.value;
+              if (Object.prototype.hasOwnProperty.call(x, 'text')) return x.text;
+            }
+          } catch (_) { }
+          return x;
+        }
+
+        if (arguments.length >= 2) {
+          try {
+            var resp = v;
+            var f = String(fid || '');
+            if (resp && typeof resp === 'object') {
+              if (resp.fields && Object.prototype.hasOwnProperty.call(resp.fields, f)) return rawOf_(resp.fields[f]);
+              if (Object.prototype.hasOwnProperty.call(resp, 'fields') && resp.fields && Object.prototype.hasOwnProperty.call(resp.fields, f)) return rawOf_(resp.fields[f]);
+              if (Object.prototype.hasOwnProperty.call(resp, f)) return rawOf_(resp[f]);
+            }
+          } catch (_) { }
+          return fallback;
+        }
         try {
-          if (v && typeof v === 'object') {
-            if (Object.prototype.hasOwnProperty.call(v, 'raw')) return v.raw;
-            if (Object.prototype.hasOwnProperty.call(v, 'value')) return v.value;
-            if (Object.prototype.hasOwnProperty.call(v, 'text')) return v.text;
-          }
+          return rawOf_(v);
         } catch (_) { }
         return v;
       }
@@ -1135,108 +1386,355 @@
         if (window.__MOTK_TABLE_INLINE_EDIT_BOUND) return;
         window.__MOTK_TABLE_INLINE_EDIT_BOUND = true;
 
-        document.addEventListener('click', function (e) {
-          if (!document.getElementById("tableWrap")) return;
+        // Expose a tiny runtime signature for DebugPanel verification.
+        window.__MOTK_TABLE_INLINE_EDIT_IMPL__ = {
+          linkPicker: "dblclick",
+          primitive: "dblclick",
+          checkbox: "click"
+        };
 
-          // do not intercept clicks while interacting with form controls
-          if (e.target && e.target.closest && e.target.closest("input,select,textarea")) return;
+        // ---------- helpers ----------
+        function closestEl_(t, sel) {
+          try {
+            var el = (t && t.nodeType === 1) ? t : (t && t.parentElement ? t.parentElement : null);
+            return el && el.closest ? el.closest(sel) : null;
+          } catch (_) { return null; }
+        }
 
-          var td = e.target && e.target.closest ? e.target.closest('#tableWrap td[data-col-id]') : null;
-          if (!td) return;
+        function setCellDom_(td, rowId, fid, meta, v) {
+          try {
+            td.innerHTML = '';
+            var entitySing = singularEntityFor(_entityForUI());
+            var m = meta || {};
+            try { 
+              m = Object.assign({}, m, { 
+                __rowId: rowId,
+                __row: { fi_0001: rowId, id: rowId, ID: rowId }
+              }); 
+            } catch (_) { }
+            if (window.CommonRenderer && typeof CommonRenderer.renderCellByField === 'function') {
+              td.appendChild(CommonRenderer.renderCellByField(entitySing, fid, v, m));
+            } else {
+              td.appendChild(document.createTextNode(v == null ? '' : String(v)));
+            }
+          } catch (_) {
+            try { td.textContent = v == null ? '' : String(v); } catch (__) { }
+          }
+        }
 
-          var tr = td.closest('tr[data-row-id]');
-          if (!tr) return;
+        function setCellDomAll_(rowId, fid, meta, v) {
+          var q = '#tableWrap tr[data-row-id="' + rowId + '"] td[data-col-id="' + fid + '"]';
+          var tds = document.querySelectorAll(q);
+          for (var i = 0; i < tds.length; i++) {
+            setCellDom_(tds[i], rowId, fid, meta, v);
+          }
+        }
 
-          var fid = td.getAttribute('data-col-id');
-          var rowId = tr.getAttribute('data-row-id');
-          if (!fid || !rowId) return;
-          if (fid === 'fi_0001') return;
+        function isLinkType_(t) {
+          t = String(t || "");
+          return /_link$/.test(t);
+        }
 
-          var meta = (STATE.fieldsMeta && STATE.fieldsMeta[fid]) ? STATE.fieldsMeta[fid] : null;
-          if (!meta || meta.editable !== true) return;
+        function isTruthyCheckbox_(v) {
+          return v === true || v === 1 || v === "1" || v === "TRUE" || v === "true";
+        }
 
-          var type = meta && meta.type ? String(meta.type).trim().toLowerCase() : '';
-          if (!(type === 'entity_link' || /_link$/.test(type))) return;
+        function normalizeCheckboxOut_(v) {
+          return !!isTruthyCheckbox_(v);
+        }
 
-          // If user clicked an <a> inside the cell, allow navigation (do NOT open picker).
-          if (e && e.target && e.target.closest) {
-            var clickedA = e.target.closest('a');
-            if (clickedA) {
+        function commitCellWrite_(rowId, fid, meta, nextValue, prevValue) {
+          var entitySing = singularEntityFor(_entityForUI());
+          var wKey = _tableWriteKey_(rowId, fid);
+          var token = _newWriteToken_();
+
+          window.__MOTK_TABLE_WRITE_LWW__ = window.__MOTK_TABLE_WRITE_LWW__ || {};
+          window.__MOTK_TABLE_WRITE_LWW__[wKey] = token;
+
+          // Optimistic update
+          _setRowValueByIdFid_(rowId, fid, nextValue);
+          setCellDomAll_(rowId, fid, meta, nextValue);
+          showStatus("Updating...", false, 0);
+
+          return new Promise(function(resolve) {
+            google.script.run
+              .withSuccessHandler(function(resp) {
+                try {
+                  if (window.__MOTK_TABLE_WRITE_LWW__[wKey] !== token) return resolve({ ok: true, ignored: true });
+                  var finalValue = _extractFieldValue_(resp, fid, nextValue);
+                  _setRowValueByIdFid_(rowId, fid, finalValue);
+                  setCellDomAll_(rowId, fid, meta, finalValue);
+                  showStatus("Updated!", false, 1200);
+                  resolve({ ok: true, value: finalValue });
+                } catch (e) {
+                  console.error("[TableInlineEdit] success handler error", e);
+                  resolve({ ok: true, value: nextValue });
+                }
+              })
+              .withFailureHandler(function(err) {
+                console.error("[TableInlineEdit] dp_updateEntityRecord failed", err);
+                if (window.__MOTK_TABLE_WRITE_LWW__[wKey] !== token) return resolve({ ok: false, ignored: true });
+                // Revert only if still the latest write for this cell
+                _setRowValueByIdFid_(rowId, fid, prevValue);
+                setCellDomAll_(rowId, fid, meta, prevValue);
+                showStatus("Error (no response). Refresh to confirm.", true, 2500);
+                resolve({ ok: false, reverted: true });
+              })
+              .dp_updateEntityRecord(entitySing, rowId, (function() {
+                var o = {};
+                o[fid] = nextValue;
+                return o;
+              })());
+          });
+        }
+
+        function openPrimitiveEditor_(td, rowId, fid, meta) {
+          if (!meta || !meta.editable) return;
+
+          var t = String(meta.type || "");
+          if (t === "id") return;
+          if (t === "originals" || t === "versions" || t === "thumbnails" || t === "file_list" || t === "json") return;
+
+          // Prevent multiple editors at once
+          if (window.__MOTK_TABLE_CELL_EDIT_ACTIVE__) return;
+          window.__MOTK_TABLE_CELL_EDIT_ACTIVE__ = true;
+
+          var prevValue = _rowValueByIdFid_(rowId, fid);
+          var startValue = prevValue;
+
+          var originalHTML = td.innerHTML;
+          td.classList.add("cell-editing");
+
+          function cleanup_(restoreHTML) {
+            td.classList.remove("cell-editing");
+            window.__MOTK_TABLE_CELL_EDIT_ACTIVE__ = false;
+            if (restoreHTML) td.innerHTML = originalHTML;
+          }
+
+          function commitAndClose_(nextValue) {
+            // normalize types
+            var outValue = nextValue;
+
+            if (t === "checkbox") outValue = normalizeCheckboxOut_(nextValue);
+            if (t !== "checkbox" && outValue === null) outValue = "";
+
+            // no-op
+            if (String(outValue) === String(startValue)) {
+              setCellDom_(td, rowId, fid, meta, startValue);
+              cleanup_(false);
               return;
             }
+            cleanup_(false);
+            commitCellWrite_(rowId, fid, meta, outValue, prevValue);
           }
 
-          if (!(window.FieldsAPI && typeof FieldsAPI.openLinkPicker === 'function')) {
-            try { if (typeof showStatus === 'function') showStatus('Link picker unavailable', true); } catch (_) { }
-            return;
+          function cancel_() {
+            cleanup_(true);
           }
 
-          var raw = _rowValueByIdFid_(rowId, fid);
-          var entity = singularEntityFor(STATE.sheetName || 'shot') || 'shot';
+          // Build editor UI
+          var el;
+          if (t === "select") {
+            el = document.createElement("select");
+            el.className = "motk-inline-editor";
 
-          e.preventDefault();
-          e.stopPropagation();
-          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            var originalValue = (startValue === null || startValue === undefined) ? "" : String(startValue).trim();
+            var opts = [];
+            try {
+              opts = (meta && meta.options) ? meta.options : [];
+              if ((!opts || !opts.length) && window.FieldsAPI && typeof FieldsAPI.getFieldOptions === "function") {
+                opts = FieldsAPI.getFieldOptions(fid, meta) || [];
+              }
+            } catch (_) { opts = []; }
+
+            if (!Array.isArray(opts)) opts = String(opts || "").split(/[\n\r|,]+/);
+            opts = opts.map(function (x) { return String(x == null ? "" : x).trim(); }).filter(Boolean);
+
+            // If options are missing/empty, do not allow an accidental blank write.
+            if (!opts.length) {
+              showStatus("Select options missing", true, 2500);
+              cancel_();
+              return;
+            }
+
+            if (!meta || meta.required !== true) {
+              opts.unshift("");
+            }
+            if (originalValue && opts.indexOf(originalValue) === -1) opts.unshift(originalValue);
+
+            opts.forEach(function (v) {
+              var op = document.createElement("option");
+              op.value = v;
+              op.textContent = v;
+              el.appendChild(op);
+            });
+            el.value = originalValue;
+
+            td.innerHTML = "";
+            td.appendChild(el);
+            el.focus();
+
+            var didChange = false;
+            el.addEventListener("change", function() {
+              didChange = true;
+            });
+            el.addEventListener("blur", function() {
+              if (!didChange) { cancel_(); return; }
+              commitAndClose_(el.value);
+            });
+            el.addEventListener("keydown", function(ev) {
+              if (ev.key === "Escape") {
+                ev.preventDefault();
+                cancel_();
+              }
+            });
+
+          } else if (t === "date") {
+            el = document.createElement("input");
+            el.type = "date";
+            el.className = "motk-inline-editor";
+            el.value = (startValue === null || startValue === undefined)
+              ? ""
+              : ((window.FieldsAPI && typeof FieldsAPI.normalizeDateValue === "function")
+                ? FieldsAPI.normalizeDateValue(startValue)
+                : String(startValue));
+
+            td.innerHTML = "";
+            td.appendChild(el);
+            el.focus();
+
+            el.addEventListener("keydown", function(ev) {
+              if (ev.key === "Enter") {
+                ev.preventDefault();
+                commitAndClose_(el.value);
+              }
+              if (ev.key === "Escape") {
+                ev.preventDefault();
+                cancel_();
+              }
+            });
+            el.addEventListener("blur", function() {
+              commitAndClose_(el.value);
+            });
+
+          } else if (t === "text" || t === "entity_name") {
+            // Use input for now (fast + stable). Multi-line can be added later if needed.
+            el = document.createElement("input");
+            el.type = "text";
+            el.className = "motk-inline-editor";
+            el.value = (startValue === null || startValue === undefined) ? "" : String(startValue);
+
+            td.innerHTML = "";
+            td.appendChild(el);
+            el.focus();
+            el.select();
+
+            el.addEventListener("keydown", function(ev) {
+              if (ev.key === "Enter") {
+                ev.preventDefault();
+                commitAndClose_(el.value);
+              }
+              if (ev.key === "Escape") {
+                ev.preventDefault();
+                cancel_();
+              }
+            });
+            el.addEventListener("blur", function() {
+              commitAndClose_(el.value);
+            });
+
+          } else if (t === "checkbox") {
+            // For checkbox, we do not open an editor; toggle is handled by click handler.
+            cleanup_(true);
+
+          } else {
+            // unsupported type for now
+            cleanup_(true);
+          }
+        }
+
+        function openLinkPicker_(td, rowId, fid, meta) {
+          var type = String(meta.type || "");
+          var current = _rowValueByIdFid_(rowId, fid) || "";
+
+          if (!(window.FieldsAPI && typeof FieldsAPI.openLinkPicker === "function")) return;
 
           FieldsAPI.openLinkPicker({
             fid: fid,
             type: type,
-            value: raw,
+            value: current,
+            label: (meta.label || meta.name || fid),
             commit: function (out) {
-              var optimisticValue = out && out.value != null ? out.value : '';
-              var prevValueAtCommit = _rowValueByIdFid_(rowId, fid);
-
-              var key = _tableWriteKey_(entity, rowId, fid);
-              var token = _newWriteToken_();
-              window.__MOTK_TABLE_WRITE_LWW__[key] = token;
-
-              // Optimistic FE update (update cache + all visible duplicates).
-              try { _setRowValueByIdFid_(rowId, fid, optimisticValue); } catch (_) { }
-              try { _updateAllLinkCellsDom_(rowId, fid, optimisticValue); } catch (_) { }
-              try { if (typeof showStatus === 'function') showStatus('Updating...'); } catch (_) { }
-
-              // Always resolve immediately so the modal closes right away.
-              Promise.resolve().then(function () {
-                if (!(window.google && google.script && google.script.run)) {
-                  if (window.__MOTK_TABLE_WRITE_LWW__[key] !== token) return;
-                  try { _setRowValueByIdFid_(rowId, fid, prevValueAtCommit); } catch (_) { }
-                  try { _updateAllLinkCellsDom_(rowId, fid, prevValueAtCommit); } catch (_) { }
-                  try { if (typeof showStatus === 'function') showStatus('Update Failed: google.script.run unavailable'); } catch (_) { }
-                  return;
-                }
-
-                var patch = {}; patch[fid] = optimisticValue;
-                google.script.run
-                  .withSuccessHandler(function (res) {
-                    if (window.__MOTK_TABLE_WRITE_LWW__[key] !== token) return;
-
-                    var finalVal = optimisticValue;
-                    try {
-                      if (res && res.ok && res.fields && Object.prototype.hasOwnProperty.call(res.fields, fid)) {
-                        finalVal = _extractFieldValue_(res.fields[fid]);
-                      }
-                    } catch (_) { }
-
-                    try { _setRowValueByIdFid_(rowId, fid, finalVal); } catch (_) { }
-                    try { _updateAllLinkCellsDom_(rowId, fid, finalVal); } catch (_) { }
-                    _flashUpdatedStatus_();
-                  })
-                  .withFailureHandler(function (err) {
-                    if (window.__MOTK_TABLE_WRITE_LWW__[key] !== token) return;
-
-                    var msg = String(err && err.message ? err.message : err);
-                    try { _setRowValueByIdFid_(rowId, fid, prevValueAtCommit); } catch (_) { }
-                    try { _updateAllLinkCellsDom_(rowId, fid, prevValueAtCommit); } catch (_) { }
-                    try { if (typeof showStatus === 'function') showStatus('Update Failed: ' + msg); } catch (_) { }
-                  })
-                  .dp_updateEntityRecord(entity, rowId, patch);
-              });
-
-              return Promise.resolve({ ok: true });
+              var nextValue = (out && out.value != null) ? out.value : "";
+              var prevValue = _rowValueByIdFid_(rowId, fid);
+              commitCellWrite_(rowId, fid, meta, nextValue, prevValue);
+              return Promise.resolve(true);
             }
-          }).then(function (out) {
-            if (!out || out.cancelled) return;
+          }).catch(function (err) {
+            try { showStatus("Link picker error: " + String(err && err.message ? err.message : err), true, 2500); } catch (_) { }
           });
+        }
+
+        // ---------- Events ----------
+
+        // Dblclick: open editor/linkpicker for editable cells (cell background only).
+        document.addEventListener("dblclick", function(e) {
+          var td = closestEl_(e.target, "#tableWrap td[data-col-id]");
+          if (!td) return;
+
+          // Do not steal dblclick from anchors; keeps navigation behavior clean.
+          var a = closestEl_(e.target, "a");
+          if (a) return;
+
+          var tr = td.closest ? td.closest("tr[data-row-id]") : null;
+          if (!tr) return;
+
+          var fid = td.getAttribute("data-col-id");
+          var rowId = tr.getAttribute("data-row-id");
+          var meta = getNormalizedFieldMeta_(STATE.sheetName, fid);
+          if (!meta || !meta.editable) return;
+
+          var t = String(meta.type || "");
+          if (t === "checkbox") return;
+
+          e.preventDefault();
+          e.stopPropagation();
+
+          if (isLinkType_(t)) {
+            openLinkPicker_(td, rowId, fid, meta);
+            return;
+          }
+          openPrimitiveEditor_(td, rowId, fid, meta);
+        }, true);
+
+        // Click: checkbox toggle only (do not block other clicks)
+        document.addEventListener("click", function(e) {
+          var td = closestEl_(e.target, "#tableWrap td[data-col-id]");
+          if (!td) return;
+
+          var a = closestEl_(e.target, "a");
+          if (a) return;
+
+          var tr = td.closest ? td.closest("tr[data-row-id]") : null;
+          if (!tr) return;
+
+          var fid = td.getAttribute("data-col-id");
+          var rowId = tr.getAttribute("data-row-id");
+          var meta = getNormalizedFieldMeta_(STATE.sheetName, fid);
+          if (!meta || !meta.editable) return;
+
+          var t = String(meta.type || "");
+          if (t !== "checkbox") return;
+          if (window.__MOTK_TABLE_CELL_EDIT_ACTIVE__) return;
+
+          // Toggle
+          e.preventDefault();
+          e.stopPropagation();
+
+          var prevValue = _rowValueByIdFid_(rowId, fid);
+          var nextValue = !isTruthyCheckbox_(prevValue);
+
+          commitCellWrite_(rowId, fid, meta, nextValue, prevValue);
         }, true);
       }
 
@@ -1276,6 +1774,7 @@
       /* ===== 16. テーブルレンダリング本体（renderCurrentPage） ===== */
 
       function renderCurrentPage() {
+        var startTime = (window.performance && typeof performance.now === 'function') ? performance.now() : Date.now();
         var wrap = document.getElementById('tableWrap'); if (!wrap) return;
         wrap.innerHTML = '';
         groupHeaderHTML._last = null;
@@ -1325,22 +1824,65 @@
 
         var rowsSlice = STATE.rows.slice();
         var canon = _canon(STATE.sheetName);
-        var vCol = findViewColId(['shotview', 'assetview']);
+        var vCol = findViewColId(['shotview', 'assetview', 'memberview', 'userview', 'taskview']);
         var oriCols = findOriginalsCols();
 
         var prevRowForGroup = STATE._prevRowForGroup || null;
         var useGrouping = !!STATE.group && STATE.group.length > 0 && !!STATE.groupEnabled;
 
-        function buildRowsHTML(from, to) {
-          var html = ''; var prevGrpKeys = null;
+        function isNodeWithAnchor_(n) {
+          try {
+            if (!n) return false;
+            if (n.nodeType === 1) {
+              if (n.tagName && String(n.tagName).toLowerCase() === 'a') return true;
+              return !!(n.querySelector && n.querySelector('a'));
+            }
+          } catch (_) { }
+          return false;
+        }
+
+        function renderCellNode_(entitySing, fid, raw, meta, rowId) {
+          try {
+            if (!(window.CommonRenderer && typeof CommonRenderer.renderCellByField === 'function')) {
+              return document.createTextNode(raw == null ? '' : String(raw));
+            }
+            var m = meta || {};
+            if (rowId) {
+              try { 
+                m = Object.assign({}, m, { 
+                  __rowId: rowId,
+                  __row: { fi_0001: rowId, id: rowId, ID: rowId }
+                }); 
+              } catch (_) { }
+            }
+            return CommonRenderer.renderCellByField(entitySing, fid, raw, m);
+          } catch (_) {
+            return document.createTextNode(raw == null ? '' : String(raw));
+          }
+        }
+
+        function appendGroupHeaderRows_(frag, keys) {
+          try {
+            var tmp = document.createElement('tbody');
+            tmp.innerHTML = groupHeaderHTML(keys);
+            while (tmp.firstChild) frag.appendChild(tmp.firstChild);
+          } catch (_) { }
+        }
+
+        function buildRowsFrag(from, to) {
+          var frag = document.createDocumentFragment();
+          var prevGrpKeys = null;
+          var entitySing = singularEntityFor(_entityForUI());
 
           for (var r = from; r < to; r++) {
-            var row = rowsSlice[r]; var rowId = String(row && row[idIdxForRow] || '').trim();
+            var row = rowsSlice[r];
+            var rowId = String(row && row[idIdxForRow] || '').trim();
 
             if (useGrouping) {
               var curKeys = [];
               for (var g = 0; g < STATE.group.length; g++) {
-                var gid = STATE.group[g]; var gidx = indexOf(STATE.fieldIds, gid);
+                var gid = STATE.group[g];
+                var gidx = indexOf(STATE.fieldIds, gid);
                 curKeys.push(row[gidx]);
               }
               if (!prevGrpKeys) {
@@ -1348,16 +1890,17 @@
                 if (r === from && prevRowForGroup) {
                   var prevKeys = [];
                   for (var gg = 0; gg < STATE.group.length; gg++) {
-                    var gid2 = STATE.group[gg]; var pidx = indexOf(STATE.fieldIds, gid2);
+                    var gid2 = STATE.group[gg];
+                    var pidx = indexOf(STATE.fieldIds, gid2);
                     prevKeys.push(prevRowForGroup[pidx]);
                   }
                   same = _sameKeyArray(curKeys, prevKeys);
                 }
-                if (!same) { html += groupHeaderHTML(curKeys); }
+                if (!same) appendGroupHeaderRows_(frag, curKeys);
               } else {
                 for (var lv = 0; lv < curKeys.length; lv++) {
                   if (curKeys[lv] !== prevGrpKeys[lv]) {
-                    html += groupHeaderHTML(curKeys.slice(0, lv + 1));
+                    appendGroupHeaderRows_(frag, curKeys.slice(0, lv + 1));
                     break;
                   }
                 }
@@ -1365,58 +1908,58 @@
               prevGrpKeys = curKeys;
             }
 
-            html += '<tr data-row-id="' + escapeHTML(rowId) + '">';
+            var tr = document.createElement('tr');
+            tr.setAttribute('data-row-id', rowId);
+
             for (var c = 0; c < cols.length; c++) {
-              var id = cols[c], idx = colIdx[c];
+              var fid = cols[c];
+              var idx = colIdx[c];
               var raw = row[idx];
-              var txt = (raw == null) ? '' : String(raw);
-              var headTxt = STATE.header[idx] || id;
+              var headTxt = STATE.header[idx] || fid;
 
-              if (id === vCol) {
-                html += '<td data-col-id="' + id + '" data-viewcell="1" data-rowid="' + escapeHTML(rowId) + '"></td>';
-              }
-              else if (oriCols[id]) {
-                var url = toOriginalsUrl(txt);
-                if (url) {
-                  html += '<td data-col-id="' + id + '"><a href="' + escapeHTML(url) + '" target="_blank" rel="noopener">' + escapeHTML(txt || url) + '</a></td>';
-                } else if (/^https?:\/\//i.test(txt)) {
-                  html += '<td data-col-id="' + id + '"><a href="' + escapeHTML(txt) + '" target="_blank" rel="noopener">' + escapeHTML(txt) + '</a></td>';
-                } else {
-                  html += '<td data-col-id="' + id + '">' + escapeHTML(txt) + '</td>';
+              var td = document.createElement('td');
+              td.setAttribute('data-col-id', fid);
+              td.style.width = colW[c] + 'px';
+              td.style.maxWidth = colW[c] + 'px';
+
+              if (fid === vCol) {
+                td.setAttribute('data-viewcell', '1');
+                td.setAttribute('data-rowid', rowId);
+              } else {
+                var meta = getNormalizedFieldMeta_(STATE.sheetName, fid);
+                var node = renderCellNode_(entitySing, fid, raw, meta, rowId);
+
+                if (
+                  (canon === 'projectmembers' || canon === 'projectmember' || canon === 'member' || canon === 'members') &&
+                  (fid === 'fi_0035') && isRowIdLike(rowId) &&
+                  !isNodeWithAnchor_(node)
+                ) {
+                  var aPM = document.createElement('a');
+                  aPM.href = Router.buildEntityUrl('member', rowId);
+                  aPM.appendChild(node);
+                  node = aPM;
+                } else if (shouldNameCellLinkToDetail(canon, headTxt, rowId) && !isNodeWithAnchor_(node)) {
+                  var ent = singularEntityFor(canon);
+                  var a2 = document.createElement('a');
+                  a2.href = Router.buildEntityUrl(ent, rowId);
+                  a2.appendChild(node);
+                  node = a2;
+                } else if (/shotcode/i.test(headTxt) && isRowIdLike(rowId) && !isNodeWithAnchor_(node)) {
+                  var a3 = document.createElement('a');
+                  a3.href = Router.buildEntityUrl('shot', rowId);
+                  a3.appendChild(node);
+                  node = a3;
                 }
-              }
-              else if (isIdColumn(headTxt, id)) {
-                html += '<td data-col-id="' + id + '">' + escapeHTML(txt) + '</td>';
-              }
-              else if (isLinkish(id, headTxt) || tokenExistsInAnyMap(txt)) {
-                var parts = splitTokens(txt);
-                var rendered = parts.map(function (pid) { return renderLinkId(pid); }).join(', ');
-                html += '<td data-col-id="' + id + '">' + (rendered || escapeHTML(txt)) + '</td>';
-              }
-              else if (
-                (canon === 'projectmembers' || canon === 'projectmember' || canon === 'member' || canon === 'members') &&
-                (id === 'fi_0035') && isRowIdLike(rowId)
-              ) {
-                var urlPM = Router.buildEntityUrl('member', rowId);
-                html += '<td data-col-id="' + id + '"><a href="' + escapeHTML(urlPM) + '">' + escapeHTML(txt || '(role)') + '</a></td>';
-              }
-              else if (shouldNameCellLinkToDetail(canon, headTxt, rowId)) {
-                var ent = singularEntityFor(canon);
-                var url2 = Router.buildEntityUrl(ent, rowId);
-                html += '<td data-col-id="' + id + '"><a href="' + escapeHTML(url2) + '">' + escapeHTML(txt) + '</a></td>';
-              }
-              else if (/shotcode/i.test(headTxt) && isRowIdLike(rowId)) {
-                var url3 = Router.buildEntityUrl('shot', rowId);
-                html += '<td data-col-id="' + id + '"><a href="' + escapeHTML(url3) + '">' + escapeHTML(txt) + '</td>';
+
+                td.appendChild(node);
               }
 
-              else {
-                html += '<td data-col-id="' + id + '">' + escapeHTML(txt) + '</td>';
-              }
+              tr.appendChild(td);
             }
-            html += '</tr>';
+            frag.appendChild(tr);
           }
-          return html;
+
+          return frag;
         }
 
         function groupHeaderHTML(keys) {
@@ -1435,7 +1978,7 @@
         var CHUNK_TARGET_CELLS = 1500;
         var initRows = clamp(Math.floor(CHUNK_TARGET_CELLS / Math.max(1, cols.length)), 20, 80);
         var FIRST_CHUNK = Math.min(rowsSlice.length, initRows);
-        try { tbody.innerHTML = buildRowsHTML(0, FIRST_CHUNK); }
+        try { tbody.appendChild(buildRowsFrag(0, FIRST_CHUNK)); }
         catch (e) { console.error(e); tbody.innerHTML = ''; }
 
         if (rowsSlice.length > FIRST_CHUNK) {
@@ -1443,9 +1986,7 @@
           (function addChunk() {
             if (pos >= rowsSlice.length) { finalize(); return; }
             var next = Math.min(rowsSlice.length, pos + initRows * 3);
-            var tmp = document.createElement('tbody');
-            try { tmp.innerHTML = buildRowsHTML(pos, next); } catch (e) { console.error(e); }
-            while (tmp.firstChild) tbody.appendChild(tmp.firstChild);
+            try { tbody.appendChild(buildRowsFrag(pos, next)); } catch (e) { console.error(e); }
             pos = next; rIC(addChunk);
           })();
         } else {
@@ -1456,6 +1997,7 @@
           prepareViewLazy(table);
           if (typeof updatePager === 'function') updatePager();
           setFinalStatus();
+          try { window.__MOTK_TABLE_LAST_RENDER_MS__ = performance.now() - startTime; } catch (_) { }
         }
       }
 
@@ -1604,8 +2146,34 @@
         return null;
       }
 
+      function hasProxyPreviewCols_() {
+        try {
+          var ids = visibleCols();
+          for (var i = 0; i < ids.length; i++) {
+            var fid = ids[i];
+            var idx = indexOf(STATE.fieldIds, fid);
+            var meta = getNormalizedFieldMeta_(STATE.sheetName, fid);
+            var t = String(meta && meta.type ? meta.type : "").trim().toLowerCase();
+            if (t === "versions") return true;
+
+            var cand1 = _norm(fid);
+            if (/view$/.test(cand1)) return true;
+
+            var cand2 = _norm((meta && (meta.fid || meta.field_id || meta.fieldId || meta.id)) || "");
+            if (cand2 && /view$/.test(cand2)) return true;
+
+            var cand3 = _norm((meta && (meta.name || meta.label)) || "");
+            if (cand3 && /view$/.test(cand3)) return true;
+
+            var cand4 = _norm((STATE.header && STATE.header[idx]) || "");
+            if (cand4 && /view$/.test(cand4)) return true;
+          }
+        } catch (_) { }
+        return false;
+      }
+
       function prepareViewLazy(tableElem) {
-        var vCol = findViewColId(['shotview', 'assetview']); if (!vCol) return;
+        var vCol = findViewColId(['shotview', 'assetview', 'memberview', 'userview', 'taskview']); if (!vCol) return;
         var tbody = tableElem.tBodies[0]; if (!tbody) return;
         var wrap = document.getElementById('tableWrap'); if (!wrap) return;
 
@@ -1649,12 +2217,23 @@
       function renderViewCell(td, file) {
         td.innerHTML = '';
         if (!file) { return; }
-        var thumb = 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(file.id) + '&sz=w320';
-        var preview = 'https://drive.google.com/file/d/' + encodeURIComponent(file.id) + '/view';
+        var preview = '';
+        var thumb = '';
+        try {
+          if (typeof file === 'string') {
+            preview = String(file);
+          } else if (file && typeof file === 'object') {
+            if (file.url) preview = String(file.url);
+            else if (file.id) preview = 'https://drive.google.com/file/d/' + encodeURIComponent(file.id) + '/view';
+          }
+          var m = (String(preview).match(/[-\\w]{25,}/) || [])[0] || '';
+          thumb = m ? ('https://drive.google.com/thumbnail?id=' + encodeURIComponent(m) + '&sz=w320') : preview;
+        } catch (_) { preview = ''; thumb = ''; }
+        if (!preview) { return; }
         var img = document.createElement('img');
         img.loading = 'lazy';
         img.src = thumb;
-        img.title = (file.name || 'open');
+        img.title = ((file && typeof file === 'object' && file.name) ? file.name : 'open');
         img.style.width = '100%';
         img.style.aspectRatio = '16/9';
         img.style.objectFit = 'cover';
@@ -3045,6 +3624,9 @@
             }
           });
         }
+
+        // Expose for DebugPanel / console diagnostics
+        window.serverSearch = serverSearch;
       }
 
       async function start() {
@@ -3123,7 +3705,7 @@
           });
         });
 
-        try { prefetchProxyIndex && prefetchProxyIndex(); } catch (_) { }
+        try { if (hasProxyPreviewCols_()) prefetchProxyIndex && prefetchProxyIndex(); } catch (_) { }
       }
 
       if (document.readyState === 'loading') {

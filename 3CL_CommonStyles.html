@@ -749,10 +749,32 @@ body.motk-modal-open .motk-modal-backdrop{
   .motk-link-picker .row input{ cursor: pointer; }
   .motk-link-picker .txt{ font-size: 13px; }
 
-  /* Make the date picker icon visible (Chrome/Edge). */
-  input[type="date"]::-webkit-calendar-picker-indicator{
-    filter: invert(1) brightness(1.25);
-    opacity: 0.9;
+  /* Shared inline editor styling (Table + Detail) */
+  .motk-inline-editor{
+    width:100%;
+    box-sizing:border-box;
+    font:inherit;
+    padding:6px 8px;
+    border-radius:8px;
+    border:1px solid var(--border);
+    background:var(--surface);
+    color:var(--fg);
+  }
+  .motk-inline-editor:focus{
+    outline:2px solid rgba(255,255,255,.22);
+    outline-offset:1px;
+  }
+  .motk-inline-textarea{ min-height:140px; resize:vertical; }
+
+  @media (prefers-color-scheme: dark) {
+    /* Prefer dark form controls where supported */
+    .motk-inline-editor[type="date"]{ color-scheme: dark; }
+
+    /* Make the date picker icon visible (Chrome/Edge). */
+    .motk-inline-editor[type="date"]::-webkit-calendar-picker-indicator{
+      filter: invert(1) brightness(1.25);
+      opacity: 0.9;
+    }
   }
 </style>
 <!-- ===== 97. End ===== -->

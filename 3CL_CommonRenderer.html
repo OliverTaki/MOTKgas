@@ -252,22 +252,119 @@
       return box;
     }
     function R_originals(o) {
-      /* FIX: originals chip opens in a new tab */
-      var a = chip("", "Loading Originals...", true);
-      a.setAttribute("data-pending", "1");
+      window.__MOTK_ORIGINALS_CACHE = window.__MOTK_ORIGINALS_CACHE || {};
+
+      var a = chip("#", "Open", true);
+      var token = (Date.now().toString(36) + ":" + Math.random().toString(36).slice(2));
+      a.setAttribute("data-orig-token", token);
       var ctx = {
         entity: o.entity || "shot",
         id: (o.row && (o.row.fi_0001 || o.row.id || o.row.ID)) || "",
         fid: o.fid, val: o.val, row: o.row || {}
       };
-      resolveOriginalsUrl(ctx).then(function (url) {
-        if (url) { a.href = url; a.textContent = "Open Originals"; }
-        else { a.textContent = "(Originals not found)"; a.removeAttribute("href"); }
-        a.removeAttribute("data-pending");
-      }).catch(function () {
-        a.textContent = "(Originals not found)";
-        a.removeAttribute("href"); a.removeAttribute("data-pending");
-      });
+
+      a.setAttribute("data-originals-entity", String(ctx.entity || ""));
+      a.setAttribute("data-originals-id", String(ctx.id || ""));
+      a.setAttribute("data-originals-state", "idle"); // idle|loading|resolved|failed
+
+      function isCurrent() {
+        try {
+          if (a.getAttribute("data-orig-token") !== token) return false;
+          if (!document.body || !document.body.contains(a)) return false;
+        } catch (_) { return false; }
+        return true;
+      }
+
+      function cacheKey() {
+        return String(ctx.entity || "") + ":" + String(ctx.id || "");
+      }
+
+      function setState(next, text, href) {
+        if (!isCurrent()) return;
+        try {
+          a.setAttribute("data-originals-state", next);
+          if (typeof text === "string") a.textContent = text;
+          if (href) a.href = href;
+          else a.setAttribute("href", "#");
+        } catch (_) { }
+      }
+
+      a.addEventListener("click", function (e) {
+        try { if (e && e.preventDefault) e.preventDefault(); } catch (_) { }
+        try { if (e && e.stopPropagation) e.stopPropagation(); } catch (_) { }
+
+        if (!isCurrent()) return;
+
+        var state = "";
+        try { state = a.getAttribute("data-originals-state") || ""; } catch (_) { }
+        if (state === "loading") return;
+
+        // Take21: click-first UX (new tab immediately, then resolve and redirect)
+        // Take22: avoid document.write (can trigger "Invalid regular expression flags" in some runtimes)
+        var win = null;
+        try {
+          win = window.open("about:blank", "_blank");
+          if (win) {
+            try { win.document.title = "Resolving Originals…"; } catch (_) { }
+            try {
+              var doc = win.document;
+              var body = doc && doc.body ? doc.body : null;
+              if (body) {
+                body.innerHTML = "<h3>Resolving Originals…</h3><p>Please wait.</p>";
+                try { body.style.fontFamily = "system-ui"; body.style.margin = "24px"; } catch (_) { }
+              }
+            } catch (_) { }
+          }
+        } catch (_) { win = null; }
+
+        var key = cacheKey();
+        var cached = "";
+        try { cached = key && window.__MOTK_ORIGINALS_CACHE[key] ? String(window.__MOTK_ORIGINALS_CACHE[key]) : ""; } catch (_) { cached = ""; }
+        if (cached) {
+          setState("resolved", "Open", cached);
+          try { if (win) win.location.href = cached; } catch (_) { }
+          return;
+        }
+
+        if (!ctx.id) {
+          setState("failed", "Originals not found", "");
+          try { if (typeof showError === "function") showError("Originals not found (missing id)"); } catch (_) { }
+          if (win) {
+            try { win.document.body.innerHTML = "<h3>Originals not found</h3><p>Missing record id.</p>"; } catch (_) { }
+          }
+          return;
+        }
+
+        setState("loading", "Loading Originals...", "");
+
+        resolveOriginalsUrl(ctx).then(function (url) {
+          if (!isCurrent()) return;
+          url = (typeof url === "string") ? url : "";
+          if (url && /^https?:\/\//i.test(url)) {
+            try { window.__MOTK_ORIGINALS_CACHE[key] = url; } catch (_) { }
+            setState("resolved", "Open", url);
+            try { a.target = "_blank"; } catch (_) { }
+            try { a.dataset.url = url; } catch (_) { }
+            try { a.setAttribute("title", url); } catch (_) { }
+            try { if (win) win.location.href = url; } catch (_) { }
+          } else {
+            setState("failed", "Originals not found", "");
+            try { if (typeof showError === "function") showError("Originals not found"); } catch (_) { }
+            if (win) {
+              try { win.document.body.innerHTML = "<h3>Originals not found</h3><p>No URL was returned.</p>"; } catch (_) { }
+            }
+          }
+        }).catch(function (err) {
+          if (!isCurrent()) return;
+          setState("failed", "Originals not found", "");
+          try {
+            if (typeof showError === "function") showError("Originals resolve failed: " + String(err && err.message ? err.message : err));
+          } catch (_) { }
+          if (win) {
+            try { win.document.body.innerHTML = "<h3>Originals resolve failed</h3><pre>" + String(err) + "</pre>"; } catch (_) { }
+          }
+        });
+      }, true);
       return a;
     }
     function R_file_list(o) {
@@ -308,7 +405,44 @@
       });
       return box;
     }
-    function R_versions(o) {
+
+    function _previewRecordId_(o) {
+      try {
+        var row = (o && o.row) ? o.row : null;
+        var rid = row && (row.fi_0001 || row.id || row.ID) ? (row.fi_0001 || row.id || row.ID) : "";
+        return String(rid || "");
+      } catch (_) { }
+      return "";
+    }
+
+    function _proxyUrlFromCache_(recordId) {
+      recordId = String(recordId || "");
+      if (!recordId) return "";
+      try {
+        var cache = window.PROXY_CACHE || null;
+        if (!cache) return "";
+        var v = cache[recordId];
+        if (!v) return "";
+        if (typeof v === "string") return v;
+        if (v && typeof v === "object") {
+          if (v.url) return String(v.url);
+          if (v.previewUrl) return String(v.previewUrl);
+          if (v.id) return "https://drive.google.com/file/d/" + encodeURIComponent(String(v.id)) + "/view";
+        }
+      } catch (_) { }
+      return "";
+    }
+
+    function _thumbFromProxyUrl_(url) {
+      try {
+        url = String(url || "");
+        var idm = (url.match(/[-\\w]{25,}/) || [])[0] || "";
+        if (idm) return "https://drive.google.com/thumbnail?id=" + encodeURIComponent(idm) + "&sz=w320";
+      } catch (_) { }
+      return String(url || "");
+    }
+
+    function _renderVersionsFallback_(o) {
       var list = parseList(o.val);
       var box = el("span");
       list.forEach(function (v, i) {
@@ -317,7 +451,71 @@
         box.appendChild(t);
         if (i < list.length - 1) box.appendChild(document.createTextNode(" "));
       });
+      if (!list.length) box.appendChild(document.createTextNode("—"));
       return box;
+    }
+
+    function _fillPreviewSingle_(host, url) {
+      host.innerHTML = "";
+
+      var thumb = _thumbFromProxyUrl_(url);
+
+      var a = document.createElement("a");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+
+      var img = document.createElement("img");
+      img.loading = "lazy";
+      img.decoding = "async";
+      img.style.cssText = "width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px";
+      img.src = thumb;
+
+      a.appendChild(img);
+      host.appendChild(a);
+    }
+
+    function R_preview_single(o) {
+      var rid = _previewRecordId_(o);
+      var url = _proxyUrlFromCache_(rid);
+
+      var box = document.createElement("span");
+
+      if (url) {
+        _fillPreviewSingle_(box, url);
+        return box;
+      }
+
+      // Pending: allow Table/Detail to refresh once PROXY_CACHE is populated.
+      box.setAttribute("data-proxy-pending", "1");
+      box.setAttribute("data-proxy-id", String(rid || ""));
+      if (String(o.type || "").trim().toLowerCase() === "versions") {
+        box.appendChild(_renderVersionsFallback_(o));
+      } else {
+        box.appendChild(document.createTextNode("—"));
+      }
+      return box;
+    }
+
+    window.__MOTK_PROXY_PREVIEW_REFRESH__ = function () {
+      try {
+        var nodes = document.querySelectorAll('[data-proxy-pending="1"][data-proxy-id]');
+        if (!nodes || !nodes.length) return;
+        for (var i = 0; i < nodes.length; i++) {
+          var host = nodes[i];
+          if (!host || !host.getAttribute) continue;
+          if (!document.body || !document.body.contains(host)) continue;
+          var rid = host.getAttribute("data-proxy-id") || "";
+          var url = _proxyUrlFromCache_(rid);
+          if (!url) continue;
+          _fillPreviewSingle_(host, url);
+          host.removeAttribute("data-proxy-pending");
+        }
+      } catch (_) { }
+    };
+
+    function R_versions(o) {
+      return R_preview_single(o);
     }
 
     /* ========= 4. entry ========= */
@@ -336,87 +534,9 @@
       }
       var fname = String(o.name || o.field_name || "").toLowerCase();
 
-      // Render shotview via shared path (same policy as Table).
-      if (fname === "shotview" || t === "shotview") {
-        var el = document.createElement("span");
-        el.textContent = "";
-
-        var row = o.row || {};
-        var sid = row["Shot ID"] || row["id"] || row["shot_id"] || row["sh_id"] || row["shid"] || "";
-
-        // 1) Render from cache first (Table-provided).
-        try {
-          if (sid && window.PROXY_CACHE && window.PROXY_CACHE[sid]) {
-            var urlC = window.PROXY_CACHE[sid];
-            var idmC = (String(urlC).match(/[-\w]{25,}/) || [])[0] || "";
-            var thumbC = idmC ? ("https://drive.google.com/thumbnail?id=" + idmC + "&sz=w320") : urlC;
-            
-            /* FIX: wrap image link with noreferrer */
-            var a = document.createElement("a");
-            a.href = urlC;
-            a.target = "_blank";
-            a.rel = "noopener noreferrer";
-            
-            var img = document.createElement("img");
-            img.loading = "lazy"; img.decoding = "async";
-            img.style.cssText = "width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px";
-            img.src = thumbC;
-            a.appendChild(img);
-            el.appendChild(a);
-            
-            return el;
-          }
-        } catch (_) { }
-
-        // 2) Fallback: one-off resolve via Apps Script.
-        (async function () {
-          function best(res) {
-            try {
-              if (!res) return "";
-              if (typeof res === "string") return res;
-              if (Array.isArray(res) && res.length) {
-                var a = res[0]; if (a.url) return a.url; if (a.previewUrl) return a.previewUrl; if (a.id) return "https://drive.google.com/file/d/" + a.id + "/view";
-              }
-              if (res.previewUrl) return res.previewUrl;
-              if (res.url) return res.url;
-              if (res.items && Array.isArray(res.items) && res.items.length) {
-                var b = res.items[0]; if (b.url) return b.url; if (b.id) return "https://drive.google.com/file/d/" + b.id + "/view";
-              }
-            } catch (_) { }
-            return "";
-          }
-          try {
-            var apis = [
-              ["sv_listEntityProxies", { id: sid }],
-              ["sv_getShotProxies", { id: sid }],
-              ["sv_getShotviewUrls", { id: sid }],
-              ["sv_getPreviewUrl", { id: sid }],
-              ["getPreviewUrl", { id: sid }]
-            ];
-            var url = "";
-            for (var i = 0; i < apis.length; i++) {
-              try {
-                var res = await tryCall([apis[i][0]], apis[i][1]);
-                url = best(res);
-                if (url) break;
-              } catch (_) { }
-            }
-            if (url) {
-              try { if (window.PROXY_CACHE) window.PROXY_CACHE[sid] = url; } catch (_) { }
-              var idm = (String(url).match(/[-\w]{25,}/) || [])[0] || "";
-              var thumb = idm ? ("https://drive.google.com/thumbnail?id=" + idm + "&sz=w320") : url;
-              
-              /* FIX: async load uses <a> with noreferrer */
-              el.innerHTML = '<a href="' + url + '" target="_blank" rel="noopener noreferrer"><img loading="lazy" decoding="async" style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px" src="' + thumb + '"></a>';
-            } else {
-              el.textContent = "";
-            }
-          } catch (_) {
-            el.textContent = "";
-          }
-        })();
-
-        return el;
+      // Preview (single thumb) parity: any *view column + any versions column.
+      if (t === "versions" || t === "shotview" || /view$/.test(fname)) {
+        return R_preview_single(o);
       }
 
 
@@ -499,22 +619,40 @@
         STATE.columns = Array.isArray(sanitized.columns) ? sanitized.columns : (Array.isArray(p.columns) ? p.columns : []);
         STATE.fieldsMeta = {};
 
+        function parseOptionsAny(val) {
+          if (Array.isArray(val)) return val.slice();
+          if (val == null) return [];
+          var s = String(val);
+          return s.split(/[\n\r|,]+/).map(function (x) { return String(x == null ? "" : x).trim(); }).filter(Boolean);
+        }
+
         if (Array.isArray(STATE.columns) && STATE.columns.length) {
           for (var c = 0; c < STATE.columns.length; c++) {
             var col = STATE.columns[c];
             if (!col || typeof col !== 'object') continue;
 
-            var fid2 = col.fid || col.field_id || sanitized.ids[c];
+            var fid2 = col.fid || col.field_id || col.fieldId || col.id || sanitized.ids[c];
             if (!fid2) continue;
 
-            STATE.fieldsMeta[fid2] = {
-              fid: String(fid2),
-              name: (col.name != null) ? String(col.name) :
-                ((sanitized.header[c] != null) ? String(sanitized.header[c]) : String(fid2)),
-              type: (col.type != null) ? String(col.type) : 'text',
-              editable: col.editable === true,
-              target: (col.target != null) ? String(col.target) : null
-            };
+            var m = {};
+            try { Object.assign(m, col); } catch (_) { }
+            m.fid = String(fid2);
+            if (m.id == null) m.id = String(fid2);
+            if (m.field_id == null) m.field_id = String(fid2);
+
+            if (m.name == null || m.name === '') {
+              m.name = (sanitized.header[c] != null) ? String(sanitized.header[c]) : String(fid2);
+            }
+            if (m.label == null || m.label === '') m.label = String(m.name);
+            if (m.type == null || String(m.type).trim() === '') m.type = 'text';
+
+            m.editable = (col.editable === true);
+            m.required = (col.required === true);
+
+            if (m.options != null && !Array.isArray(m.options)) m.options = parseOptionsAny(m.options);
+            if (m.options == null) m.options = [];
+
+            STATE.fieldsMeta[fid2] = m;
           }
         } else {
           // Fallback meta (should be rare if server returns columns)
@@ -720,7 +858,10 @@
             } catch (_) { }
           }
 
+          setBusy(false, "");
+
           function onCancel() {
+            setBusy(false, "");
             cleanup();
             close();
             resolve({ cancelled: true, ids: current.slice(), value: raw });
@@ -758,6 +899,7 @@
             if (e.key === "Escape") onCancel();
           }
           function cleanup() {
+            setBusy(false, "");
             backdrop.removeEventListener("click", onBackdrop);
             document.removeEventListener("keydown", onKey);
             btnCancel.removeEventListener("click", onCancel);
@@ -778,7 +920,53 @@
     }
 
     /* ========= 6. export ========= */
-    window.FieldsAPI = { renderCellByField, getLabel, attachCellEditor, hydrateLinks, ensureLinkMaps, openLinkPicker };
+    function getFieldOptions(fid, meta) {
+      try {
+        if (meta && meta.options != null) return Array.isArray(meta.options) ? meta.options.slice() : String(meta.options || '').split(/[\n\r|,]+/).map(function (x) { return String(x == null ? "" : x).trim(); }).filter(Boolean);
+      } catch (_) { }
+      try {
+        var m = (window.STATE && STATE.fieldsMeta && STATE.fieldsMeta[fid]) ? STATE.fieldsMeta[fid] : null;
+        if (m && m.options != null) return Array.isArray(m.options) ? m.options.slice() : String(m.options || '').split(/[\n\r|,]+/).map(function (x) { return String(x == null ? "" : x).trim(); }).filter(Boolean);
+      } catch (_) { }
+      return [];
+    }
+
+    function normalizeDateValue(value) {
+      try {
+        if (value == null || value === '') return '';
+        var s = isoDateOnly(value);
+        return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
+      } catch (_) { }
+      return '';
+    }
+
+    window.FieldsAPI = { renderCellByField, getLabel, getFieldOptions, normalizeDateValue, attachCellEditor, hydrateLinks, ensureLinkMaps, openLinkPicker };
+
+    window.CommonRenderer = window.CommonRenderer || {};
+    if (typeof window.CommonRenderer.renderCellByField !== "function") {
+      window.CommonRenderer.renderCellByField = function (entity, fieldId, value, meta) {
+        meta = meta || {};
+        var rowId = meta.__rowId || "";
+        var row = meta.__row || (rowId ? { fi_0001: rowId } : (window.STATE && STATE.row ? STATE.row : null));
+        return window.FieldsAPI.renderCellByField({
+          fid: String(fieldId || ""),
+          type: meta.type,
+          val: value,
+          editable: !!meta.editable,
+          entity: entity,
+          rowId: rowId,
+          row: row || {},
+          field: meta || null,
+          label: meta.label,
+          name: meta.name
+        });
+      };
+    }
+    if (typeof window.CommonRenderer.refreshPendingPreviews !== "function") {
+      window.CommonRenderer.refreshPendingPreviews = function (_root) {
+        try { if (typeof window.__MOTK_PROXY_PREVIEW_REFRESH__ === "function") window.__MOTK_PROXY_PREVIEW_REFRESH__(); } catch (_) { }
+      };
+    }
     ensureLinkMaps().catch(function () { });
   })();
 
