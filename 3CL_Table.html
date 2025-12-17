@@ -1079,6 +1079,58 @@
         return '';
       }
 
+      window.__MOTK_TABLE_WRITE_LWW__ = window.__MOTK_TABLE_WRITE_LWW__ || Object.create(null);
+
+      function _tableWriteKey_(entity, rowId, fid) {
+        return String(entity || '') + '|' + String(rowId || '') + '|' + String(fid || '');
+      }
+
+      function _newWriteToken_() {
+        return Date.now().toString(36) + ':' + Math.random().toString(36).slice(2);
+      }
+
+      function _extractFieldValue_(v) {
+        try {
+          if (v && typeof v === 'object') {
+            if (Object.prototype.hasOwnProperty.call(v, 'raw')) return v.raw;
+            if (Object.prototype.hasOwnProperty.call(v, 'value')) return v.value;
+            if (Object.prototype.hasOwnProperty.call(v, 'text')) return v.text;
+          }
+        } catch (_) { }
+        return v;
+      }
+
+      function _renderLinkCellHtml_(value) {
+        var toks = splitTokens(value).filter(function (x) { return String(x || '').trim() !== ''; });
+        return toks.map(renderLinkId).join(', ');
+      }
+
+      function _updateAllLinkCellsDom_(rowId, fid, value) {
+        var q = '#tableWrap tr[data-row-id="' + rowId + '"] td[data-col-id="' + fid + '"]';
+        var tds = document.querySelectorAll(q);
+        for (var i = 0; i < tds.length; i++) {
+          var td = tds[i];
+          try { td.innerHTML = _renderLinkCellHtml_(value); } catch (_) { td.textContent = String(value == null ? '' : value); }
+        }
+      }
+
+      var __MOTK_TABLE_STATUS_CLEAR_TIMER__ = null;
+      function _flashUpdatedStatus_() {
+        try { if (typeof showStatus === 'function') showStatus('Updated!'); } catch (_) { }
+        try {
+          if (__MOTK_TABLE_STATUS_CLEAR_TIMER__) clearTimeout(__MOTK_TABLE_STATUS_CLEAR_TIMER__);
+          __MOTK_TABLE_STATUS_CLEAR_TIMER__ = setTimeout(function () {
+            try {
+              var el = document.getElementById('statusLeft');
+              if (el && el.textContent === 'Updated!') {
+                if (typeof setFinalStatus === 'function') setFinalStatus();
+                else if (typeof showStatus === 'function') showStatus('');
+              }
+            } catch (_) { }
+          }, 1800);
+        } catch (_) { }
+      }
+
       function bindLinkPickerInlineEdit() {
         if (window.__MOTK_TABLE_INLINE_EDIT_BOUND) return;
         window.__MOTK_TABLE_INLINE_EDIT_BOUND = true;
@@ -1106,12 +1158,11 @@
           var type = meta && meta.type ? String(meta.type).trim().toLowerCase() : '';
           if (!(type === 'entity_link' || /_link$/.test(type))) return;
 
-          // If user clicked an <a> inside an editable link cell, prevent navigation and open the picker instead.
+          // If user clicked an <a> inside the cell, allow navigation (do NOT open picker).
           if (e && e.target && e.target.closest) {
             var clickedA = e.target.closest('a');
             if (clickedA) {
-              e.preventDefault();
-              e.stopPropagation();
+              return;
             }
           }
 
@@ -1121,7 +1172,6 @@
           }
 
           var raw = _rowValueByIdFid_(rowId, fid);
-          var prevValue = raw;
           var entity = singularEntityFor(STATE.sheetName || 'shot') || 'shot';
 
           e.preventDefault();
@@ -1133,65 +1183,56 @@
             type: type,
             value: raw,
             commit: function (out) {
-              return new Promise(function (resolve, reject) {
-                try { if (typeof showStatus === 'function') showStatus('Updating...'); } catch (_) { }
+              var optimisticValue = out && out.value != null ? out.value : '';
+              var prevValueAtCommit = _rowValueByIdFid_(rowId, fid);
 
+              var key = _tableWriteKey_(entity, rowId, fid);
+              var token = _newWriteToken_();
+              window.__MOTK_TABLE_WRITE_LWW__[key] = token;
+
+              // Optimistic FE update (update cache + all visible duplicates).
+              try { _setRowValueByIdFid_(rowId, fid, optimisticValue); } catch (_) { }
+              try { _updateAllLinkCellsDom_(rowId, fid, optimisticValue); } catch (_) { }
+              try { if (typeof showStatus === 'function') showStatus('Updating...'); } catch (_) { }
+
+              // Always resolve immediately so the modal closes right away.
+              Promise.resolve().then(function () {
                 if (!(window.google && google.script && google.script.run)) {
-                  var eNo = new Error('google.script.run unavailable');
-                  try { if (typeof showStatus === 'function') showStatus('Update Failed: ' + eNo.message, true); } catch (_) { }
-                  reject(eNo);
+                  if (window.__MOTK_TABLE_WRITE_LWW__[key] !== token) return;
+                  try { _setRowValueByIdFid_(rowId, fid, prevValueAtCommit); } catch (_) { }
+                  try { _updateAllLinkCellsDom_(rowId, fid, prevValueAtCommit); } catch (_) { }
+                  try { if (typeof showStatus === 'function') showStatus('Update Failed: google.script.run unavailable'); } catch (_) { }
                   return;
                 }
 
-                var patch = {}; patch[fid] = out.value;
+                var patch = {}; patch[fid] = optimisticValue;
                 google.script.run
                   .withSuccessHandler(function (res) {
-                    if (res == null || (res && res.ok)) {
-                      var finalVal = out.value;
+                    if (window.__MOTK_TABLE_WRITE_LWW__[key] !== token) return;
 
-                      try {
-                        if (res && res.ok && res.fields && Object.prototype.hasOwnProperty.call(res.fields, fid)) {
-                          finalVal = res.fields[fid];
-                        }
-                      } catch (_) { }
-
-                      try { _setRowValueByIdFid_(rowId, fid, finalVal); } catch (_) { }
-
-                      // Always update the live cell in the current DOM (captured td can be stale).
-                      var liveTd = null;
-                      try {
-                        liveTd = document.querySelector(
-                          '#tableWrap tr[data-row-id="' + rowId + '"] td[data-col-id="' + fid + '"]'
-                        );
-                      } catch (_) { }
-                      if (!liveTd) liveTd = td;
-
-                      try {
-                        if (liveTd) {
-                          var toks = splitTokens(finalVal).filter(function (x) { return String(x || '').trim() !== ''; });
-                          liveTd.innerHTML = toks.map(renderLinkId).join(', ');
-                        }
-                      } catch (_) {
-                        try { if (liveTd) liveTd.textContent = String(finalVal == null ? '' : finalVal); } catch (_) { }
+                    var finalVal = optimisticValue;
+                    try {
+                      if (res && res.ok && res.fields && Object.prototype.hasOwnProperty.call(res.fields, fid)) {
+                        finalVal = _extractFieldValue_(res.fields[fid]);
                       }
+                    } catch (_) { }
 
-                      try { if (typeof showStatus === 'function') showStatus('Updated!'); } catch (_) { }
-                      resolve(res);
-                      return;
-                    }
-                    _setRowValueByIdFid_(rowId, fid, prevValue);
-                    var msg = (res && res.error) ? res.error : 'Unknown';
-                    try { if (typeof showStatus === 'function') showStatus('Update Failed: ' + msg, true); } catch (_) { }
-                    reject(new Error(msg));
+                    try { _setRowValueByIdFid_(rowId, fid, finalVal); } catch (_) { }
+                    try { _updateAllLinkCellsDom_(rowId, fid, finalVal); } catch (_) { }
+                    _flashUpdatedStatus_();
                   })
                   .withFailureHandler(function (err) {
-                    _setRowValueByIdFid_(rowId, fid, prevValue);
+                    if (window.__MOTK_TABLE_WRITE_LWW__[key] !== token) return;
+
                     var msg = String(err && err.message ? err.message : err);
-                    try { if (typeof showStatus === 'function') showStatus('Update Failed: ' + msg, true); } catch (_) { }
-                    reject(err || new Error(msg));
+                    try { _setRowValueByIdFid_(rowId, fid, prevValueAtCommit); } catch (_) { }
+                    try { _updateAllLinkCellsDom_(rowId, fid, prevValueAtCommit); } catch (_) { }
+                    try { if (typeof showStatus === 'function') showStatus('Update Failed: ' + msg); } catch (_) { }
                   })
                   .dp_updateEntityRecord(entity, rowId, patch);
               });
+
+              return Promise.resolve({ ok: true });
             }
           }).then(function (out) {
             if (!out || out.cancelled) return;
