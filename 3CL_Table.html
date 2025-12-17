@@ -1086,9 +1086,6 @@
         document.addEventListener('click', function (e) {
           if (!document.getElementById("tableWrap")) return;
 
-          // allow real navigation when clicking an actual anchor inside the cell
-          if (e.target && e.target.closest && e.target.closest("a")) return;
-
           // do not intercept clicks while interacting with form controls
           if (e.target && e.target.closest && e.target.closest("input,select,textarea")) return;
 
@@ -1108,6 +1105,15 @@
 
           var type = meta && meta.type ? String(meta.type).trim().toLowerCase() : '';
           if (!(type === 'entity_link' || /_link$/.test(type))) return;
+
+          // If user clicked an <a> inside an editable link cell, prevent navigation and open the picker instead.
+          if (e && e.target && e.target.closest) {
+            var clickedA = e.target.closest('a');
+            if (clickedA) {
+              e.preventDefault();
+              e.stopPropagation();
+            }
+          }
 
           if (!(window.FieldsAPI && typeof FieldsAPI.openLinkPicker === 'function')) {
             try { if (typeof showStatus === 'function') showStatus('Link picker unavailable', true); } catch (_) { }

@@ -445,53 +445,97 @@
     // Define a minimal applyData early.
     // Prevent crashes when listRowsPage calls applyData before Table loads.
     window.applyData = window.applyData || function (p) {
-      p = p || {};
-      window.STATE = window.STATE || {};
-
-      var rawIds = Array.isArray(p.ids) ? p.ids : [];
-      var rawHeader = Array.isArray(p.header) ? p.header : [];
-      var rawRows = Array.isArray(p.rows) ? p.rows : [];
-
-      function cleanColumns(ids, header, rows) {
-        var keep = [];
-        for (var i = 0; i < ids.length; i++) {
-          var fid = ids[i];
-          var key = (fid == null ? '' : String(fid)).trim();
-          if (!key || key.toLowerCase() === 'null') continue;
-          keep.push(i);
-        }
-        if (!keep.length) return { ids: ids.slice(), header: header.slice(), rows: rows.slice() };
-        var outIds = [], outHeader = [];
-        for (var j = 0; j < keep.length; j++) {
-          var idx = keep[j];
-          outIds.push(ids[idx]);
-          outHeader.push(header[idx] != null ? header[idx] : ids[idx]);
-        }
-        var outRows = rows.map(function (row) {
-          var next = [];
-          for (var k = 0; k < keep.length; k++) {
-            var colIdx = keep[k];
-            next.push(row && colIdx < row.length ? row[colIdx] : '');
-          }
-          return next;
-        });
-        return { ids: outIds, header: outHeader, rows: outRows };
-      }
-
-      var sanitized = cleanColumns(rawIds, rawHeader, rawRows);
-
-      STATE.fieldIds = sanitized.ids;
-      STATE.header = sanitized.header;
-      STATE.rows = sanitized.rows;
-      var t = Number(p.total);
-      STATE.total = (isFinite(t) && t >= 0) ? t : STATE.rows.length;
-
-      if (typeof updatePagerUI === 'function') updatePagerUI();
       try {
-        if (typeof window.persistViewerStateSnapshot === 'function') {
-          window.persistViewerStateSnapshot({ source: 'applyData' });
+        if (!window.STATE) window.STATE = {};
+        var STATE = window.STATE;
+
+        if (!p || typeof p !== 'object') return;
+
+        var rawIds = Array.isArray(p.ids) ? p.ids.slice() : [];
+        var rawHeader = Array.isArray(p.header) ? p.header.slice() : [];
+        var rawRows = Array.isArray(p.rows) ? p.rows.slice() : [];
+        var rawTotal = (typeof p.total === 'number') ? p.total : (parseInt(p.total, 10) || 0);
+        var rawColumns = Array.isArray(p.columns) ? p.columns.slice() : null;
+
+        function cleanColumns(ids, header, rows, columns) {
+          var n = Math.max(ids.length, header.length);
+          var keep = new Array(n);
+          for (var i = 0; i < n; i++) {
+            var fid = (i < ids.length) ? ids[i] : null;
+            keep[i] = !!fid && String(fid).trim() !== '';
+          }
+
+          var outIds = [];
+          var outHeader = [];
+          var outCols = columns ? [] : null;
+
+          for (var j = 0; j < n; j++) {
+            if (!keep[j]) continue;
+            outIds.push((j < ids.length) ? ids[j] : null);
+            outHeader.push((j < header.length && header[j] != null) ? header[j] : '');
+            if (outCols) outCols.push((j < columns.length) ? columns[j] : null);
+          }
+
+          var outRows = (rows || []).map(function (r) {
+            var rr = [];
+            for (var k = 0; k < n; k++) {
+              if (!keep[k]) continue;
+              rr.push((r && Array.isArray(r) && k < r.length) ? r[k] : '');
+            }
+            return rr;
+          });
+
+          return { ids: outIds, header: outHeader, rows: outRows, columns: outCols };
         }
-      } catch (_) { }
+
+        var sanitized = cleanColumns(rawIds, rawHeader, rawRows, rawColumns);
+
+        STATE.fieldIds = sanitized.ids;
+        STATE.header = sanitized.header;
+        STATE.rows = sanitized.rows;
+        STATE.total = rawTotal;
+
+        // Critical for Table: columns + fieldsMeta must be available.
+        STATE.columns = Array.isArray(sanitized.columns) ? sanitized.columns : (Array.isArray(p.columns) ? p.columns : []);
+        STATE.fieldsMeta = {};
+
+        if (Array.isArray(STATE.columns) && STATE.columns.length) {
+          for (var c = 0; c < STATE.columns.length; c++) {
+            var col = STATE.columns[c];
+            if (!col || typeof col !== 'object') continue;
+
+            var fid2 = col.fid || col.field_id || sanitized.ids[c];
+            if (!fid2) continue;
+
+            STATE.fieldsMeta[fid2] = {
+              fid: String(fid2),
+              name: (col.name != null) ? String(col.name) :
+                ((sanitized.header[c] != null) ? String(sanitized.header[c]) : String(fid2)),
+              type: (col.type != null) ? String(col.type) : 'text',
+              editable: col.editable === true,
+              target: (col.target != null) ? String(col.target) : null
+            };
+          }
+        } else {
+          // Fallback meta (should be rare if server returns columns)
+          for (var x = 0; x < sanitized.ids.length; x++) {
+            var fid3 = sanitized.ids[x];
+            if (!fid3) continue;
+            var isId = String(fid3) === 'fi_0001';
+            STATE.fieldsMeta[fid3] = {
+              fid: String(fid3),
+              name: (sanitized.header[x] != null) ? String(sanitized.header[x]) : String(fid3),
+              type: isId ? 'id' : 'text',
+              editable: !isId
+            };
+          }
+        }
+
+        if (typeof window.updatePagerUI === 'function') window.updatePagerUI();
+        if (typeof window.persistViewerStateSnapshot === 'function') window.persistViewerStateSnapshot();
+      } catch (e) {
+        try { console.warn('[CommonRenderer] applyData shim failed', e); } catch (_) { }
+      }
     };
     /* ========= 5. misc ========= */
     function getLabel(fid) { return (window.PAGE_LABELS && PAGE_LABELS[fid]) || (fid || ""); }
