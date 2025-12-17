@@ -929,6 +929,7 @@ function sv_listRowsPage(entity, options) {
     columns: columns,
     row0: row0,
     rows: rows,
+    total: total,
     meta: {
       total: total,
       sheet: (base.meta && base.meta.sheet) ? base.meta.sheet : (params.sheet || ''),

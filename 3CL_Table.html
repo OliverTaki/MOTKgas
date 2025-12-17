@@ -1076,10 +1076,10 @@
         window.__MOTK_TABLE_INLINE_EDIT_BOUND = true;
 
         document.addEventListener('click', function (e) {
-          if (!window.__VIEW_CTX || window.__VIEW_CTX.p !== "table") return;
+          if (!document.getElementById("tableWrap")) return;
 
-          // do not intercept clicks on interactive elements (links/buttons/inputs)
-          if (e.target && e.target.closest && e.target.closest("a,button,input,select,textarea,label")) return;
+          // do not intercept clicks while interacting with form controls
+          if (e.target && e.target.closest && e.target.closest("input,select,textarea")) return;
 
           var td = e.target && e.target.closest ? e.target.closest('#tableWrap td[data-col-id]') : null;
           if (!td) return;
@@ -2530,7 +2530,7 @@
           if (cb) cb();
         }
 
-        callFirst(['listRowsPage', 'sv_listRowsPage', 'gsListRowsPage', 'dp_listRowsPage'],
+        callFirst(['sv_listRowsPage', 'gsListRowsPage', 'dp_listRowsPage', 'listRowsPage'],
           payload,
           function (res) {
             var p = normalizeRowsPayload(res);
@@ -2560,14 +2560,14 @@
         var payload = buildServerPayload(offset, limit);
         if (typeof showStatus === 'function') showStatus('loading ' + pluralEntityFor(payload.entity) + '…');
 
-        callFirst(['listRowsPage', 'sv_listRowsPage', 'gsListRowsPage', 'dp_listRowsPage'],
+        callFirst(['sv_listRowsPage', 'gsListRowsPage', 'dp_listRowsPage', 'listRowsPage'],
           payload,
           function (res) {
             var p = normalizeRowsPayload(res);
 
             if ((p.total | 0) > 0 && (!Array.isArray(p.rows) || p.rows.length === 0)) {
               var base0 = buildServerPayload(0, resolveFetchLimit ? resolveFetchLimit() : pageWindow);
-              callFirst(['listRowsPage', 'sv_listRowsPage', 'gsListRowsPage', 'dp_listRowsPage'],
+              callFirst(['sv_listRowsPage', 'gsListRowsPage', 'dp_listRowsPage', 'listRowsPage'],
                 base0,
                 function (res0) {
                   var p0 = normalizeRowsPayload(res0);
