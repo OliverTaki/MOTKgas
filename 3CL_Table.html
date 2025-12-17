@@ -1147,24 +1147,35 @@
                 google.script.run
                   .withSuccessHandler(function (res) {
                     if (res == null || (res && res.ok)) {
-                      _setRowValueByIdFid_(rowId, fid, out.value);
-                      td.innerHTML = '';
-                      if (window.FieldsAPI && typeof FieldsAPI.renderCellByField === 'function') {
-                        td.appendChild(FieldsAPI.renderCellByField({
-                          fid: fid,
-                          val: out.value,
-                          row: {},
-                          labels: {},
-                          entity: entity,
-                          type: type,
-                          linkEntity: out.targetEntity || null,
-                          field: meta || null,
-                          editable: false
-                        }));
-                      } else {
-                        td.textContent = String(out.value || '');
+                      var finalVal = out.value;
+
+                      try {
+                        if (res && res.ok && res.fields && Object.prototype.hasOwnProperty.call(res.fields, fid)) {
+                          finalVal = res.fields[fid];
+                        }
+                      } catch (_) { }
+
+                      try { _setRowValueByIdFid_(rowId, fid, finalVal); } catch (_) { }
+
+                      // Always update the live cell in the current DOM (captured td can be stale).
+                      var liveTd = null;
+                      try {
+                        liveTd = document.querySelector(
+                          '#tableWrap tr[data-row-id="' + rowId + '"] td[data-col-id="' + fid + '"]'
+                        );
+                      } catch (_) { }
+                      if (!liveTd) liveTd = td;
+
+                      try {
+                        if (liveTd) {
+                          var toks = splitTokens(finalVal).filter(function (x) { return String(x || '').trim() !== ''; });
+                          liveTd.innerHTML = toks.map(renderLinkId).join(', ');
+                        }
+                      } catch (_) {
+                        try { if (liveTd) liveTd.textContent = String(finalVal == null ? '' : finalVal); } catch (_) { }
                       }
-                      try { if (typeof showStatus === 'function') showStatus(res == null ? 'Updated (no response). Refresh to confirm.' : 'Updated!', res == null); } catch (_) { }
+
+                      try { if (typeof showStatus === 'function') showStatus('Updated!'); } catch (_) { }
                       resolve(res);
                       return;
                     }
