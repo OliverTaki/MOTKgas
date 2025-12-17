@@ -928,7 +928,15 @@
           var ids2 = Array.isArray(res.ids) ? res.ids : [];
           var head2 = Array.isArray(res.header) ? res.header : [];
           var rows2 = Array.isArray(res.rows) ? res.rows : [];
-          var total2 = (isFinite(res.total) && res.total >= 0) ? res.total : rows2.length;
+          var total2 = Number(
+            (res.totalRows != null ? res.totalRows :
+              res.total != null ? res.total :
+                res.count != null ? res.count :
+                  res.meta && res.meta.totalRows != null ? res.meta.totalRows :
+                    res.meta && res.meta.total != null ? res.meta.total :
+                      rows2.length)
+          );
+          if (!isFinite(total2) || total2 < 0) total2 = rows2.length;
           return { ids: ids2, header: head2, rows: rows2, total: total2 };
         }
 
@@ -1077,6 +1085,9 @@
 
         document.addEventListener('click', function (e) {
           if (!document.getElementById("tableWrap")) return;
+
+          // allow real navigation when clicking an actual anchor inside the cell
+          if (e.target && e.target.closest && e.target.closest("a")) return;
 
           // do not intercept clicks while interacting with form controls
           if (e.target && e.target.closest && e.target.closest("input,select,textarea")) return;
@@ -2530,13 +2541,14 @@
           if (cb) cb();
         }
 
-        callFirst(['sv_listRowsPage', 'gsListRowsPage', 'dp_listRowsPage', 'listRowsPage'],
+        callFirst(['sv_listRowsPage', 'listRowsPage', 'gsListRowsPage', 'dp_listRowsPage'],
           payload,
           function (res) {
             var p = normalizeRowsPayload(res);
             applySheetNameFromPayload(payload, p && p.meta);
             STATE.dataSource = detectSourceByIds(p.ids, p.header);
             applyData(p);
+            if (typeof updatePagerUI === 'function') updatePagerUI();
             refreshDistinctCache();
             LSC_set(key, p);
             if (cb) cb();
@@ -2560,20 +2572,21 @@
         var payload = buildServerPayload(offset, limit);
         if (typeof showStatus === 'function') showStatus('loading ' + pluralEntityFor(payload.entity) + '…');
 
-        callFirst(['sv_listRowsPage', 'gsListRowsPage', 'dp_listRowsPage', 'listRowsPage'],
+        callFirst(['sv_listRowsPage', 'listRowsPage', 'gsListRowsPage', 'dp_listRowsPage'],
           payload,
           function (res) {
             var p = normalizeRowsPayload(res);
 
             if ((p.total | 0) > 0 && (!Array.isArray(p.rows) || p.rows.length === 0)) {
               var base0 = buildServerPayload(0, resolveFetchLimit ? resolveFetchLimit() : pageWindow);
-              callFirst(['sv_listRowsPage', 'gsListRowsPage', 'dp_listRowsPage', 'listRowsPage'],
+              callFirst(['sv_listRowsPage', 'listRowsPage', 'gsListRowsPage', 'dp_listRowsPage'],
                 base0,
                 function (res0) {
                   var p0 = normalizeRowsPayload(res0);
                   applySheetNameFromPayload(base0, p0 && p0.meta);
                   STATE.dataSource = detectSourceByIds(p0.ids, p0.header);
                   applyData(p0);
+                  if (typeof updatePagerUI === 'function') updatePagerUI();
                   refreshDistinctCache();
                   STATE._prevRowForGroup = null;
                   renderCurrentPage(true);
@@ -2586,6 +2599,7 @@
             STATE.dataSource = detectSourceByIds(p.ids, p.header);
             applySheetNameFromPayload(payload, p && p.meta);
             applyData(p);
+            if (typeof updatePagerUI === 'function') updatePagerUI();
             refreshDistinctCache();
             STATE._prevRowForGroup = null;
             ensureRowsAfterFetch();
