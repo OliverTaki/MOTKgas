@@ -778,9 +778,9 @@ body.motk-modal-open .motk-modal-backdrop{
     display: block;
   }
 
-  .motk-preview-modal { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; }
+  .motk-preview-modal { position: fixed; inset: 0; z-index: 2147483647; display: flex; align-items: center; justify-content: center; pointer-events: auto; }
   .motk-preview-modal.hidden { display: none; }
-  .motk-preview-backdrop { position:absolute; inset:0; background: rgba(0,0,0,.72); }
+  .motk-preview-backdrop { position:absolute; inset:0; background: rgba(0,0,0,.72); pointer-events: auto; }
 
   .motk-preview-dialog {
     position: relative;
@@ -790,6 +790,7 @@ body.motk-modal-open .motk-modal-backdrop{
     overflow: hidden;
     border: 1px solid rgba(255,255,255,.12);
     background: rgba(20,20,20,.98);
+    pointer-events: auto;
   }
 
   .motk-preview-close {

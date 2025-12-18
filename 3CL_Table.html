@@ -1063,6 +1063,7 @@
       /* ===== 11. Proxy index（ShotView/AssetView 用） ===== */
 
       var PROXY_CACHE = (window.PROXY_CACHE = (window.PROXY_CACHE || {}));
+      var PROXY_CACHE_BY_FIELD = (window.PROXY_CACHE_BY_FIELD = (window.PROXY_CACHE_BY_FIELD || {}));
 
       function prefetchProxyIndex() {
         if (!hasGoogle()) return;
@@ -1088,16 +1089,36 @@
         callFirst(['sv_indexAllProxies'], pluralEntityFor(_entityForUI()),
           function (idx) {
             try {
+              // Prefer strict parsing from idx.items when available.
+              try {
+                if (idx && Array.isArray(idx.items) && typeof window.__MOTK_BUILD_PROXY_INDEX__ === "function") {
+                  var built = window.__MOTK_BUILD_PROXY_INDEX__(idx.items);
+                  if (built && typeof built === "object") {
+                    try { for (var kk1 in PROXY_CACHE) { delete PROXY_CACHE[kk1]; } } catch (_) { }
+                    try { for (var kk2 in PROXY_CACHE_BY_FIELD) { delete PROXY_CACHE_BY_FIELD[kk2]; } } catch (_) { }
+
+                    var br = built.byRecord || {};
+                    var bf = built.byRecordField || {};
+
+                    for (var kbr in br) PROXY_CACHE[String(kbr).trim()] = br[kbr];
+                    for (var kbf in bf) PROXY_CACHE_BY_FIELD[String(kbf).trim()] = bf[kbf];
+                  }
+                }
+              } catch (_) { }
+
               var picked = pickLatestMap_(idx);
               var latest = picked.map || {};
-              for (var k in latest) {
-                var v = latest[k] || null;
-                try {
-                  if (v && typeof v === "object") {
-                    if (!v.url && v.id) v.url = "https://drive.google.com/file/d/" + encodeURIComponent(String(v.id)) + "/view";
-                  }
-                } catch (_) { }
-                PROXY_CACHE[String(k).trim()] = v;
+              // Fallback to legacy maps only when strict parsing produced no keys.
+              if (!Object.keys(PROXY_CACHE || {}).length && !Object.keys(PROXY_CACHE_BY_FIELD || {}).length) {
+                for (var k in latest) {
+                  var v = latest[k] || null;
+                  try {
+                    if (v && typeof v === "object") {
+                      if (!v.url && v.id) v.url = "https://drive.google.com/file/d/" + encodeURIComponent(String(v.id)) + "/view";
+                    }
+                  } catch (_) { }
+                  PROXY_CACHE[String(k).trim()] = v;
+                }
               }
               var wrap = document.getElementById('tableWrap');
               if (wrap) {
@@ -1112,9 +1133,9 @@
               try { if (window.CommonRenderer && typeof CommonRenderer.refreshPendingPreviews === "function") CommonRenderer.refreshPendingPreviews(document); } catch (_) { }
               if (window.__MOTK_DEBUG__ === true) {
                 try {
-                  var ks = Object.keys(latest || {});
+                  var ks = Object.keys(PROXY_CACHE || {});
                   var samples = ks.slice(0, 5);
-                  console.log('[ProxyIndex]', 'map=' + (picked.name || '(unknown)'), 'count=' + ks.length, 'sample=' + samples.join(', '));
+                  console.log('[ProxyIndex]', 'count=' + ks.length, 'sample=' + samples.join(', '));
                 } catch (_) { }
               }
             } catch (e) { }

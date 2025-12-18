@@ -329,6 +329,7 @@
       /* ===== 13.4 Link maps & Proxy ===== */
       window.LINK_MAPS = window.LINK_MAPS || { assets: {}, shots: {}, tasks: {}, users: {}, members: {} };
       var PROXY_CACHE = (window.PROXY_CACHE = (window.PROXY_CACHE || {}));
+      var PROXY_CACHE_BY_FIELD = (window.PROXY_CACHE_BY_FIELD = (window.PROXY_CACHE_BY_FIELD || {}));
 
       function prefetchProxyIndex() {
         if (!gsr()) return;
@@ -353,16 +354,36 @@
 
         tryCall(['sv_indexAllProxies'], pluralEntityFor(STATE.entity)).then(function (idx) {
             try {
+              // Prefer strict parsing from idx.items when available.
+              try {
+                if (idx && Array.isArray(idx.items) && typeof window.__MOTK_BUILD_PROXY_INDEX__ === "function") {
+                  var built = window.__MOTK_BUILD_PROXY_INDEX__(idx.items);
+                  if (built && typeof built === "object") {
+                    try { for (var kk1 in PROXY_CACHE) { delete PROXY_CACHE[kk1]; } } catch (_) { }
+                    try { for (var kk2 in PROXY_CACHE_BY_FIELD) { delete PROXY_CACHE_BY_FIELD[kk2]; } } catch (_) { }
+
+                    var br = built.byRecord || {};
+                    var bf = built.byRecordField || {};
+
+                    for (var kbr in br) PROXY_CACHE[String(kbr).trim()] = br[kbr];
+                    for (var kbf in bf) PROXY_CACHE_BY_FIELD[String(kbf).trim()] = bf[kbf];
+                  }
+                }
+              } catch (_) { }
+
               var picked = pickLatestMap_(idx);
               var latest = picked.map || {};
-              for (var k in latest) {
-                var v = latest[k] || null;
-                try {
-                  if (v && typeof v === "object") {
-                    if (!v.url && v.id) v.url = "https://drive.google.com/file/d/" + encodeURIComponent(String(v.id)) + "/view";
-                  }
-                } catch (_) { }
-                PROXY_CACHE[String(k).trim()] = v;
+              // Fallback to legacy maps only when strict parsing produced no keys.
+              if (!Object.keys(PROXY_CACHE || {}).length && !Object.keys(PROXY_CACHE_BY_FIELD || {}).length) {
+                for (var k in latest) {
+                  var v = latest[k] || null;
+                  try {
+                    if (v && typeof v === "object") {
+                      if (!v.url && v.id) v.url = "https://drive.google.com/file/d/" + encodeURIComponent(String(v.id)) + "/view";
+                    }
+                  } catch (_) { }
+                  PROXY_CACHE[String(k).trim()] = v;
+                }
               }
               try { if (typeof window.__MOTK_PROXY_PREVIEW_REFRESH__ === "function") window.__MOTK_PROXY_PREVIEW_REFRESH__(); } catch (_) { }
               try { if (window.CommonRenderer && typeof CommonRenderer.refreshPendingPreviews === "function") CommonRenderer.refreshPendingPreviews(document); } catch (_) { }

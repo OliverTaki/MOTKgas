@@ -417,13 +417,38 @@
       return "";
     }
 
-    function _proxyUrlFromCache_(recordId) {
+    function _previewFieldId_(o) {
+      try {
+        var fid = (o && (o.fieldId || o.fid)) ? (o.fieldId || o.fid) : "";
+        return String(fid || "");
+      } catch (_) { }
+      return "";
+    }
+
+    function _proxyEntryFromCache_(recordId, fieldId) {
+      recordId = String(recordId || "").trim();
+      fieldId = String(fieldId || "").trim();
+      if (!recordId) return null;
+      try {
+        var byField = window.PROXY_CACHE_BY_FIELD || null;
+        if (byField && fieldId) {
+          var k = recordId + "|" + fieldId;
+          if (byField[k]) return byField[k];
+        }
+      } catch (_) { }
+      try {
+        var cache = window.PROXY_CACHE || null;
+        if (!cache) return null;
+        return cache[recordId] || null;
+      } catch (_) { }
+      return null;
+    }
+
+    function _proxyUrlFromCache_(recordId, fieldId) {
       recordId = String(recordId || "");
       if (!recordId) return "";
       try {
-        var cache = window.PROXY_CACHE || null;
-        if (!cache) return "";
-        var v = cache[recordId];
+        var v = _proxyEntryFromCache_(recordId, fieldId);
         if (!v) return "";
         if (typeof v === "string") return v;
         if (v && typeof v === "object") {
@@ -481,15 +506,10 @@
       return "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(id);
     }
 
-    function _proxyEntryFromCache_(recordId) {
-      try { return (window.PROXY_CACHE && window.PROXY_CACHE[recordId]) || null; } catch (_) { }
-      return null;
-    }
-
-    function _fillPreviewSingle_(host, recordId, url) {
+    function _fillPreviewSingle_(host, recordId, fieldId, url) {
       host.innerHTML = "";
 
-      var entry = _proxyEntryFromCache_(recordId);
+      var entry = _proxyEntryFromCache_(recordId, fieldId);
       var driveId =
         (entry && entry.id) ? String(entry.id) :
         _driveIdFromAny_(url);
@@ -512,6 +532,7 @@
       span.className = "proxy-thumb";
       span.setAttribute("data-motk-proxy-thumb", "1");
       span.setAttribute("data-proxy-record-id", String(recordId || ""));
+      span.setAttribute("data-proxy-field-id", String(fieldId || ""));
       if (driveId) span.setAttribute("data-proxy-drive-id", driveId);
       span.setAttribute("data-proxy-media", media);
       if (mime) span.setAttribute("data-proxy-mime", mime);
@@ -529,18 +550,20 @@
 
     function R_preview_single(o) {
       var rid = _previewRecordId_(o);
-      var url = _proxyUrlFromCache_(rid);
+      var fid = _previewFieldId_(o);
+      var url = _proxyUrlFromCache_(rid, fid);
 
       var box = document.createElement("span");
 
       if (url) {
-        _fillPreviewSingle_(box, rid, url);
+        _fillPreviewSingle_(box, rid, fid, url);
         return box;
       }
 
       // Pending: allow Table/Detail to refresh once PROXY_CACHE is populated.
       box.setAttribute("data-proxy-pending", "1");
       box.setAttribute("data-proxy-id", String(rid || ""));
+      box.setAttribute("data-proxy-fid", String(fid || ""));
       if (String(o.type || "").trim().toLowerCase() === "versions") {
         box.appendChild(_renderVersionsFallback_(o));
       } else {
@@ -558,9 +581,10 @@
           if (!host || !host.getAttribute) continue;
           if (!document.body || !document.body.contains(host)) continue;
           var rid = host.getAttribute("data-proxy-id") || "";
-          var url = _proxyUrlFromCache_(rid);
+          var fid = host.getAttribute("data-proxy-fid") || "";
+          var url = _proxyUrlFromCache_(rid, fid);
           if (!url) continue;
-          _fillPreviewSingle_(host, rid, url);
+          _fillPreviewSingle_(host, rid, fid, url);
           host.removeAttribute("data-proxy-pending");
         }
       } catch (_) { }
@@ -992,6 +1016,70 @@
       return '';
     }
 
+    function __motkParseProxyFilename__(name) {
+      try {
+        name = String(name || "");
+        if (!name) return null;
+        if (name.indexOf("_ver_proxy") >= 0) return null;
+
+        var m1 = name.match(/^([A-Za-z]{2,4}_[0-9]{4})_(\d{8}-\d{6})_(fi_\d{4})_proxy\.([A-Za-z0-9]+)$/);
+        if (m1) return { kind: "versions", recordId: m1[1], ts: m1[2], fieldId: m1[3], ext: m1[4] };
+
+        var m2 = name.match(/^([A-Za-z]{2,4}_[0-9]{4})_(\d{8}-\d{6})_proxy\.([A-Za-z0-9]+)$/);
+        if (m2) return { kind: "nonversions", recordId: m2[1], ts: m2[2], fieldId: "", ext: m2[3] };
+
+        var m3 = name.match(/^([A-Za-z]{2,4}_[0-9]{4})_proxy\.([A-Za-z0-9]+)$/);
+        if (m3) return { kind: "nonversions", recordId: m3[1], ts: "", fieldId: "", ext: m3[2] };
+      } catch (_) { }
+      return null;
+    }
+
+    function __motkPickLatestProxy__(prev, next) {
+      try {
+        if (!prev) return next;
+        if (!next) return prev;
+        var a = prev.__motk && prev.__motk.ts ? String(prev.__motk.ts) : "";
+        var b = next.__motk && next.__motk.ts ? String(next.__motk.ts) : "";
+        if (!a && b) return next;
+        if (a && !b) return prev;
+        if (b > a) return next;
+        return prev;
+      } catch (_) { }
+      return prev || next || null;
+    }
+
+    function __motkBuildProxyIndex__(items) {
+      var byRecord = {};
+      var byRecordField = {};
+      try {
+        if (!Array.isArray(items)) return { byRecord: byRecord, byRecordField: byRecordField };
+        for (var i = 0; i < items.length; i++) {
+          var f = items[i];
+          if (!f) continue;
+          var name = (f.name || f.fileName || f.filename) ? String(f.name || f.fileName || f.filename) : "";
+          var p = __motkParseProxyFilename__(name);
+          if (!p) continue;
+
+          var fo = (f && typeof f === "object") ? Object.assign({}, f) : { url: String(f) };
+          fo.__motk = p;
+          try { if (!fo.url && fo.id) fo.url = "https://drive.google.com/file/d/" + encodeURIComponent(String(fo.id)) + "/view"; } catch (_) { }
+
+          if (p.kind === "versions") {
+            var k1 = p.recordId + "|" + p.fieldId;
+            byRecordField[k1] = __motkPickLatestProxy__(byRecordField[k1], fo);
+          } else {
+            var k2 = p.recordId;
+            byRecord[k2] = __motkPickLatestProxy__(byRecord[k2], fo);
+          }
+        }
+      } catch (_) { }
+      return { byRecord: byRecord, byRecordField: byRecordField };
+    }
+
+    if (typeof window.__MOTK_BUILD_PROXY_INDEX__ !== "function") {
+      window.__MOTK_BUILD_PROXY_INDEX__ = __motkBuildProxyIndex__;
+    }
+
     window.FieldsAPI = { renderCellByField, getLabel, getFieldOptions, normalizeDateValue, attachCellEditor, hydrateLinks, ensureLinkMaps, openLinkPicker };
 
     window.CommonRenderer = window.CommonRenderer || {};
@@ -1046,8 +1134,16 @@
         modal.addEventListener("click", function(ev){
           var t = ev.target;
           if (t && t.getAttribute && t.getAttribute("data-motk-close") === "1") {
+            try { ev.preventDefault(); } catch (_) { }
+            try {
+              ev.stopPropagation();
+              if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+            } catch (_) { }
             closeModal_();
+            return;
           }
+          // Prevent click-through / underlying handlers while keeping media controls interactive.
+          try { ev.stopPropagation(); } catch (_) { }
         });
       }
 
@@ -1108,13 +1204,14 @@
 
         ev.preventDefault();
         ev.stopPropagation();
+        try { if (ev.stopImmediatePropagation) ev.stopImmediatePropagation(); } catch (_) { }
 
         openModal_({
           media: node.getAttribute("data-proxy-media") || "",
           name: node.getAttribute("data-proxy-name") || "",
           mime: node.getAttribute("data-proxy-mime") || ""
         });
-      });
+      }, true);
 
       window.__MOTK_OPEN_PREVIEW_MODAL__ = openModal_;
       window.__MOTK_CLOSE_PREVIEW_MODAL__ = closeModal_;
