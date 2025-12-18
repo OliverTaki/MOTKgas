@@ -840,6 +840,7 @@ body.motk-modal-open .motk-modal-backdrop{
     position: relative;
     flex: 1 1 auto;
     min-height: 120px;
+    overflow: hidden;
     pointer-events: auto;
   }
 
@@ -872,6 +873,34 @@ body.motk-modal-open .motk-modal-backdrop{
     object-fit: contain;
     display: block;
     pointer-events: auto;
+  }
+
+  .motk-preview-body iframe{
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+    pointer-events: auto;
+  }
+
+  .motk-media-fallback{
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px;
+    text-align: center;
+  }
+  .motk-media-fallback__msg{ opacity: 0.92; }
+  .motk-media-fallback__open{
+    display: inline-block;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(0,0,0,0.35);
+    color: #fff;
+    text-decoration: none;
   }
 
   /* Enforce operability even if other CSS accidentally disables pointer events. */
