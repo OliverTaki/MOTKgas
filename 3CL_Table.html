@@ -1066,10 +1066,30 @@
 
       function prefetchProxyIndex() {
         if (!hasGoogle()) return;
+
+        function pickLatestMap_(idx) {
+          try {
+            if (!idx || typeof idx !== 'object') return { name: '', map: {} };
+            var keys = ['latestByShotId', 'latestById', 'latestByRecordId', 'latestByEntityId', 'latest', 'byId', 'byShotId', 'byRecordId'];
+            for (var i = 0; i < keys.length; i++) {
+              var k = keys[i];
+              var v = idx[k];
+              if (v && typeof v === 'object' && !Array.isArray(v)) return { name: k, map: v };
+            }
+            for (var k2 in idx) {
+              if (k2 === 'items') continue;
+              var v2 = idx[k2];
+              if (v2 && typeof v2 === 'object' && !Array.isArray(v2)) return { name: k2, map: v2 };
+            }
+          } catch (_) { }
+          return { name: '', map: {} };
+        }
+
         callFirst(['sv_indexAllProxies'], {},
           function (idx) {
             try {
-              var latest = (idx && idx.latestByShotId) ? idx.latestByShotId : {};
+              var picked = pickLatestMap_(idx);
+              var latest = picked.map || {};
               for (var k in latest) {
                 var v = latest[k] || null;
                 try {
@@ -1077,7 +1097,7 @@
                     if (!v.url && v.id) v.url = "https://drive.google.com/file/d/" + encodeURIComponent(String(v.id)) + "/view";
                   }
                 } catch (_) { }
-                PROXY_CACHE[String(k)] = v;
+                PROXY_CACHE[String(k).trim()] = v;
               }
               var wrap = document.getElementById('tableWrap');
               if (wrap) {
@@ -1090,6 +1110,13 @@
               }
               try { if (typeof window.__MOTK_PROXY_PREVIEW_REFRESH__ === "function") window.__MOTK_PROXY_PREVIEW_REFRESH__(); } catch (_) { }
               try { if (window.CommonRenderer && typeof CommonRenderer.refreshPendingPreviews === "function") CommonRenderer.refreshPendingPreviews(document); } catch (_) { }
+              if (window.__MOTK_DEBUG__ === true) {
+                try {
+                  var ks = Object.keys(latest || {});
+                  var samples = ks.slice(0, 5);
+                  console.log('[ProxyIndex]', 'map=' + (picked.name || '(unknown)'), 'count=' + ks.length, 'sample=' + samples.join(', '));
+                } catch (_) { }
+              }
             } catch (e) { }
           },
           function () { }
@@ -1929,34 +1956,34 @@
               if (fid === vCol) {
                 td.setAttribute('data-viewcell', '1');
                 td.setAttribute('data-rowid', rowId);
-              } else {
-                var meta = getNormalizedFieldMeta_(STATE.sheetName, fid);
-                var node = renderCellNode_(entitySing, fid, raw, meta, rowId);
-
-                if (
-                  (canon === 'projectmembers' || canon === 'projectmember' || canon === 'member' || canon === 'members') &&
-                  (fid === 'fi_0035') && isRowIdLike(rowId) &&
-                  !isNodeWithAnchor_(node)
-                ) {
-                  var aPM = document.createElement('a');
-                  aPM.href = Router.buildEntityUrl('member', rowId);
-                  aPM.appendChild(node);
-                  node = aPM;
-                } else if (shouldNameCellLinkToDetail(canon, headTxt, rowId) && !isNodeWithAnchor_(node)) {
-                  var ent = singularEntityFor(canon);
-                  var a2 = document.createElement('a');
-                  a2.href = Router.buildEntityUrl(ent, rowId);
-                  a2.appendChild(node);
-                  node = a2;
-                } else if (/shotcode/i.test(headTxt) && isRowIdLike(rowId) && !isNodeWithAnchor_(node)) {
-                  var a3 = document.createElement('a');
-                  a3.href = Router.buildEntityUrl('shot', rowId);
-                  a3.appendChild(node);
-                  node = a3;
-                }
-
-                td.appendChild(node);
               }
+
+              var meta = getNormalizedFieldMeta_(STATE.sheetName, fid);
+              var node = renderCellNode_(entitySing, fid, raw, meta, rowId);
+ 
+              if (
+                (canon === 'projectmembers' || canon === 'projectmember' || canon === 'member' || canon === 'members') &&
+                (fid === 'fi_0035') && isRowIdLike(rowId) &&
+                !isNodeWithAnchor_(node)
+              ) {
+                var aPM = document.createElement('a');
+                aPM.href = Router.buildEntityUrl('member', rowId);
+                aPM.appendChild(node);
+                node = aPM;
+              } else if (shouldNameCellLinkToDetail(canon, headTxt, rowId) && !isNodeWithAnchor_(node)) {
+                var ent = singularEntityFor(canon);
+                var a2 = document.createElement('a');
+                a2.href = Router.buildEntityUrl(ent, rowId);
+                a2.appendChild(node);
+                node = a2;
+              } else if (/shotcode/i.test(headTxt) && isRowIdLike(rowId) && !isNodeWithAnchor_(node)) {
+                var a3 = document.createElement('a');
+                a3.href = Router.buildEntityUrl('shot', rowId);
+                a3.appendChild(node);
+                node = a3;
+              }
+ 
+              td.appendChild(node);
 
               tr.appendChild(td);
             }
@@ -1998,7 +2025,6 @@
         }
 
         function finalize() {
-          prepareViewLazy(table);
           if (typeof updatePager === 'function') updatePager();
           setFinalStatus();
           try { window.__MOTK_TABLE_LAST_RENDER_MS__ = performance.now() - startTime; } catch (_) { }
