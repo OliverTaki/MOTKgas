@@ -1743,6 +1743,9 @@
 
         // Dblclick: open editor/linkpicker for editable cells (cell background only).
         document.addEventListener("dblclick", function(e) {
+          try {
+            if (e && e.target && e.target.closest && e.target.closest('[data-motk-media-trigger="1"]')) return;
+          } catch (_) { }
           var td = closestEl_(e.target, "#tableWrap td[data-col-id]");
           if (!td) return;
 
@@ -1773,6 +1776,9 @@
 
         // Click: checkbox toggle only (do not block other clicks)
         document.addEventListener("click", function(e) {
+          try {
+            if (e && e.target && e.target.closest && e.target.closest('[data-motk-media-trigger="1"]')) return;
+          } catch (_) { }
           var td = closestEl_(e.target, "#tableWrap td[data-col-id]");
           if (!td) return;
 
@@ -2321,6 +2327,7 @@
         img.loading = 'lazy';
         img.src = thumb;
         img.title = ((file && typeof file === 'object' && file.name) ? file.name : 'open');
+        img.setAttribute('data-motk-media-trigger', '1');
         img.style.width = '100%';
         img.style.aspectRatio = '16/9';
         img.style.objectFit = 'cover';

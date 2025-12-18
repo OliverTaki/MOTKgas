@@ -732,6 +732,10 @@
 
         document.addEventListener("click", function (e) {
           try {
+            try {
+              var t0 = e && e.target;
+              if (t0 && t0.closest && t0.closest('[data-motk-media-trigger="1"]')) return;
+            } catch (_) { }
             if (!e || e.defaultPrevented) return;
             if (e.button !== 0) return;
             if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;

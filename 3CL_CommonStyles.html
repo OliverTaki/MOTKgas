@@ -829,7 +829,8 @@ body.motk-modal-open .motk-modal-backdrop{
     align-items: center;
     justify-content: center;
     background: rgba(0, 0, 0, 0.72);
-    z-index: 200000;
+    z-index: 2147483647;
+    pointer-events: auto;
   }
 
   .motk-media-backdrop.is-open {
@@ -846,6 +847,9 @@ body.motk-modal-open .motk-modal-backdrop{
     border: 1px solid rgba(255,255,255,0.14);
     background: rgba(18,18,18,0.98);
     box-shadow: 0 12px 40px rgba(0,0,0,0.55);
+    position: relative;
+    z-index: 1;
+    pointer-events: auto;
   }
 
   .motk-media-modal__header {
@@ -872,6 +876,7 @@ body.motk-modal-open .motk-modal-backdrop{
     align-items: center;
     justify-content: center;
     overflow: auto;
+    pointer-events: auto;
   }
 
   .motk-media-modal__body img,
@@ -879,6 +884,7 @@ body.motk-modal-open .motk-modal-backdrop{
     max-width: 100%;
     max-height: 80vh;
     display: block;
+    pointer-events: auto;
   }
 
   @media (prefers-color-scheme: dark) {
