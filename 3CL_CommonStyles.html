@@ -766,9 +766,55 @@ body.motk-modal-open .motk-modal-backdrop{
   }
   .motk-inline-textarea{ min-height:140px; resize:vertical; }
 
+  /* ===== MOTK Preview Modal (no iframe) ===== */
+  body.motk-modal-open { overflow: hidden; }
+
+  .proxy-thumb { display:block; cursor:pointer; }
+  .proxy-thumb img {
+    width: 100%;
+    aspect-ratio: 16/9;
+    object-fit: cover;
+    border-radius: 6px;
+    display: block;
+  }
+
+  .motk-preview-modal { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; }
+  .motk-preview-modal.hidden { display: none; }
+  .motk-preview-backdrop { position:absolute; inset:0; background: rgba(0,0,0,.72); }
+
+  .motk-preview-dialog {
+    position: relative;
+    width: min(1200px, 92vw);
+    height: min(80vh, 720px);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,.12);
+    background: rgba(20,20,20,.98);
+  }
+
+  .motk-preview-close {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    z-index: 2;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,.18);
+    background: rgba(0,0,0,.35);
+    color: #fff;
+    font-size: 22px;
+    line-height: 34px;
+    cursor: pointer;
+  }
+
+  .motk-preview-body { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding: 12px; }
+  .motk-preview-body img, .motk-preview-body video { max-width: 100%; max-height: 100%; width: auto; height: auto; }
+
   @media (prefers-color-scheme: dark) {
-    /* Prefer dark form controls where supported */
-    .motk-inline-editor[type="date"]{ color-scheme: dark; }
+    /* Force light picker popups while keeping dark input styling */
+    input[type="date"], input[type="time"], input[type="datetime-local"] { color-scheme: light; }
+    .motk-inline-editor[type="date"], .motk-inline-editor[type="time"], .motk-inline-editor[type="datetime-local"] { color-scheme: light; }
 
     /* Make the date picker icon visible (Chrome/Edge). */
     .motk-inline-editor[type="date"]::-webkit-calendar-picker-indicator{

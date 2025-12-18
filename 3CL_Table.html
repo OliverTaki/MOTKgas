@@ -765,7 +765,7 @@
             __quickSearch: true
           };
 
-          STATE.filterGroups = [...withoutOld, qsGroup];
+          STATE.filterGroups = withoutOld.concat([qsGroup]);
           STATE._quickSearchActive = true;
 
           return fetchAndRenderPage(1);
@@ -1085,7 +1085,7 @@
           return { name: '', map: {} };
         }
 
-        callFirst(['sv_indexAllProxies'], {},
+        callFirst(['sv_indexAllProxies'], pluralEntityFor(_entityForUI()),
           function (idx) {
             try {
               var picked = pickLatestMap_(idx);
@@ -1436,9 +1436,24 @@
             var m = meta || {};
             try { 
               var idFid = (STATE && Array.isArray(STATE.fieldIds) && STATE.fieldIds[0]) ? String(STATE.fieldIds[0]) : 'fi_0001';
-              var rowObj = { id: rowId, ID: rowId, fi_0001: rowId };
-              rowObj[idFid] = rowId;
-              m = Object.assign({}, m, { __rowId: rowId, __row: rowObj }); 
+              var tr = null;
+              try { tr = td && td.parentElement ? td.parentElement : null; } catch (_) { tr = null; }
+
+              var rowObj = null;
+              try {
+                if (STATE && STATE.rowsById && STATE.rowsById[rowId]) rowObj = STATE.rowsById[rowId];
+                else if (tr && tr.__row) rowObj = tr.__row;
+              } catch (_) { rowObj = null; }
+
+              if (!rowObj) {
+                rowObj = { id: rowId, ID: rowId, fi_0001: rowId };
+                rowObj[idFid] = rowId;
+              }
+
+              try { rowObj[fid] = v; } catch (_) { }
+              try { if (STATE) { STATE.rowsById = STATE.rowsById || {}; STATE.rowsById[rowId] = rowObj; } } catch (_) { }
+
+              m = Object.assign({}, m, { __rowId: rowId, rowId: rowId, recordId: rowId, id: rowId, fieldId: fid, __row: rowObj });
             } catch (_) { }
             if (window.CommonRenderer && typeof CommonRenderer.renderCellByField === 'function') {
               td.appendChild(CommonRenderer.renderCellByField(entitySing, fid, v, m));
@@ -1872,7 +1887,7 @@
           return false;
         }
 
-        function renderCellNode_(entitySing, fid, raw, meta, rowId) {
+        function renderCellNode_(entitySing, fid, raw, meta, rowId, rowObj) {
           try {
             if (!(window.CommonRenderer && typeof CommonRenderer.renderCellByField === 'function')) {
               return document.createTextNode(raw == null ? '' : String(raw));
@@ -1881,9 +1896,17 @@
             if (rowId) {
               try { 
                 var idFid = (STATE && Array.isArray(STATE.fieldIds) && STATE.fieldIds[0]) ? String(STATE.fieldIds[0]) : 'fi_0001';
-                var rowObj = { id: rowId, ID: rowId, fi_0001: rowId };
-                rowObj[idFid] = rowId;
-                m = Object.assign({}, m, { __rowId: rowId, __row: rowObj }); 
+                var ro = rowObj || null;
+                try {
+                  if (!ro && STATE && STATE.rowsById && STATE.rowsById[rowId]) ro = STATE.rowsById[rowId];
+                } catch (_) { }
+                if (!ro) {
+                  ro = { id: rowId, ID: rowId, fi_0001: rowId };
+                  ro[idFid] = rowId;
+                  try { ro[fid] = raw; } catch (_) { }
+                }
+                try { if (STATE) { STATE.rowsById = STATE.rowsById || {}; STATE.rowsById[rowId] = ro; } } catch (_) { }
+                m = Object.assign({}, m, { __rowId: rowId, rowId: rowId, recordId: rowId, id: rowId, fieldId: fid, __row: ro });
               } catch (_) { }
             }
             return CommonRenderer.renderCellByField(entitySing, fid, raw, m);
@@ -1904,10 +1927,21 @@
           var frag = document.createDocumentFragment();
           var prevGrpKeys = null;
           var entitySing = singularEntityFor(_entityForUI());
+          var idFid = (STATE && Array.isArray(STATE.fieldIds) && STATE.fieldIds[0]) ? String(STATE.fieldIds[0]) : 'fi_0001';
 
           for (var r = from; r < to; r++) {
             var row = rowsSlice[r];
             var rowId = String(row && row[idIdxForRow] || '').trim();
+            var rowObj = null;
+            try {
+              rowObj = { id: rowId, ID: rowId, fi_0001: rowId };
+              rowObj[idFid] = rowId;
+              for (var jj = 0; jj < STATE.fieldIds.length; jj++) {
+                rowObj[STATE.fieldIds[jj]] = row[jj];
+              }
+              STATE.rowsById = STATE.rowsById || {};
+              STATE.rowsById[rowId] = rowObj;
+            } catch (_) { rowObj = null; }
 
             if (useGrouping) {
               var curKeys = [];
@@ -1941,6 +1975,7 @@
 
             var tr = document.createElement('tr');
             tr.setAttribute('data-row-id', rowId);
+            try { if (rowObj) tr.__row = rowObj; } catch (_) { }
 
             for (var c = 0; c < cols.length; c++) {
               var fid = cols[c];
@@ -1959,7 +1994,7 @@
               }
 
               var meta = getNormalizedFieldMeta_(STATE.sheetName, fid);
-              var node = renderCellNode_(entitySing, fid, raw, meta, rowId);
+              var node = renderCellNode_(entitySing, fid, raw, meta, rowId, rowObj);
  
               if (
                 (canon === 'projectmembers' || canon === 'projectmember' || canon === 'member' || canon === 'members') &&
@@ -3747,7 +3782,7 @@
 
 
       // [FIX] handleNavigate removed. Full reload strategy only.
-      // window.addEventListener('motk:navigate', ...);
+      // (removed) legacy navigate hook placeholder
 
     })();
   </script>

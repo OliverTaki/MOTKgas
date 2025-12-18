@@ -332,9 +332,29 @@
 
       function prefetchProxyIndex() {
         if (!gsr()) return;
-        tryCall(['sv_indexAllProxies'], {}).then(function (idx) {
+
+        function pickLatestMap_(idx) {
+          try {
+            if (!idx || typeof idx !== "object") return { name: "", map: {} };
+            var keys = ["latestByShotId", "latestById", "latestByRecordId", "latestByEntityId", "latest", "byId", "byShotId", "byRecordId"];
+            for (var i = 0; i < keys.length; i++) {
+              var k = keys[i];
+              var v = idx[k];
+              if (v && typeof v === "object" && !Array.isArray(v)) return { name: k, map: v };
+            }
+            for (var k2 in idx) {
+              if (k2 === "items") continue;
+              var v2 = idx[k2];
+              if (v2 && typeof v2 === "object" && !Array.isArray(v2)) return { name: k2, map: v2 };
+            }
+          } catch (_) { }
+          return { name: "", map: {} };
+        }
+
+        tryCall(['sv_indexAllProxies'], pluralEntityFor(STATE.entity)).then(function (idx) {
             try {
-              var latest = (idx && idx.latestByShotId) ? idx.latestByShotId : {};
+              var picked = pickLatestMap_(idx);
+              var latest = picked.map || {};
               for (var k in latest) {
                 var v = latest[k] || null;
                 try {
@@ -342,7 +362,7 @@
                     if (!v.url && v.id) v.url = "https://drive.google.com/file/d/" + encodeURIComponent(String(v.id)) + "/view";
                   }
                 } catch (_) { }
-                PROXY_CACHE[String(k)] = v;
+                PROXY_CACHE[String(k).trim()] = v;
               }
               try { if (typeof window.__MOTK_PROXY_PREVIEW_REFRESH__ === "function") window.__MOTK_PROXY_PREVIEW_REFRESH__(); } catch (_) { }
               try { if (window.CommonRenderer && typeof CommonRenderer.refreshPendingPreviews === "function") CommonRenderer.refreshPendingPreviews(document); } catch (_) { }
@@ -1115,145 +1135,54 @@
 
       /* ===== 13.10 Card factory ===== */
       (function () {
+        function resolveShotViewFid_() {
+          try {
+            var meta = STATE.fieldsMeta || {};
+            var fids = Object.keys(meta);
+            for (var i = 0; i < fids.length; i++) {
+              var fid = fids[i];
+              var m = meta[fid] || {};
+              var s = String(m.name || m.label || m.field_name || "").toLowerCase();
+              if (s.indexOf("shotview") >= 0) return fid;
+            }
+          } catch (_) { }
+          return "fi_0013";
+        }
+
         function renderShotViewContent(container) {
+          try {
             container.innerHTML = "";
-            var link = null, thumb = null, id = "";
-            
-            var thumbCols = ["fi_0011", "fi_0021"];
-            for(var i=0; i<thumbCols.length; i++) {
-                var t = STATE.row && STATE.row[thumbCols[i]];
-                if (t && typeof t === "string" && (t.indexOf("http") === 0 || t.indexOf("data:image") === 0)) {
-                    thumb = t;
-                    break;
-                }
+            if (!(window.FieldsAPI && typeof FieldsAPI.renderCellByField === "function")) {
+              container.appendChild(document.createTextNode("—"));
+              return;
             }
 
-            var originalsCols = ["fi_0010", "fi_0020", "fi_0032"];
-            for(var i=0; i<originalsCols.length; i++) {
-                var val = STATE.row && STATE.row[originalsCols[i]];
-                if (val && typeof val === "string") {
-                    if (val.indexOf("drive.google.com") !== -1 || val.indexOf("gdrive:") !== -1) {
-                        link = val;
-                        break;
-                    }
-                }
-            }
-            
-            var rowId = STATE.row && (STATE.row["fi_0001"] || STATE.row["fi_0015"]);
-            if (rowId && PROXY_CACHE[rowId]) {
-                var f = PROXY_CACHE[rowId];
-                if (f && f.id) {
-                    thumb = "https://drive.google.com/thumbnail?id=" + f.id + "&sz=w800";
-                    link = "https://drive.google.com/file/d/" + f.id + "/view";
-                }
-            }
+            var fid = STATE.shotviewFid || (STATE.shotviewFid = resolveShotViewFid_());
+            var meta = (STATE.fieldsMeta && STATE.fieldsMeta[fid]) ? STATE.fieldsMeta[fid] : null;
+            var type = (meta && meta.type) ? String(meta.type).trim().toLowerCase() : "versions";
+            var val = (STATE.row && STATE.row[fid] != null) ? STATE.row[fid] : "";
 
-            if (STATE.row) {
-               if (STATE.row["fi_0001"]) id = STATE.row["fi_0001"];
-               else if (STATE.row["fi_0015"]) id = STATE.row["fi_0015"];
-            }
-            
-            if (thumb) {
-               var img = document.createElement("img");
-               img.src = thumb;
-               img.onload = function() { 
-                   var card = container.closest('.card');
-                   if(card) autoFitHeight(card, true);
-               };
-               img.style.width = "100%";
-               img.style.height = "100%";
-               img.style.objectFit = "contain";
-               
-               if (link) {
-                   /* FIX: wrap img in <a> to avoid 403 (noreferrer) */
-                   var a = document.createElement("a");
-                   a.href = link;
-                   a.target = "_blank";
-                   a.rel = "noopener noreferrer";
-                   a.style.display = "block"; a.style.width = "100%"; a.style.height = "100%";
-                   img.style.cursor = "pointer";
-                   a.appendChild(img);
-                   container.appendChild(a);
-               } else {
-                   container.appendChild(img);
-               }
-               return;
-            }
-            
-            var driveId = null;
-            if (link) {
-                var m = link.match(/[-\w]{25,}/);
-                if (m) driveId = m[0];
-            }
-            if (driveId) {
-                var img2 = document.createElement("img");
-                img2.style.cursor = "pointer";
-                img2.src = "https://drive.google.com/thumbnail?id=" + driveId + "&sz=w800";
-                img2.onload = function() { 
-                   var card2 = container.closest('.card');
-                   if(card2) autoFitHeight(card2, true);
-                };
-                
-                /* FIX: wrap in <a> to avoid 403 (noreferrer) */
-                var aImg = document.createElement("a");
-                aImg.href = link;
-                aImg.target = "_blank";
-                aImg.rel = "noopener noreferrer";
-                aImg.style.display = "block"; aImg.style.width = "100%"; aImg.style.height = "100%";
-                aImg.appendChild(img2);
-                container.appendChild(aImg);
+            var node = FieldsAPI.renderCellByField({
+              fid: fid,
+              fieldId: fid,
+              type: type,
+              val: val,
+              value: val,
+              row: STATE.row || {},
+              labels: STATE.labels || {},
+              entity: STATE.entity,
+              recordId: STATE.id,
+              rowId: STATE.id,
+              id: STATE.id,
+              field: meta || null,
+              editable: false
+            });
 
-                img2.onerror = function() {
-                    container.innerHTML = "";
-                    var a = document.createElement("a");
-                    var safeLink = link; 
-                    a.href = safeLink;
-                    a.target = "_blank"; 
-                    /* FIX: add noreferrer to avoid 403 */
-                    a.rel = "noopener noreferrer";
-                    a.className = "btn"; a.textContent = "Open Originals";
-                    container.style.display = "flex"; container.style.alignItems = "center"; container.style.justifyContent = "center";
-                    
-                    var wrapper = document.createElement("div");
-                    wrapper.style.textAlign = "center";
-                    wrapper.appendChild(a);
-                    
-                    var note = document.createElement("div");
-                    note.className = "media-note"; 
-                    note.textContent = "If 403 error occurs, check your Google account login.";
-                    note.style.marginTop = "8px";
-                    note.style.fontSize = "11px";
-                    note.style.opacity = "0.7";
-                    wrapper.appendChild(note);
-
-                    container.appendChild(wrapper);
-                };
-                
-                img2.style.width = "100%";
-                img2.style.height = "100%";
-                img2.style.objectFit = "contain";
-                return;
-            }
-            
-            if (window.FieldsAPI && typeof FieldsAPI.renderCellByField === "function") {
-               try {
-                 var node = FieldsAPI.renderCellByField({
-                   fid: "shotview", type: "shotview", val: "", value: "",
-                   row: STATE.row || {}, labels: STATE.labels || {}, entity: STATE.entity
-                 });
-                 if (node) {
-                   container.style.display = "flex"; container.style.alignItems = "center"; container.style.justifyContent = "center";
-                   container.appendChild(node);
-                   return;
-                 }
-               } catch(e) {}
-            }
-
-            container.textContent = (id || "No Preview");
-            container.style.display = "flex";
-            container.style.alignItems = "center";
-            container.style.justifyContent = "center";
-            container.style.color = "#666";
+            if (node) container.appendChild(node);
+            else container.appendChild(document.createTextNode("—"));
+          } catch (_) {
+            try { container.textContent = "—"; } catch (__) { }
+          }
         }
 
         function createCard(def) {
@@ -1398,11 +1327,15 @@
                 try {
                   node = FieldsAPI.renderCellByField({
                     fid: fid,
+                    fieldId: fid,
                     val: val,
                     value: val,
                      row: STATE.row || {},
                      labels: STATE.labels || {},
                      entity: STATE.entity,
+                     recordId: STATE.id,
+                     rowId: STATE.id,
+                     id: STATE.id,
                      type: ftype,
                      field: meta || null,
                      editable: !!(meta && meta.editable === true)
@@ -1618,11 +1551,15 @@
                          try {
                            node = FieldsAPI.renderCellByField({
                              fid: fid,
+                             fieldId: fid,
                              val: val,
                              value: val,
                               row: STATE.row || {},
                               labels: STATE.labels || {},
                               entity: STATE.entity,
+                              recordId: STATE.id,
+                              rowId: STATE.id,
+                              id: STATE.id,
                               type: ftype,
                               field: meta || null,
                               editable: !!(meta && meta.editable === true)
@@ -1890,10 +1827,14 @@
               td.innerHTML = "";
               td.appendChild(FieldsAPI.renderCellByField({
                 fid: f,
+                fieldId: f,
                 val: value,
                 row: STATE.row || {},
                 labels: STATE.labels || {},
                 entity: STATE.entity,
+                recordId: STATE.id,
+                rowId: STATE.id,
+                id: STATE.id,
                 type: (meta && meta.type) ? String(meta.type).trim().toLowerCase() : "",
                 linkEntity: linkEntity || null,
                 field: meta || null,

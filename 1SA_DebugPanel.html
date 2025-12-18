@@ -178,7 +178,7 @@
 
     function updateFromRes(res) {
       if (!res) return;
-      globalRes = { ...globalRes, ...res };
+      globalRes = Object.assign({}, globalRes, res);
       // Data maps
       updateElement('field-types', JSON.stringify(res.fieldTypes || {}) || 'empty');
       updateElement('link-maps-counts', JSON.stringify(res.counts || {}) || 'empty');
@@ -1038,151 +1038,56 @@
         return root;
       }
 
-      async function checkFieldsMatrix() {
-        logLine('== Fields matrix (entity × type) ==');
+      function hasAnyServerFn_(names) {
         try {
-          // try getFieldsMatrix, else getFields and aggregate, else listFields
-          var rows = null;
-          try {
-            var m = await gasTry(['getFieldsMatrix']);
-            logLine(JSON.stringify(m, null, 2));
-            return m;
-          } catch (_) { }
-          try {
-            rows = await gasTry(['getFields', 'listFields']);
-          } catch (e) {
-            logLine('Fields fetch missing: ' + e.message);
-            return null;
+          if (!google || !google.script || !google.script.run) return false;
+          for (var i = 0; i < names.length; i++) {
+            var n = names[i];
+            if (typeof google.script.run[n] === "function") return true;
           }
-          var map = {};
-          (rows || []).forEach(function (r) {
-            var e = String(r.entity || '').toLowerCase();
-            var t = String(r.type || '').toLowerCase();
-            if (!map[e]) map[e] = {};
-            map[e][t] = (map[e][t] || 0) + 1;
-          });
-          logLine(JSON.stringify(map, null, 2));
-          return map;
-        } catch (e) {
-          logLine('Fields error: ' + e.message);
-          return null;
-        }
+        } catch (_) { }
+        return false;
       }
 
-      async function checkLinksShape() {
-        logLine('== Link type sanity (expect *_link only) ==');
-        try {
-          var rows = await gasTry(['getFields', 'listFields']);
-          var legacy = [], proper = [];
-          (rows || []).forEach(function (r) {
-            var t = String(r.type || '').toLowerCase();
-            if (t === 'entity_link') legacy.push(r);
-            else if (/^(shot|asset|task|member|user)_link$/.test(t)) proper.push(r);
-          });
-          logLine('legacy entity_link count: ' + legacy.length);
-          if (legacy.length) logLine(JSON.stringify(legacy.slice(0, 20), null, 2));
-          logLine('proper *_link count: ' + proper.length);
-          return { legacy, proper };
-        } catch (e) {
-          logLine('Fields fetch error: ' + e.message);
-          return null;
-        }
+      function contractGroups_() {
+        return [
+          { name: "List rows (paged)", anyOf: ["sv_listRowsPage", "dp_listRowsPage", "listRowsPage"] },
+          { name: "Table query", anyOf: ["sv_queryTable_v3", "sv_queryTable"] },
+          { name: "Get record", anyOf: ["sv_getRecord_v2", "sv_getRecord"] },
+          { name: "Set record", anyOf: ["sv_setRecord_v2", "sv_setRecord"] },
+          { name: "Proxy index", anyOf: ["sv_indexAllProxies"] }
+        ];
       }
 
-      async function sampleListRows(entity) {
-        logLine('== listRowsPage sample ==');
-        try {
-          var out = await gasCall('listRowsPage', { entity: entity, page: 1, perPage: 5 });
-          var shape = {
-            columns: (out && out.columns) || [],
-            row0: (out && out.rows && out.rows[0]) || null,
-            meta: (out && out.meta) || {}
-          };
-          logLine(JSON.stringify(shape, null, 2));
-          var hasId = shape.columns.filter(c => String(c.type).toLowerCase() === 'id').length === 1;
-          var hasName = shape.columns.filter(c => String(c.type).toLowerCase() === 'entity_name').length === 1;
-          var badLink = shape.columns.filter(c => {
-            var t = String(c.type || '').toLowerCase();
-            if (t !== 'link') return false;
-            return !c.target || !/^(shot|asset|task|member|user)$/.test(String(c.target));
-          });
-          logLine('check: id=1:' + hasId + ' entity_name=1:' + hasName + ' badLink=' + badLink.length);
-          return out;
-        } catch (e) {
-          logLine('listRowsPage error: ' + e.message);
-          return null;
+      function runContractInspector_() {
+        var groups = contractGroups_();
+        var results = [];
+        for (var i = 0; i < groups.length; i++) {
+          var g = groups[i];
+          var ok = hasAnyServerFn_(g.anyOf);
+          results.push({ name: g.name, ok: ok, anyOf: g.anyOf.join(", ") });
         }
+        return results;
       }
 
-      async function sampleDetailListRows(entity) {
-        logLine('== Detail-style listRowsPage sample (' + entity + ') ==');
-        try {
-          // Payload matching 3CL_Detail.html Take 12
-          var entStrict = String(entity).toLowerCase();
-          var entLabel = (entStrict === 'shot') ? 'Shots' :
-            (entStrict === 'asset') ? 'Assets' :
-              (entStrict === 'task') ? 'Tasks' :
-                (entStrict === 'user') ? 'Users' :
-                  (entStrict === 'member') ? 'ProjectMembers' : 'Shots';
-          var payload = {
-            entity: "Shots",
-            sheet: "Shots",
-            entityPlural: "Shots",
-            sheetName: "shot",
-            pageType: "detail",
-            offset: 0,
-            limit: 5000,
-            sort: [],
-            filterGroups: [],
-            groupCombine: "all"
-          };
-          logLine("payload: " + JSON.stringify(payload)); // Changed log to logLine
-
-          try {
-            var resp = await gasTry(["listRowsPage", "sv_listRowsPage"], payload); // Changed tryCall to gasTry
-            if (resp && resp.rows && resp.rows.length) {
-              logLine("OK: Rows returned. " + resp.rows.length); // Changed log to logLine
-            } else {
-              logLine("Detail listRowsPage error: No rows returned."); // Changed log to logLine
-            }
-            return resp; // Return resp here
-          } catch (e) {
-            logLine("Detail listRowsPage error: " + e.message); // Changed log to logLine
-            return null; // Return null on error
-          }
-        } catch (e) {
-          logLine('Detail listRowsPage error: ' + e.message);
-          return null;
+      function renderContractInspector_(rows) {
+        resetLog();
+        logLine("== Contract groups (presence only) ==");
+        for (var i = 0; i < rows.length; i++) {
+          var r = rows[i];
+          logLine((r.ok ? "OK   " : "MISS ") + r.name + "  [" + r.anyOf + "]");
         }
-      }
-
-      async function checkMeta() {
-        logLine('== project_meta roots ==');
-        try {
-          // これは動いている実績あり
-          var meta = await gasTry(['getProjectMeta', 'get_project_meta']);
-          logLine(JSON.stringify(meta, null, 2));
-          return meta;
-        } catch (e) {
-          logLine('project_meta error: ' + e.message);
-          return null;
-        }
+        logLine("== done ==");
       }
 
       function start() {
         ensurePanel();
-        (async function () {
+        try {
+          renderContractInspector_(runContractInspector_());
+        } catch (err) {
           resetLog();
-          await checkFieldsMatrix();
-          await checkLinksShape();
-          await sampleListRows('shot');
-          await sampleListRows('asset');
-          await sampleDetailListRows('shot');
-          await checkMeta();
-          logLine('== done ==');
-        })().catch(function (err) {
           logLine('contract-inspector error: ' + String(err && err.message || err));
-        });
+        }
       }
 
       window.runAllChecks = runAllChecks;
