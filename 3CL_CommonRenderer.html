@@ -405,6 +405,7 @@
         btn.addEventListener("click", function (ev) {
           try { ev.preventDefault(); } catch (_) { }
           try { ev.stopPropagation(); ev.stopImmediatePropagation(); } catch (_) { }
+          try { console.log("[MOTK][MediaModal] trigger click", { url: mediaUrl, title: "", ts: Date.now() }); } catch (_) { }
           if (typeof window.MOTK_openMediaModal === "function") {
             window.MOTK_openMediaModal(mediaUrl, "");
           } else {
@@ -571,12 +572,6 @@
     function _motk_ensureMediaModalUI_() {
       if (document.getElementById("motk-media-modal-backdrop")) return;
 
-      try {
-        // Make sure any legacy preview modal doesn't sit on top (some sessions may have it already).
-        var legacy = document.getElementById("motkPreviewModal");
-        if (legacy && legacy.classList) legacy.classList.add("hidden");
-      } catch (_) { }
-
       var backdrop = document.createElement("div");
       backdrop.id = "motk-media-modal-backdrop";
       backdrop.className = "motk-media-backdrop";
@@ -620,14 +615,64 @@
       });
     }
 
+    function _motkMediaState_() {
+      return (window.__MOTK_MEDIA_MODAL_STATE__ = (window.__MOTK_MEDIA_MODAL_STATE__ || {
+        isOpen: false,
+        currentUrl: null,
+        lastOpenTs: 0,
+        lastCloseTs: 0
+      }));
+    }
+
+    function _motkCloseMediaModalInternal_(reason, opts) {
+      opts = opts || {};
+      var silent = !!opts.silent;
+
+      var st = _motkMediaState_();
+      var bd = document.getElementById("motk-media-modal-backdrop");
+      if (!bd) return;
+
+      // 1) reset state first (fixed order)
+      st.isOpen = false;
+      st.currentUrl = null;
+
+      var now = Date.now();
+      st.lastCloseTs = now;
+      var delta = st.lastOpenTs ? (now - st.lastOpenTs) : -1;
+      if (!silent) {
+        try { console.log("[MOTK_MEDIA_MODAL] close reason=" + String(reason || "unknown") + " deltaMs=" + delta); } catch (_) { }
+      }
+
+      // 3) release video resources (fixed order)
+      var body = document.getElementById("motk-media-modal-body");
+      try {
+        if (body) {
+          var v = body.querySelector && body.querySelector("video");
+          if (v) {
+            try { v.pause(); } catch (_) { }
+            try { v.removeAttribute("src"); } catch (_) { }
+            try { v.load(); } catch (_) { }
+          }
+        }
+      } catch (_) { }
+
+      // 4) clear body safely (keep modal root)
+      if (body) {
+        try {
+          while (body.firstChild) body.removeChild(body.firstChild);
+        } catch (_) {
+          body.innerHTML = "";
+        }
+      }
+
+      // 5) close
+      bd.classList.remove("is-open");
+    }
+
     function MOTK_openMediaModal(url, optTitle) {
       _motk_ensureMediaModalUI_();
 
-      var st = (window.__MOTK_MEDIA_MODAL_STATE__ = (window.__MOTK_MEDIA_MODAL_STATE__ || {
-        isOpen: false,
-        currentUrl: null,
-        lastOpenTs: 0
-      }));
+      var st = _motkMediaState_();
 
       var title = optTitle ? String(optTitle) : "";
       var rawUrl = url ? String(url) : "";
@@ -649,6 +694,11 @@
         return;
       }
 
+      // If already open, force a silent close first to hard-reset resources/state (re-open override).
+      if (st.isOpen === true) {
+        _motkCloseMediaModalInternal_("reopen_override", { silent: true });
+      }
+
       var bd = document.getElementById("motk-media-modal-backdrop");
       var elTitle = document.getElementById("motk-media-modal-title");
       var body = document.getElementById("motk-media-modal-body");
@@ -660,7 +710,7 @@
       try { console.log("[MOTK_MEDIA_MODAL] open ts=" + st.lastOpenTs); } catch (_) { }
 
       elTitle.textContent = title || rawUrl || "";
-      body.innerHTML = "";
+      if (body) body.innerHTML = "";
 
       if (isVideo) {
         var v = document.createElement("video");
@@ -686,41 +736,7 @@
     }
 
     function MOTK_closeMediaModal(reason) {
-      var st = (window.__MOTK_MEDIA_MODAL_STATE__ = (window.__MOTK_MEDIA_MODAL_STATE__ || {
-        isOpen: false,
-        currentUrl: null,
-        lastOpenTs: 0
-      }));
-
-      var bd = document.getElementById("motk-media-modal-backdrop");
-      if (!bd) return;
-
-      // 1) reset state first
-      st.isOpen = false;
-      st.currentUrl = null;
-
-      var now = Date.now();
-      var delta = st.lastOpenTs ? (now - st.lastOpenTs) : -1;
-      try { console.log("[MOTK_MEDIA_MODAL] close reason=" + String(reason || "unknown") + " deltaMs=" + delta); } catch (_) { }
-
-      // 2) release video resources
-      var body = document.getElementById("motk-media-modal-body");
-      try {
-        if (body) {
-          var v = body.querySelector && body.querySelector("video");
-          if (v) {
-            try { v.pause(); } catch (_) { }
-            try { v.removeAttribute("src"); } catch (_) { }
-            try { v.load(); } catch (_) { }
-          }
-        }
-      } catch (_) { }
-
-      // 3) clear body content
-      if (body) body.innerHTML = "";
-
-      // 4) close
-      bd.classList.remove("is-open");
+      _motkCloseMediaModalInternal_(reason, { silent: false });
     }
 
     // Expose globally (Table + Detail + CommonRenderer)
@@ -760,6 +776,7 @@
         ev.stopPropagation();
         ev.stopImmediatePropagation();
 
+        try { console.log("[MOTK][MediaModal] trigger click", { url: media, title: name || "", ts: Date.now() }); } catch (_) { }
         if (typeof window.MOTK_openMediaModal === "function") {
           window.MOTK_openMediaModal(media, name || "");
         } else {
@@ -1339,112 +1356,6 @@
         try { if (typeof window.__MOTK_PROXY_PREVIEW_REFRESH__ === "function") window.__MOTK_PROXY_PREVIEW_REFRESH__(); } catch (_) { }
       };
     }
-
-    (function installMotkPreviewModalOnce(){
-      return; // Take27: replaced by MOTK_openMediaModal/MOTK_closeMediaModal
-      if (window.__MOTK_PREVIEW_MODAL_INSTALLED__) return;
-      window.__MOTK_PREVIEW_MODAL_INSTALLED__ = true;
-
-      function ensureModal_(){
-        if (document.getElementById("motkPreviewModal")) return;
-
-        var modal = document.createElement("div");
-        modal.id = "motkPreviewModal";
-        modal.className = "motk-preview-modal hidden";
-        modal.innerHTML =
-          '<div class="motk-preview-backdrop" data-motk-close="1"></div>' +
-          '<div class="motk-preview-dialog" role="dialog" aria-modal="true">' +
-            '<button class="motk-preview-close" type="button" data-motk-close="1">×</button>' +
-            '<div class="motk-preview-body"></div>' +
-          '</div>';
-
-        document.body.appendChild(modal);
-
-        modal.addEventListener("click", function(ev){
-          var t = ev.target;
-          if (t && t.getAttribute && t.getAttribute("data-motk-close") === "1") {
-            try { ev.preventDefault(); } catch (_) { }
-            try {
-              ev.stopPropagation();
-              if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
-            } catch (_) { }
-            closeModal_();
-            return;
-          }
-          // Prevent click-through / underlying handlers while keeping media controls interactive.
-          try { ev.stopPropagation(); } catch (_) { }
-        });
-      }
-
-      function isVideo_(mime, name){
-        mime = String(mime || "").toLowerCase();
-        name = String(name || "").toLowerCase();
-        if (mime.indexOf("video/") === 0) return true;
-        return /\.(mp4|webm|mov|m4v|avi)$/.test(name);
-      }
-
-      function openModal_(opts){
-        ensureModal_();
-        var modal = document.getElementById("motkPreviewModal");
-        var body = modal.querySelector(".motk-preview-body");
-        body.innerHTML = "";
-
-        var src = String((opts && opts.media) || "");
-        var name = String((opts && opts.name) || "");
-        var mime = String((opts && opts.mime) || "");
-
-        if (!src) {
-          body.appendChild(document.createTextNode("No preview source."));
-        } else if (isVideo_(mime, name)) {
-          var v = document.createElement("video");
-          v.controls = true;
-          v.autoplay = true;
-          v.playsInline = true;
-          v.src = src;
-          body.appendChild(v);
-        } else {
-          var img = document.createElement("img");
-          img.src = src;
-          img.alt = name || "preview";
-          body.appendChild(img);
-        }
-
-        modal.classList.remove("hidden");
-        document.body.classList.add("motk-modal-open");
-      }
-
-      function closeModal_(){
-        var modal = document.getElementById("motkPreviewModal");
-        if (!modal) return;
-        var body = modal.querySelector(".motk-preview-body");
-        if (body) body.innerHTML = "";
-        modal.classList.add("hidden");
-        document.body.classList.remove("motk-modal-open");
-      }
-
-      document.addEventListener("keydown", function(ev){
-        if (ev.key === "Escape") closeModal_();
-      });
-
-      document.addEventListener("click", function(ev){
-        var t = ev.target;
-        var node = t && t.closest ? t.closest('[data-motk-proxy-thumb="1"]') : null;
-        if (!node) return;
-
-        ev.preventDefault();
-        ev.stopPropagation();
-        try { if (ev.stopImmediatePropagation) ev.stopImmediatePropagation(); } catch (_) { }
-
-        openModal_({
-          media: node.getAttribute("data-proxy-media") || "",
-          name: node.getAttribute("data-proxy-name") || "",
-          mime: node.getAttribute("data-proxy-mime") || ""
-        });
-      }, true);
-
-      window.__MOTK_OPEN_PREVIEW_MODAL__ = openModal_;
-      window.__MOTK_CLOSE_PREVIEW_MODAL__ = closeModal_;
-    })();
 
     ensureLinkMaps().catch(function () { });
   })();

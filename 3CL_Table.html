@@ -2339,6 +2339,7 @@
           try { ev.stopPropagation(); ev.stopImmediatePropagation(); } catch (_) { }
 
           var openUrl = (file && typeof file === 'object' && file.url) ? String(file.url) : preview;
+          try { console.log("[MOTK][MediaModal] trigger click", { url: openUrl, title: (file && typeof file === 'object' && file.name) ? String(file.name) : "", ts: Date.now() }); } catch (_) { }
           if (typeof window.MOTK_openMediaModal === "function") {
             window.MOTK_openMediaModal(openUrl, (file && typeof file === 'object' && file.name) ? String(file.name) : "");
           } else {

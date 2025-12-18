@@ -766,9 +766,7 @@ body.motk-modal-open .motk-modal-backdrop{
   }
   .motk-inline-textarea{ min-height:140px; resize:vertical; }
 
-  /* ===== MOTK Preview Modal (no iframe) ===== */
-  body.motk-modal-open { overflow: hidden; }
-
+  /* Preview thumb wrapper (used by Table/Detail renderers) */
   .proxy-thumb { display:block; cursor:pointer; }
   .proxy-thumb img {
     width: 100%;
@@ -777,40 +775,6 @@ body.motk-modal-open .motk-modal-backdrop{
     border-radius: 6px;
     display: block;
   }
-
-  .motk-preview-modal { position: fixed; inset: 0; z-index: 2147483647; display: flex; align-items: center; justify-content: center; pointer-events: auto; }
-  .motk-preview-modal.hidden { display: none; }
-  .motk-preview-backdrop { position:absolute; inset:0; background: rgba(0,0,0,.72); pointer-events: auto; }
-
-  .motk-preview-dialog {
-    position: relative;
-    width: min(1200px, 92vw);
-    height: min(80vh, 720px);
-    border-radius: 12px;
-    overflow: hidden;
-    border: 1px solid rgba(255,255,255,.12);
-    background: rgba(20,20,20,.98);
-    pointer-events: auto;
-  }
-
-  .motk-preview-close {
-    position: absolute;
-    top: 8px;
-    right: 10px;
-    z-index: 2;
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-    border: 1px solid rgba(255,255,255,.18);
-    background: rgba(0,0,0,.35);
-    color: #fff;
-    font-size: 22px;
-    line-height: 34px;
-    cursor: pointer;
-  }
-
-  .motk-preview-body { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding: 12px; }
-  .motk-preview-body img, .motk-preview-body video { max-width: 100%; max-height: 100%; width: auto; height: auto; }
 
   /* ===== Media Modal (Proxy Viewer) ===== */
   .motk-preview-btn {
@@ -829,7 +793,7 @@ body.motk-modal-open .motk-modal-backdrop{
     align-items: center;
     justify-content: center;
     background: rgba(0, 0, 0, 0.72);
-    z-index: 2147483647;
+    z-index: 2147483646;
     pointer-events: auto;
   }
 
@@ -848,7 +812,7 @@ body.motk-modal-open .motk-modal-backdrop{
     background: rgba(18,18,18,0.98);
     box-shadow: 0 12px 40px rgba(0,0,0,0.55);
     position: relative;
-    z-index: 1;
+    z-index: 2147483647;
     pointer-events: auto;
   }
 
@@ -886,6 +850,10 @@ body.motk-modal-open .motk-modal-backdrop{
     display: block;
     pointer-events: auto;
   }
+
+  /* Enforce operability even if other CSS accidentally disables pointer events. */
+  .motk-media-modal,
+  .motk-media-modal * { pointer-events: auto; }
 
   @media (prefers-color-scheme: dark) {
     /* Force light picker popups while keeping dark input styling */
