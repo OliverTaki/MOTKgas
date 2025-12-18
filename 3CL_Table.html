@@ -1777,7 +1777,10 @@
         // Click: checkbox toggle only (do not block other clicks)
         document.addEventListener("click", function(e) {
           try {
-            if (e && e.target && e.target.closest && e.target.closest('[data-motk-media-trigger="1"]')) return;
+            // Guard: media modal + media trigger should not be interpreted as table actions / inline edit
+            if (e && e.target && e.target.closest && (e.target.closest('#motk-media-modal-backdrop') || e.target.closest('[data-motk-media-trigger="1"]'))) {
+              return;
+            }
           } catch (_) { }
           var td = closestEl_(e.target, "#tableWrap td[data-col-id]");
           if (!td) return;

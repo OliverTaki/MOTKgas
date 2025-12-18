@@ -569,82 +569,159 @@
       return s;
     }
 
+    function _motk_getMediaModalState_() {
+      if (!window.__motkMediaModalState__) {
+        window.__motkMediaModalState__ = {
+          isOpen: false,
+          openedAt: 0,
+          ignoreBackdropUntil: 0,
+          lastCloseReason: "",
+          lastOpen: null
+        };
+      }
+      return window.__motkMediaModalState__;
+    }
+
     function _motk_ensureMediaModalUI_() {
-      if (document.getElementById("motk-media-modal-backdrop")) return;
+      var st = _motk_getMediaModalState_();
 
-      var backdrop = document.createElement("div");
-      backdrop.id = "motk-media-modal-backdrop";
-      backdrop.className = "motk-media-backdrop";
+      var bd = document.getElementById("motk-media-modal-backdrop");
+      if (!bd) {
+        bd = document.createElement("div");
+        bd.id = "motk-media-modal-backdrop";
+        bd.className = "motk-media-backdrop";
+        bd.innerHTML = ""
+          + "<div class='motk-media-modal' role='dialog' aria-modal='true'>"
+          + "  <div class='motk-media-modal__header'>"
+          + "    <div class='motk-media-title'></div>"
+          + "    <button type='button' class='motk-media-close' aria-label='Close'>×</button>"
+          + "  </div>"
+          + "  <div class='motk-media-modal__body'>"
+          + "    <div class='motk-preview-body'></div>"
+          + "  </div>"
+          + "</div>";
 
-      var modal = document.createElement("div");
-      modal.id = "motk-media-modal";
-      modal.className = "motk-media-modal";
+        // IMPORTANT: append to <html>, not <body>
+        // If any route/render logic ever does `document.body.innerHTML = ...`,
+        // the modal will survive.
+        document.documentElement.appendChild(bd);
+      }
 
-      modal.innerHTML =
-        '<div class="motk-media-modal__header">' +
-          '<div id="motk-media-modal-title" class="motk-media-modal__title"></div>' +
-          '<button id="motk-media-modal-close" type="button" class="motk-btn motk-btn-secondary">Close</button>' +
-        '</div>' +
-        '<div id="motk-media-modal-body" class="motk-media-modal__body"></div>';
+      if (!bd.__motkWired) {
+        bd.__motkWired = true;
 
-      backdrop.appendChild(modal);
-      document.body.appendChild(backdrop);
-
-      // Close when clicking outside the modal (backdrop only)
-      backdrop.addEventListener("click", function(e) {
-        if (e.target === backdrop) window.MOTK_closeMediaModal("backdrop");
-      });
-
-      // Prevent clicks inside modal from bubbling to backdrop/document handlers
-      modal.addEventListener("click", function(e) {
-        e.stopPropagation();
-      });
-
-      var btnClose = document.getElementById("motk-media-modal-close");
-      btnClose.addEventListener("click", function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        window.MOTK_closeMediaModal("close_button");
-      });
-
-      document.addEventListener("keydown", function(e) {
-        if (e.key === "Escape") {
-          var bd = document.getElementById("motk-media-modal-backdrop");
-          if (bd && bd.classList.contains("is-open")) window.MOTK_closeMediaModal("esc");
+        var closeBtn = bd.querySelector(".motk-media-close");
+        if (closeBtn) {
+          closeBtn.addEventListener("click", function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            window.MOTK_closeMediaModal("closeBtn");
+          });
         }
-      });
+
+        // Backdrop click closes, but ignore the immediate click that can be generated
+        // right after opening (pointer-up / click-through).
+        bd.addEventListener("click", function(e) {
+          if (e.target !== bd) return;
+          var st2 = _motk_getMediaModalState_();
+          if (st2.ignoreBackdropUntil && Date.now() < st2.ignoreBackdropUntil) return;
+          window.MOTK_closeMediaModal("backdrop");
+        });
+
+        document.addEventListener("keydown", function(e) {
+          if (e.key !== "Escape") return;
+          var b = document.getElementById("motk-media-modal-backdrop");
+          if (b && b.classList.contains("is-open")) {
+            window.MOTK_closeMediaModal("escape");
+          }
+        });
+      }
+
+      return bd;
     }
 
-    function _motkMediaState_() {
-      return (window.__MOTK_MEDIA_MODAL_STATE__ = (window.__MOTK_MEDIA_MODAL_STATE__ || {
-        isOpen: false,
-        currentUrl: null,
-        lastOpenTs: 0,
-        lastCloseTs: 0
-      }));
+    function MOTK_openMediaModal(url, title, opt) {
+      var st = _motk_getMediaModalState_();
+      var bd = _motk_ensureMediaModalUI_();
+
+      var body = bd.querySelector(".motk-preview-body");
+      var titleEl = bd.querySelector(".motk-media-title");
+
+      var rawUrl = url ? String(url) : "";
+      var mediaUrl = (typeof _motk_normalizeMediaUrl_ === "function") ? _motk_normalizeMediaUrl_(rawUrl) : rawUrl;
+      var safeTitle = title ? String(title) : "";
+
+      st.lastOpen = { url: rawUrl || "", title: safeTitle || "", opt: opt || null, at: Date.now() };
+
+      if (titleEl) titleEl.textContent = safeTitle || "";
+      if (!body) return;
+
+      // Reset + open
+      if (st.isOpen === true) {
+        // Silent internal close: release resources + clear content before replacing.
+        try { window.MOTK_closeMediaModal("reopen_override"); } catch (_) { }
+      }
+
+      body.innerHTML = "";
+      st.isOpen = true;
+      st.openedAt = Date.now();
+      st.ignoreBackdropUntil = st.openedAt + 350;
+      st.lastCloseReason = "";
+      bd.classList.add("is-open");
+      try { console.log("[MOTK_MEDIA_MODAL] open ts=" + st.openedAt); } catch (_) { }
+
+      if (!mediaUrl) return;
+
+      var isVideo = _motk_isVideoUrl_(rawUrl) || _motk_isVideoUrl_(mediaUrl) || _motk_isVideoUrl_(safeTitle);
+      var isImage =
+        _motk_isImageUrl_(rawUrl) ||
+        _motk_isImageUrl_(mediaUrl) ||
+        _motk_isImageUrl_(safeTitle) ||
+        (rawUrl.indexOf("drive.google.com/thumbnail") !== -1) ||
+        (mediaUrl.indexOf("drive.google.com/thumbnail") !== -1);
+
+      // If unknown kind, fall back to new tab (keeps modal from looking "broken").
+      if (!isVideo && !isImage) {
+        try { bd.classList.remove("is-open"); } catch (_) { }
+        st.isOpen = false;
+        window.open(rawUrl || mediaUrl, "_blank", "noopener");
+        return;
+      }
+
+      if (isVideo) {
+        var v = document.createElement("video");
+        v.className = "motk-preview-video";
+        v.src = mediaUrl;
+        v.controls = true;
+        v.playsInline = true;
+
+        if (opt && opt.autoplay) {
+          v.autoplay = true;
+          v.muted = true;
+          try { v.play(); } catch (_) { }
+        }
+
+        body.appendChild(v);
+      } else {
+        var img = document.createElement("img");
+        img.className = "motk-preview-img";
+        img.alt = safeTitle || "";
+        img.src = mediaUrl;
+        body.appendChild(img);
+      }
     }
 
-    function _motkCloseMediaModalInternal_(reason, opts) {
-      opts = opts || {};
-      var silent = !!opts.silent;
-
-      var st = _motkMediaState_();
+    function MOTK_closeMediaModal(reason) {
+      var st = _motk_getMediaModalState_();
       var bd = document.getElementById("motk-media-modal-backdrop");
       if (!bd) return;
 
-      // 1) reset state first (fixed order)
-      st.isOpen = false;
-      st.currentUrl = null;
+      try {
+        var delta = st && st.openedAt ? (Date.now() - st.openedAt) : -1;
+        console.log("[MOTK_MEDIA_MODAL] close reason=" + String(reason || "unknown") + " deltaMs=" + delta);
+      } catch (_) { }
 
-      var now = Date.now();
-      st.lastCloseTs = now;
-      var delta = st.lastOpenTs ? (now - st.lastOpenTs) : -1;
-      if (!silent) {
-        try { console.log("[MOTK_MEDIA_MODAL] close reason=" + String(reason || "unknown") + " deltaMs=" + delta); } catch (_) { }
-      }
-
-      // 3) release video resources (fixed order)
-      var body = document.getElementById("motk-media-modal-body");
+      var body = bd.querySelector(".motk-preview-body");
       try {
         if (body) {
           var v = body.querySelector && body.querySelector("video");
@@ -656,92 +733,19 @@
         }
       } catch (_) { }
 
-      // 4) clear body safely (keep modal root)
-      if (body) {
-        try {
-          while (body.firstChild) body.removeChild(body.firstChild);
-        } catch (_) {
-          body.innerHTML = "";
-        }
-      }
-
-      // 5) close
-      bd.classList.remove("is-open");
-    }
-
-    function MOTK_openMediaModal(url, optTitle) {
-      _motk_ensureMediaModalUI_();
-
-      var st = _motkMediaState_();
-
-      var title = optTitle ? String(optTitle) : "";
-      var rawUrl = url ? String(url) : "";
-      var mediaUrl = _motk_normalizeMediaUrl_(rawUrl);
-
-      // Decide media kind primarily by extension (raw or normalized).
-      // NOTE: Drive URLs often have no extension, so also allow optTitle to hint.
-      var isVideo = _motk_isVideoUrl_(rawUrl) || _motk_isVideoUrl_(mediaUrl) || _motk_isVideoUrl_(title);
-      var isImage =
-        _motk_isImageUrl_(rawUrl) ||
-        _motk_isImageUrl_(mediaUrl) ||
-        _motk_isImageUrl_(title) ||
-        (rawUrl.indexOf("drive.google.com/thumbnail") !== -1) ||
-        (mediaUrl.indexOf("drive.google.com/thumbnail") !== -1);
-
-      // If unknown kind, do not guess; fall back to new tab to avoid blank modal.
-      if (!isVideo && !isImage) {
-        window.open(rawUrl || mediaUrl, "_blank", "noopener");
-        return;
-      }
-
-      // If already open, force a silent close first to hard-reset resources/state (re-open override).
-      if (st.isOpen === true) {
-        _motkCloseMediaModalInternal_("reopen_override", { silent: true });
-      }
-
-      var bd = document.getElementById("motk-media-modal-backdrop");
-      var elTitle = document.getElementById("motk-media-modal-title");
-      var body = document.getElementById("motk-media-modal-body");
-
-      // If open is called while open, treat it as "replace content and keep open".
-      st.isOpen = true;
-      st.currentUrl = mediaUrl || null;
-      st.lastOpenTs = Date.now();
-      try { console.log("[MOTK_MEDIA_MODAL] open ts=" + st.lastOpenTs); } catch (_) { }
-
-      elTitle.textContent = title || rawUrl || "";
       if (body) body.innerHTML = "";
+      bd.classList.remove("is-open");
 
-      if (isVideo) {
-        var v = document.createElement("video");
-        v.controls = true;
-        v.autoplay = true;
-        v.playsInline = true;
-        // Autoplay can be blocked with sound; muted improves reliability.
-        v.muted = true;
-        v.src = mediaUrl;
-        body.appendChild(v);
-      } else {
-        var img = document.createElement("img");
-        img.alt = title || "preview";
-        img.src = mediaUrl;
-        body.appendChild(img);
-      }
-
-      bd.classList.add("is-open");
-
-      // Focus close button for immediate keyboard access
-      var btnClose = document.getElementById("motk-media-modal-close");
-      try { btnClose.focus(); } catch (_) {}
+      st.isOpen = false;
+      st.lastCloseReason = reason || "";
     }
 
-    function MOTK_closeMediaModal(reason) {
-      _motkCloseMediaModalInternal_(reason, { silent: false });
-    }
-
-    // Expose globally (Table + Detail + CommonRenderer)
     window.MOTK_openMediaModal = MOTK_openMediaModal;
     window.MOTK_closeMediaModal = MOTK_closeMediaModal;
+    window.MOTK_getMediaModalState = function() {
+      var st = _motk_getMediaModalState_();
+      try { return JSON.parse(JSON.stringify(st)); } catch (_) { return st; }
+    };
 
     function _fillPreviewSingle_(host, recordId, fieldId, url) {
       host.innerHTML = "";
