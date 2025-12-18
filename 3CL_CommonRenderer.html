@@ -397,11 +397,21 @@
       var list = parseList(o.val);
       var box = el("div", "thumbs");
       list.forEach(function (tok) {
-        var url = /^https?:\/\//i.test(tok) ? tok : ("https://drive.google.com/thumbnail?sz=w256&id=" + extractDriveId(tok));
-        var img = el("img", "thumb"); img.loading = "lazy"; img.decoding = "async"; img.src = url;
-        /* FIX: wrap thumbnails in a link (new tab, noopener+noreferrer) */
-        var a = el("a"); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; a.appendChild(img);
-        box.appendChild(a);
+        var id = extractDriveId(tok);
+        var thumbUrl = /^https?:\/\//i.test(tok) ? tok : ("https://drive.google.com/thumbnail?sz=w256&id=" + id);
+        var mediaUrl = id ? ("https://drive.google.com/uc?export=download&id=" + id) : thumbUrl;
+        var img = el("img", "thumb"); img.loading = "lazy"; img.decoding = "async"; img.src = thumbUrl;
+        var btn = el("button", "motk-preview-btn"); btn.type = "button"; btn.appendChild(img);
+        btn.addEventListener("click", function (ev) {
+          try { ev.preventDefault(); } catch (_) { }
+          try { ev.stopPropagation(); ev.stopImmediatePropagation(); } catch (_) { }
+          if (typeof window.MOTK_openMediaModal === "function") {
+            window.MOTK_openMediaModal(mediaUrl, "");
+          } else {
+            window.open(mediaUrl, "_blank", "noopener");
+          }
+        });
+        box.appendChild(btn);
       });
       return box;
     }
@@ -454,7 +464,7 @@
         if (v && typeof v === "object") {
           if (v.url) return String(v.url);
           if (v.previewUrl) return String(v.previewUrl);
-          if (v.id) return "https://drive.google.com/file/d/" + encodeURIComponent(String(v.id)) + "/view";
+          if (v.id) return "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(String(v.id));
         }
       } catch (_) { }
       return "";
@@ -506,6 +516,171 @@
       return "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(id);
     }
 
+    function _motk_isVideoUrl_(url) {
+      if (!url) return false;
+      var u = String(url).split("?")[0].toLowerCase();
+      return (
+        u.endsWith(".mp4") ||
+        u.endsWith(".webm") ||
+        u.endsWith(".mov") ||
+        u.endsWith(".m4v")
+      );
+    }
+
+    function _motk_isImageUrl_(url) {
+      if (!url) return false;
+      var u = String(url).split("?")[0].toLowerCase();
+      return (
+        u.endsWith(".jpg") ||
+        u.endsWith(".jpeg") ||
+        u.endsWith(".png") ||
+        u.endsWith(".webp") ||
+        u.endsWith(".gif")
+      );
+    }
+
+    /**
+     * Normalize Drive "view" URLs into direct-download URLs usable in <video>/<img>.
+     * - Never returns iframe-preview URLs.
+     * - If it cannot normalize, returns the original.
+     */
+    function _motk_normalizeMediaUrl_(url) {
+      if (!url) return url;
+      var s = String(url);
+
+      // Don't rewrite Drive thumbnail URLs; they are already direct image endpoints (low-res but valid).
+      if (s.indexOf("drive.google.com/thumbnail") !== -1) return s;
+
+      // https://drive.google.com/file/d/<ID>/view
+      var m = s.match(/https?:\/\/drive\.google\.com\/file\/d\/([^\/?#]+)\//);
+      if (m && m[1]) {
+        return "https://drive.google.com/uc?export=download&id=" + m[1];
+      }
+
+      // https://drive.google.com/open?id=<ID>  or any drive.google.com url that contains ?id=<ID>
+      if (s.indexOf("drive.google.com") !== -1) {
+        var m2 = s.match(/[?&]id=([^&#]+)/);
+        if (m2 && m2[1]) {
+          return "https://drive.google.com/uc?export=download&id=" + m2[1];
+        }
+      }
+
+      return s;
+    }
+
+    function _motk_ensureMediaModalUI_() {
+      if (document.getElementById("motk-media-modal-backdrop")) return;
+
+      var backdrop = document.createElement("div");
+      backdrop.id = "motk-media-modal-backdrop";
+      backdrop.className = "motk-media-backdrop";
+
+      var modal = document.createElement("div");
+      modal.id = "motk-media-modal";
+      modal.className = "motk-media-modal";
+
+      modal.innerHTML =
+        '<div class="motk-media-modal__header">' +
+          '<div id="motk-media-modal-title" class="motk-media-modal__title"></div>' +
+          '<button id="motk-media-modal-close" type="button" class="motk-btn motk-btn-secondary">Close</button>' +
+        '</div>' +
+        '<div id="motk-media-modal-body" class="motk-media-modal__body"></div>';
+
+      backdrop.appendChild(modal);
+      document.body.appendChild(backdrop);
+
+      // Close when clicking outside the modal (backdrop only)
+      backdrop.addEventListener("click", function(e) {
+        if (e.target === backdrop) window.MOTK_closeMediaModal();
+      });
+
+      // Prevent clicks inside modal from bubbling to backdrop/document handlers
+      modal.addEventListener("click", function(e) {
+        e.stopPropagation();
+      });
+
+      var btnClose = document.getElementById("motk-media-modal-close");
+      btnClose.addEventListener("click", function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        window.MOTK_closeMediaModal();
+      });
+
+      document.addEventListener("keydown", function(e) {
+        if (e.key === "Escape") {
+          var bd = document.getElementById("motk-media-modal-backdrop");
+          if (bd && bd.classList.contains("is-open")) window.MOTK_closeMediaModal();
+        }
+      });
+    }
+
+    function MOTK_openMediaModal(url, optTitle) {
+      _motk_ensureMediaModalUI_();
+
+      var title = optTitle ? String(optTitle) : "";
+      var rawUrl = url ? String(url) : "";
+      var mediaUrl = _motk_normalizeMediaUrl_(rawUrl);
+
+      // Decide media kind primarily by extension (raw or normalized).
+      // NOTE: Drive URLs often have no extension, so also allow optTitle to hint.
+      var isVideo = _motk_isVideoUrl_(rawUrl) || _motk_isVideoUrl_(mediaUrl) || _motk_isVideoUrl_(title);
+      var isImage =
+        _motk_isImageUrl_(rawUrl) ||
+        _motk_isImageUrl_(mediaUrl) ||
+        _motk_isImageUrl_(title) ||
+        (rawUrl.indexOf("drive.google.com/thumbnail") !== -1) ||
+        (mediaUrl.indexOf("drive.google.com/thumbnail") !== -1);
+
+      // If unknown kind, do not guess; fall back to new tab to avoid blank modal.
+      if (!isVideo && !isImage) {
+        window.open(rawUrl || mediaUrl, "_blank", "noopener");
+        return;
+      }
+
+      var bd = document.getElementById("motk-media-modal-backdrop");
+      var elTitle = document.getElementById("motk-media-modal-title");
+      var body = document.getElementById("motk-media-modal-body");
+
+      elTitle.textContent = title || rawUrl || "";
+      body.innerHTML = "";
+
+      if (isVideo) {
+        var v = document.createElement("video");
+        v.controls = true;
+        v.autoplay = true;
+        v.playsInline = true;
+        // Autoplay can be blocked with sound; muted improves reliability.
+        v.muted = true;
+        v.src = mediaUrl;
+        body.appendChild(v);
+      } else {
+        var img = document.createElement("img");
+        img.alt = title || "preview";
+        img.src = mediaUrl;
+        body.appendChild(img);
+      }
+
+      bd.classList.add("is-open");
+
+      // Focus close button for immediate keyboard access
+      var btnClose = document.getElementById("motk-media-modal-close");
+      try { btnClose.focus(); } catch (_) {}
+    }
+
+    function MOTK_closeMediaModal() {
+      var bd = document.getElementById("motk-media-modal-backdrop");
+      if (!bd) return;
+
+      var body = document.getElementById("motk-media-modal-body");
+      if (body) body.innerHTML = "";
+
+      bd.classList.remove("is-open");
+    }
+
+    // Expose globally (Table + Detail + CommonRenderer)
+    window.MOTK_openMediaModal = MOTK_openMediaModal;
+    window.MOTK_closeMediaModal = MOTK_closeMediaModal;
+
     function _fillPreviewSingle_(host, recordId, fieldId, url) {
       host.innerHTML = "";
 
@@ -528,24 +703,30 @@
         (entry && (entry.mediaUrl || entry.media || entry.directUrl)) ? String(entry.mediaUrl || entry.media || entry.directUrl) :
         (driveId ? _driveMediaUrl_(driveId, mime, name) : String(url || ""));
 
-      var span = document.createElement("span");
-      span.className = "proxy-thumb";
-      span.setAttribute("data-motk-proxy-thumb", "1");
-      span.setAttribute("data-proxy-record-id", String(recordId || ""));
-      span.setAttribute("data-proxy-field-id", String(fieldId || ""));
-      if (driveId) span.setAttribute("data-proxy-drive-id", driveId);
-      span.setAttribute("data-proxy-media", media);
-      if (mime) span.setAttribute("data-proxy-mime", mime);
-      if (name) span.setAttribute("data-proxy-name", name);
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "motk-preview-btn proxy-thumb";
+      btn.title = "Open preview";
+
+      btn.addEventListener("click", function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        ev.stopImmediatePropagation();
+
+        if (typeof window.MOTK_openMediaModal === "function") {
+          window.MOTK_openMediaModal(media, name || "");
+        } else {
+          window.open(media, "_blank", "noopener");
+        }
+      });
 
       var img = document.createElement("img");
+      img.className = "thumb-img";
       img.loading = "lazy";
-      img.decoding = "async";
       img.src = thumb;
-      img.alt = name || "preview";
 
-      span.appendChild(img);
-      host.appendChild(span);
+      btn.appendChild(img);
+      host.appendChild(btn);
     }
 
     function R_preview_single(o) {
@@ -1062,7 +1243,7 @@
 
           var fo = (f && typeof f === "object") ? Object.assign({}, f) : { url: String(f) };
           fo.__motk = p;
-          try { if (!fo.url && fo.id) fo.url = "https://drive.google.com/file/d/" + encodeURIComponent(String(fo.id)) + "/view"; } catch (_) { }
+          try { if (!fo.url && fo.id) fo.url = "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(String(fo.id)); } catch (_) { }
 
           if (p.kind === "versions") {
             var k1 = p.recordId + "|" + p.fieldId;
@@ -1113,6 +1294,7 @@
     }
 
     (function installMotkPreviewModalOnce(){
+      return; // Take27: replaced by MOTK_openMediaModal/MOTK_closeMediaModal
       if (window.__MOTK_PREVIEW_MODAL_INSTALLED__) return;
       window.__MOTK_PREVIEW_MODAL_INSTALLED__ = true;
 

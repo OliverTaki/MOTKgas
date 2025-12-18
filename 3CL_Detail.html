@@ -379,7 +379,7 @@
                   var v = latest[k] || null;
                   try {
                     if (v && typeof v === "object") {
-                      if (!v.url && v.id) v.url = "https://drive.google.com/file/d/" + encodeURIComponent(String(v.id)) + "/view";
+                      if (!v.url && v.id) v.url = "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(String(v.id));
                     }
                   } catch (_) { }
                   PROXY_CACHE[String(k).trim()] = v;

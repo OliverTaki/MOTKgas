@@ -1110,15 +1110,15 @@
               var latest = picked.map || {};
               // Fallback to legacy maps only when strict parsing produced no keys.
               if (!Object.keys(PROXY_CACHE || {}).length && !Object.keys(PROXY_CACHE_BY_FIELD || {}).length) {
-                for (var k in latest) {
-                  var v = latest[k] || null;
-                  try {
-                    if (v && typeof v === "object") {
-                      if (!v.url && v.id) v.url = "https://drive.google.com/file/d/" + encodeURIComponent(String(v.id)) + "/view";
-                    }
-                  } catch (_) { }
-                  PROXY_CACHE[String(k).trim()] = v;
-                }
+              for (var k in latest) {
+                var v = latest[k] || null;
+                try {
+                  if (v && typeof v === "object") {
+                    if (!v.url && v.id) v.url = "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(String(v.id));
+                  }
+                } catch (_) { }
+                PROXY_CACHE[String(k).trim()] = v;
+              }
               }
               var wrap = document.getElementById('tableWrap');
               if (wrap) {
@@ -2311,7 +2311,7 @@
             preview = String(file);
           } else if (file && typeof file === 'object') {
             if (file.url) preview = String(file.url);
-            else if (file.id) preview = 'https://drive.google.com/file/d/' + encodeURIComponent(file.id) + '/view';
+            else if (file.id) preview = 'https://drive.google.com/uc?export=download&id=' + encodeURIComponent(file.id);
           }
           var m = (String(preview).match(/[-\\w]{25,}/) || [])[0] || '';
           thumb = m ? ('https://drive.google.com/thumbnail?id=' + encodeURIComponent(m) + '&sz=w320') : preview;
@@ -2327,7 +2327,17 @@
         img.style.borderRadius = '6px';
         img.style.cursor = 'pointer';
         img.referrerPolicy = 'no-referrer';
-        img.onclick = function () { window.open(preview, '_blank', 'noopener'); };
+        img.addEventListener('click', function (ev) {
+          try { ev.preventDefault(); } catch (_) { }
+          try { ev.stopPropagation(); ev.stopImmediatePropagation(); } catch (_) { }
+
+          var openUrl = (file && typeof file === 'object' && file.url) ? String(file.url) : preview;
+          if (typeof window.MOTK_openMediaModal === "function") {
+            window.MOTK_openMediaModal(openUrl, (file && typeof file === 'object' && file.name) ? String(file.name) : "");
+          } else {
+            window.open(openUrl, "_blank", "noopener");
+          }
+        });
         img.onerror = function () { td.textContent = ''; };
         td.appendChild(img);
       }
