@@ -401,17 +401,13 @@
         var thumbUrl = /^https?:\/\//i.test(tok) ? tok : ("https://drive.google.com/thumbnail?sz=w256&id=" + id);
         var mediaUrl = id ? ("https://drive.google.com/uc?export=download&id=" + id) : thumbUrl;
         var img = el("img", "thumb"); img.loading = "lazy"; img.decoding = "async"; img.src = thumbUrl;
-        var btn = el("button", "motk-preview-btn"); btn.type = "button"; btn.setAttribute("data-motk-media-trigger", "1"); btn.appendChild(img);
-        btn.addEventListener("click", function (ev) {
-          try { ev.preventDefault(); } catch (_) { }
-          try { ev.stopPropagation(); ev.stopImmediatePropagation(); } catch (_) { }
-          try { console.log("[MOTK][MediaModal] trigger click", { url: mediaUrl, title: "", ts: Date.now() }); } catch (_) { }
-          if (typeof window.MOTK_openMediaModal === "function") {
-            window.MOTK_openMediaModal(mediaUrl, "");
-          } else {
-            window.open(mediaUrl, "_blank", "noopener");
-          }
-        });
+        var btn = el("button", "motk-preview-btn");
+        btn.type = "button";
+        btn.setAttribute("data-motk-media-trigger", "1");
+        btn.setAttribute("data-motk-media-src", String(mediaUrl || ""));
+        btn.setAttribute("data-motk-media-title", "");
+        btn.setAttribute("data-motk-media-mime", "");
+        btn.appendChild(img);
         box.appendChild(btn);
       });
       return box;
@@ -640,7 +636,7 @@
       return bd;
     }
 
-    function MOTK_openMediaModal(url, title, opt) {
+    function MOTK_openMediaModalImpl_(url, title, opt) {
       var st = _motk_getMediaModalState_();
       var bd = _motk_ensureMediaModalUI_();
 
@@ -672,8 +668,18 @@
 
       if (!mediaUrl) return;
 
-      var isVideo = _motk_isVideoUrl_(rawUrl) || _motk_isVideoUrl_(mediaUrl) || _motk_isVideoUrl_(safeTitle);
+      var kindHint = opt && opt.kind ? String(opt.kind) : "";
+      var mimeHint = opt && opt.mime ? String(opt.mime) : "";
+      var isVideo =
+        kindHint === "video" ||
+        /^video\//i.test(mimeHint) ||
+        _motk_isVideoUrl_(rawUrl) ||
+        _motk_isVideoUrl_(mediaUrl) ||
+        _motk_isVideoUrl_(safeTitle);
       var isImage =
+        kindHint === "img" ||
+        kindHint === "image" ||
+        /^image\//i.test(mimeHint) ||
         _motk_isImageUrl_(rawUrl) ||
         _motk_isImageUrl_(mediaUrl) ||
         _motk_isImageUrl_(safeTitle) ||
@@ -711,10 +717,27 @@
       }
     }
 
+    function MOTK_openMediaModal(arg1, arg2, arg3) {
+      if (arg1 && typeof arg1 === "object") {
+        var o = arg1;
+        var src = (o.src || o.url || o.media || "");
+        var title = (o.title || o.name || "");
+        return MOTK_openMediaModalImpl_(src, title, o);
+      }
+      return MOTK_openMediaModalImpl_(arg1, arg2, arg3);
+    }
+
     function MOTK_closeMediaModal(reason) {
       var st = _motk_getMediaModalState_();
       var bd = document.getElementById("motk-media-modal-backdrop");
       if (!bd) return;
+
+      try {
+        if (st && st.ignoreBackdropUntil && Date.now() < st.ignoreBackdropUntil) {
+          var r = String(reason || "");
+          if (!r || r === "backdrop" || r === "unknown") return;
+        }
+      } catch (_) { }
 
       try {
         var delta = st && st.openedAt ? (Date.now() - st.openedAt) : -1;
@@ -747,6 +770,65 @@
       try { return JSON.parse(JSON.stringify(st)); } catch (_) { return st; }
     };
 
+    (function installMotkMediaTriggerCaptureOnce_() {
+      if (window.__MOTK_MEDIA_TRIGGER_CAPTURE_INSTALLED__) return;
+      window.__MOTK_MEDIA_TRIGGER_CAPTURE_INSTALLED__ = true;
+
+      function getClosestTrigger_(t) {
+        try {
+          if (!t || !t.closest) return null;
+          return t.closest('[data-motk-media-trigger="1"],[data-motk-proxy-thumb="1"]');
+        } catch (_) { }
+        return null;
+      }
+
+      window.addEventListener("click", function (e) {
+        try {
+          var t = e && e.target;
+          var trig = getClosestTrigger_(t);
+          if (!trig) return;
+          if (trig.closest && trig.closest("#motk-media-modal-backdrop")) return;
+
+          var src =
+            trig.getAttribute("data-motk-media-src") ||
+            trig.getAttribute("data-proxy-media") ||
+            trig.getAttribute("href") ||
+            "";
+
+          var title =
+            trig.getAttribute("data-motk-media-title") ||
+            trig.getAttribute("data-proxy-name") ||
+            trig.getAttribute("title") ||
+            "";
+
+          var mime =
+            trig.getAttribute("data-motk-media-mime") ||
+            trig.getAttribute("data-proxy-mime") ||
+            "";
+
+          src = String(src || "");
+          if (!src) return;
+
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          e.stopPropagation();
+
+          try { console.log("[MOTK][MediaModal] trigger click", { url: src, title: title, ts: Date.now() }); } catch (_) { }
+
+          if (typeof window.MOTK_openMediaModal === "function") {
+            window.MOTK_openMediaModal({
+              src: src,
+              title: title,
+              mime: mime,
+              kind: /^video\//i.test(String(mime || "")) ? "video" : "img"
+            });
+          } else {
+            window.open(src, "_blank", "noopener");
+          }
+        } catch (_) { }
+      }, true);
+    })();
+
     function _fillPreviewSingle_(host, recordId, fieldId, url) {
       host.innerHTML = "";
 
@@ -774,19 +856,9 @@
       btn.className = "motk-preview-btn proxy-thumb";
       btn.title = "Open preview";
       btn.setAttribute("data-motk-media-trigger", "1");
-
-      btn.addEventListener("click", function(ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        ev.stopImmediatePropagation();
-
-        try { console.log("[MOTK][MediaModal] trigger click", { url: media, title: name || "", ts: Date.now() }); } catch (_) { }
-        if (typeof window.MOTK_openMediaModal === "function") {
-          window.MOTK_openMediaModal(media, name || "");
-        } else {
-          window.open(media, "_blank", "noopener");
-        }
-      });
+      btn.setAttribute("data-motk-media-src", String(media || ""));
+      btn.setAttribute("data-motk-media-title", String(name || ""));
+      btn.setAttribute("data-motk-media-mime", String(mime || ""));
 
       var img = document.createElement("img");
       img.className = "thumb-img";

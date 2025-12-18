@@ -2331,24 +2331,15 @@
         img.src = thumb;
         img.title = ((file && typeof file === 'object' && file.name) ? file.name : 'open');
         img.setAttribute('data-motk-media-trigger', '1');
+        img.setAttribute('data-motk-media-src', (file && typeof file === 'object' && file.url) ? String(file.url) : String(preview || ''));
+        img.setAttribute('data-motk-media-title', (file && typeof file === 'object' && file.name) ? String(file.name) : '');
+        img.setAttribute('data-motk-media-mime', (file && typeof file === 'object' && file.mimeType) ? String(file.mimeType) : '');
         img.style.width = '100%';
         img.style.aspectRatio = '16/9';
         img.style.objectFit = 'cover';
         img.style.borderRadius = '6px';
         img.style.cursor = 'pointer';
         img.referrerPolicy = 'no-referrer';
-        img.addEventListener('click', function (ev) {
-          try { ev.preventDefault(); } catch (_) { }
-          try { ev.stopPropagation(); ev.stopImmediatePropagation(); } catch (_) { }
-
-          var openUrl = (file && typeof file === 'object' && file.url) ? String(file.url) : preview;
-          try { console.log("[MOTK][MediaModal] trigger click", { url: openUrl, title: (file && typeof file === 'object' && file.name) ? String(file.name) : "", ts: Date.now() }); } catch (_) { }
-          if (typeof window.MOTK_openMediaModal === "function") {
-            window.MOTK_openMediaModal(openUrl, (file && typeof file === 'object' && file.name) ? String(file.name) : "");
-          } else {
-            window.open(openUrl, "_blank", "noopener");
-          }
-        });
         img.onerror = function () { td.textContent = ''; };
         td.appendChild(img);
       }
