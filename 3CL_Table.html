@@ -827,7 +827,8 @@
       // ===== Take21: Robust FieldMeta normalization for CommonRenderer parity =====
 
       function getNormalizedFieldMeta_(entitySingular, fid) {
-        const entity = String(entitySingular || STATE.sheetName || "").trim();
+        const entityRaw = String(entitySingular || STATE.sheetName || "").trim();
+        const entity = entityRaw ? singularEntityFor(entityRaw) : "";
         const fieldId = String(fid || "").trim();
 
         // 1) Prefer Table column meta (visible columns).
@@ -1407,10 +1408,10 @@
             var entitySing = singularEntityFor(_entityForUI());
             var m = meta || {};
             try { 
-              m = Object.assign({}, m, { 
-                __rowId: rowId,
-                __row: { fi_0001: rowId, id: rowId, ID: rowId }
-              }); 
+              var idFid = (STATE && Array.isArray(STATE.fieldIds) && STATE.fieldIds[0]) ? String(STATE.fieldIds[0]) : 'fi_0001';
+              var rowObj = { id: rowId, ID: rowId, fi_0001: rowId };
+              rowObj[idFid] = rowId;
+              m = Object.assign({}, m, { __rowId: rowId, __row: rowObj }); 
             } catch (_) { }
             if (window.CommonRenderer && typeof CommonRenderer.renderCellByField === 'function') {
               td.appendChild(CommonRenderer.renderCellByField(entitySing, fid, v, m));
@@ -1738,14 +1739,15 @@
         }, true);
       }
 
-      function _rowValueByIdFid_(rowId, fid) {
-        try {
-          var idIdx = indexOf(STATE.fieldIds, 'fi_0001');
-          if (idIdx < 0) idIdx = 0;
-          var colIdx = indexOf(STATE.fieldIds, fid);
-          if (colIdx < 0) return '';
-          for (var i = 0; i < (STATE.rows || []).length; i++) {
-            var r = STATE.rows[i];
+        function _rowValueByIdFid_(rowId, fid) {
+          try {
+            var idFid = (STATE && Array.isArray(STATE.fieldIds) && STATE.fieldIds[0]) ? String(STATE.fieldIds[0]) : 'fi_0001';
+            var idIdx = indexOf(STATE.fieldIds, idFid);
+            if (idIdx < 0) idIdx = 0;
+            var colIdx = indexOf(STATE.fieldIds, fid);
+            if (colIdx < 0) return '';
+            for (var i = 0; i < (STATE.rows || []).length; i++) {
+              var r = STATE.rows[i];
             if (String(r && r[idIdx] || '').trim() === String(rowId)) {
               return r && colIdx < r.length ? r[colIdx] : '';
             }
@@ -1754,14 +1756,15 @@
         return '';
       }
 
-      function _setRowValueByIdFid_(rowId, fid, value) {
-        try {
-          var idIdx = indexOf(STATE.fieldIds, 'fi_0001');
-          if (idIdx < 0) idIdx = 0;
-          var colIdx = indexOf(STATE.fieldIds, fid);
-          if (colIdx < 0) return;
-          for (var i = 0; i < (STATE.rows || []).length; i++) {
-            var r = STATE.rows[i];
+        function _setRowValueByIdFid_(rowId, fid, value) {
+          try {
+            var idFid = (STATE && Array.isArray(STATE.fieldIds) && STATE.fieldIds[0]) ? String(STATE.fieldIds[0]) : 'fi_0001';
+            var idIdx = indexOf(STATE.fieldIds, idFid);
+            if (idIdx < 0) idIdx = 0;
+            var colIdx = indexOf(STATE.fieldIds, fid);
+            if (colIdx < 0) return;
+            for (var i = 0; i < (STATE.rows || []).length; i++) {
+              var r = STATE.rows[i];
             if (String(r && r[idIdx] || '').trim() === String(rowId)) {
               if (!Array.isArray(r)) return;
               r[colIdx] = value;
@@ -1784,7 +1787,8 @@
         for (var i = 0; i < cols.length; i++) {
           colIdx[i] = indexOf(STATE.fieldIds, cols[i]);
         }
-        var idIdxForRow = indexOf(STATE.fieldIds, 'fi_0001');
+        var idFidForRow = (STATE && Array.isArray(STATE.fieldIds) && STATE.fieldIds[0]) ? String(STATE.fieldIds[0]) : 'fi_0001';
+        var idIdxForRow = indexOf(STATE.fieldIds, idFidForRow);
         if (idIdxForRow < 0) idIdxForRow = 0;
         var colW = [];
         for (var j = 0; j < cols.length; j++) {
@@ -1849,10 +1853,10 @@
             var m = meta || {};
             if (rowId) {
               try { 
-                m = Object.assign({}, m, { 
-                  __rowId: rowId,
-                  __row: { fi_0001: rowId, id: rowId, ID: rowId }
-                }); 
+                var idFid = (STATE && Array.isArray(STATE.fieldIds) && STATE.fieldIds[0]) ? String(STATE.fieldIds[0]) : 'fi_0001';
+                var rowObj = { id: rowId, ID: rowId, fi_0001: rowId };
+                rowObj[idFid] = rowId;
+                m = Object.assign({}, m, { __rowId: rowId, __row: rowObj }); 
               } catch (_) { }
             }
             return CommonRenderer.renderCellByField(entitySing, fid, raw, m);
@@ -2155,6 +2159,7 @@
             var meta = getNormalizedFieldMeta_(STATE.sheetName, fid);
             var t = String(meta && meta.type ? meta.type : "").trim().toLowerCase();
             if (t === "versions") return true;
+            if (t === "shotview") return true;
 
             var cand1 = _norm(fid);
             if (/view$/.test(cand1)) return true;

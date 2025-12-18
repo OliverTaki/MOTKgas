@@ -582,7 +582,10 @@
               else if (st2 === 'loading') loading++;
               else if (st2 === 'resolved') resolved++;
               else if (st2 === 'failed') failed++;
-              if (a.getAttribute && a.getAttribute('href') && /drive\\.google\\.com\\/drive\\/folders\\//.test(String(a.getAttribute('href')))) ok++;
+              if (a.getAttribute && a.getAttribute('href')) {
+                var href = String(a.getAttribute('href') || '');
+                if (href.indexOf('drive.google.com/drive/folders/') !== -1) ok++;
+              }
               continue;
             }
 
@@ -1182,6 +1185,8 @@
         });
       }
 
+      window.runAllChecks = runAllChecks;
+      window.copyPageText = copyPageText;
       if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', start, { once: true }); } else { start(); }
     })();
   </script>
