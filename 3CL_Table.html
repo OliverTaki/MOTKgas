@@ -1085,7 +1085,7 @@
           return { name: '', map: {} };
         }
 
-        callFirst(['sv_indexAllProxies'], {},
+        callFirst(['sv_indexAllProxies'], pluralEntityFor(_entityForUI()),
           function (idx) {
             try {
               var picked = pickLatestMap_(idx);
@@ -1438,7 +1438,7 @@
               var idFid = (STATE && Array.isArray(STATE.fieldIds) && STATE.fieldIds[0]) ? String(STATE.fieldIds[0]) : 'fi_0001';
               var rowObj = { id: rowId, ID: rowId, fi_0001: rowId };
               rowObj[idFid] = rowId;
-              m = Object.assign({}, m, { __rowId: rowId, __row: rowObj }); 
+              m = Object.assign({}, m, { __rowId: rowId, rowId: rowId, recordId: rowId, id: rowId, __row: rowObj }); 
             } catch (_) { }
             if (window.CommonRenderer && typeof CommonRenderer.renderCellByField === 'function') {
               td.appendChild(CommonRenderer.renderCellByField(entitySing, fid, v, m));
@@ -1883,7 +1883,7 @@
                 var idFid = (STATE && Array.isArray(STATE.fieldIds) && STATE.fieldIds[0]) ? String(STATE.fieldIds[0]) : 'fi_0001';
                 var rowObj = { id: rowId, ID: rowId, fi_0001: rowId };
                 rowObj[idFid] = rowId;
-                m = Object.assign({}, m, { __rowId: rowId, __row: rowObj }); 
+                m = Object.assign({}, m, { __rowId: rowId, rowId: rowId, recordId: rowId, id: rowId, __row: rowObj }); 
               } catch (_) { }
             }
             return CommonRenderer.renderCellByField(entitySing, fid, raw, m);

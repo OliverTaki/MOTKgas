@@ -766,9 +766,72 @@ body.motk-modal-open .motk-modal-backdrop{
   }
   .motk-inline-textarea{ min-height:140px; resize:vertical; }
 
+  /* Preview modal (ShotView/versions) */
+  #motkPreviewModal{
+    position:fixed;
+    inset:0;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    background:rgba(0,0,0,0.65);
+    z-index:99999;
+  }
+  #motkPreviewModal[data-open="1"]{ display:flex; }
+
+  #motkPreviewModal .motkPreviewPanel{
+    width:min(1100px, 94vw);
+    max-height:90vh;
+    background:#111;
+    border:1px solid #333;
+    border-radius:12px;
+    overflow:hidden;
+    box-shadow:0 12px 40px rgba(0,0,0,0.6);
+    display:flex;
+    flex-direction:column;
+  }
+  #motkPreviewModal .motkPreviewHeader{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:8px 10px;
+    background:#161616;
+    border-bottom:1px solid #2a2a2a;
+  }
+  #motkPreviewModal .motkPreviewTitle{ font-size:12px; opacity:0.85; }
+  #motkPreviewModal .motkPreviewClose{
+    font-size:18px;
+    line-height:18px;
+    background:transparent;
+    border:0;
+    color:inherit;
+    cursor:pointer;
+  }
+  #motkPreviewModal .motkPreviewBody{
+    padding:8px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    max-height:calc(90vh - 44px);
+  }
+  #motkPreviewModal video,
+  #motkPreviewModal img{
+    max-width:100%;
+    max-height:100%;
+  }
+
   @media (prefers-color-scheme: dark) {
-    /* Prefer dark form controls where supported */
-    .motk-inline-editor[type="date"]{ color-scheme: dark; }
+    /* Force light picker popups while keeping dark inputs */
+    input[type="date"],
+    input[type="time"],
+    input[type="datetime-local"],
+    .motk-inline-editor[type="date"],
+    .motk-inline-editor[type="time"],
+    .motk-inline-editor[type="datetime-local"]{
+      color-scheme: light;
+      background:var(--surface);
+      color:var(--fg);
+      border-color:var(--border);
+    }
 
     /* Make the date picker icon visible (Chrome/Edge). */
     .motk-inline-editor[type="date"]::-webkit-calendar-picker-indicator{

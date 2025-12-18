@@ -1039,127 +1039,28 @@
       }
 
       async function checkFieldsMatrix() {
-        logLine('== Fields matrix (entity × type) ==');
-        try {
-          // try getFieldsMatrix, else getFields and aggregate, else listFields
-          var rows = null;
-          try {
-            var m = await gasTry(['getFieldsMatrix']);
-            logLine(JSON.stringify(m, null, 2));
-            return m;
-          } catch (_) { }
-          try {
-            rows = await gasTry(['getFields', 'listFields']);
-          } catch (e) {
-            logLine('Fields fetch missing: ' + e.message);
-            return null;
-          }
-          var map = {};
-          (rows || []).forEach(function (r) {
-            var e = String(r.entity || '').toLowerCase();
-            var t = String(r.type || '').toLowerCase();
-            if (!map[e]) map[e] = {};
-            map[e][t] = (map[e][t] || 0) + 1;
-          });
-          logLine(JSON.stringify(map, null, 2));
-          return map;
-        } catch (e) {
-          logLine('Fields error: ' + e.message);
-          return null;
-        }
+        logLine("Fields matrix: SKIP (legacy getFields/listFields removed; current app uses FieldsAPI/fieldTypes)");
+        return null;
       }
 
       async function checkLinksShape() {
-        logLine('== Link type sanity (expect *_link only) ==');
-        try {
-          var rows = await gasTry(['getFields', 'listFields']);
-          var legacy = [], proper = [];
-          (rows || []).forEach(function (r) {
-            var t = String(r.type || '').toLowerCase();
-            if (t === 'entity_link') legacy.push(r);
-            else if (/^(shot|asset|task|member|user)_link$/.test(t)) proper.push(r);
-          });
-          logLine('legacy entity_link count: ' + legacy.length);
-          if (legacy.length) logLine(JSON.stringify(legacy.slice(0, 20), null, 2));
-          logLine('proper *_link count: ' + proper.length);
-          return { legacy, proper };
-        } catch (e) {
-          logLine('Fields fetch error: ' + e.message);
-          return null;
-        }
+        logLine("Link maps: SKIP (legacy listFields removed; validate via current linkMaps loader elsewhere if needed)");
+        return null;
       }
 
       async function sampleListRows(entity) {
-        logLine('== listRowsPage sample ==');
-        try {
-          var out = await gasCall('listRowsPage', { entity: entity, page: 1, perPage: 5 });
-          var shape = {
-            columns: (out && out.columns) || [],
-            row0: (out && out.rows && out.rows[0]) || null,
-            meta: (out && out.meta) || {}
-          };
-          logLine(JSON.stringify(shape, null, 2));
-          var hasId = shape.columns.filter(c => String(c.type).toLowerCase() === 'id').length === 1;
-          var hasName = shape.columns.filter(c => String(c.type).toLowerCase() === 'entity_name').length === 1;
-          var badLink = shape.columns.filter(c => {
-            var t = String(c.type || '').toLowerCase();
-            if (t !== 'link') return false;
-            return !c.target || !/^(shot|asset|task|member|user)$/.test(String(c.target));
-          });
-          logLine('check: id=1:' + hasId + ' entity_name=1:' + hasName + ' badLink=' + badLink.length);
-          return out;
-        } catch (e) {
-          logLine('listRowsPage error: ' + e.message);
-          return null;
-        }
+        logLine("listRowsPage: SKIP (obsolete API removed from contract inspector)");
+        return null;
       }
 
       async function sampleDetailListRows(entity) {
-        logLine('== Detail-style listRowsPage sample (' + entity + ') ==');
-        try {
-          // Payload matching 3CL_Detail.html Take 12
-          var entStrict = String(entity).toLowerCase();
-          var entLabel = (entStrict === 'shot') ? 'Shots' :
-            (entStrict === 'asset') ? 'Assets' :
-              (entStrict === 'task') ? 'Tasks' :
-                (entStrict === 'user') ? 'Users' :
-                  (entStrict === 'member') ? 'ProjectMembers' : 'Shots';
-          var payload = {
-            entity: "Shots",
-            sheet: "Shots",
-            entityPlural: "Shots",
-            sheetName: "shot",
-            pageType: "detail",
-            offset: 0,
-            limit: 5000,
-            sort: [],
-            filterGroups: [],
-            groupCombine: "all"
-          };
-          logLine("payload: " + JSON.stringify(payload)); // Changed log to logLine
-
-          try {
-            var resp = await gasTry(["listRowsPage", "sv_listRowsPage"], payload); // Changed tryCall to gasTry
-            if (resp && resp.rows && resp.rows.length) {
-              logLine("OK: Rows returned. " + resp.rows.length); // Changed log to logLine
-            } else {
-              logLine("Detail listRowsPage error: No rows returned."); // Changed log to logLine
-            }
-            return resp; // Return resp here
-          } catch (e) {
-            logLine("Detail listRowsPage error: " + e.message); // Changed log to logLine
-            return null; // Return null on error
-          }
-        } catch (e) {
-          logLine('Detail listRowsPage error: ' + e.message);
-          return null;
-        }
+        logLine("Detail listRowsPage: SKIP (obsolete API removed from contract inspector)");
+        return null;
       }
 
       async function checkMeta() {
         logLine('== project_meta roots ==');
         try {
-          // これは動いている実績あり
           var meta = await gasTry(['getProjectMeta', 'get_project_meta']);
           logLine(JSON.stringify(meta, null, 2));
           return meta;
