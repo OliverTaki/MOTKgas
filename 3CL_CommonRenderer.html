@@ -497,7 +497,7 @@
       if (m && m[1]) return m[1];
 
       // 2) /file/d/...
-      m = s.match(/\\/file\\/d\\/([-\\w]{10,})/);
+      m = s.match(/\/file\/d\/([-\w]{10,})/);
       if (m && m[1]) return m[1];
 
       // 3) fallback: first long-ish token (Drive file ids are typically 25+)
