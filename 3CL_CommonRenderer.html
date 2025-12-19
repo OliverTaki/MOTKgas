@@ -399,9 +399,9 @@
       list.forEach(function (tok) {
         var id = extractDriveId(tok);
         var thumbUrl = /^https?:\/\//i.test(tok) ? tok : ("https://drive.google.com/thumbnail?sz=w256&id=" + id);
-        var mediaUrl = id ? ("https://drive.google.com/uc?export=download&id=" + id) : thumbUrl;
+        var mediaUrl = id ? _motk_driveOpenUrl_(id) : thumbUrl;
         var img = el("img", "thumb"); img.loading = "lazy"; img.decoding = "async"; img.src = thumbUrl;
-        var btn = el("button", "motk-preview-btn");
+        var btn = el("button", "motk-media-trigger-btn");
         btn.type = "button";
         btn.setAttribute("data-motk-media-trigger", "1");
         btn.setAttribute("data-motk-media-src", String(mediaUrl || ""));
@@ -489,12 +489,69 @@
       return box;
     }
 
-    function _driveIdFromAny_(url) {
-      try {
-        url = String(url || "");
-        return (url.match(/[-\\w]{25,}/) || [])[0] || "";
-      } catch (_) { }
+    function _motk_driveIdFromAny_(any){
+      var s = String(any || "");
+
+      // 1) id=... (uc/open links)
+      var m = s.match(/[?&]id=([-\\w]{10,})/);
+      if (m && m[1]) return m[1];
+
+      // 2) /file/d/...
+      m = s.match(/\\/file\\/d\\/([-\\w]{10,})/);
+      if (m && m[1]) return m[1];
+
+      // 3) fallback: first long-ish token (Drive file ids are typically 25+)
+      m = s.match(/[-\\w]{25,}/);
+      return (m && m[0]) ? m[0] : "";
+    }
+
+    function _motk_guessExt_(name, url, mime){
+      name = String(name || "");
+      url = String(url || "");
+      mime = String(mime || "").toLowerCase();
+
+      function extFrom_(s){
+        try {
+          var base = String(s || "").split("?")[0].split("#")[0];
+          var i = base.lastIndexOf(".");
+          if (i >= 0 && i < base.length - 1) return base.slice(i + 1).toLowerCase();
+        } catch (_) { }
+        return "";
+      }
+
+      var fromName = extFrom_(name);
+      if (fromName) return fromName;
+
+      var fromUrl = extFrom_(url);
+      if (fromUrl) return fromUrl;
+
+      if (mime.indexOf("image/") === 0) return mime.slice("image/".length);
+      if (mime.indexOf("video/") === 0) return mime.slice("video/".length);
       return "";
+    }
+
+    function _motk_isImageExt_(ext){
+      var e = String(ext || "").toLowerCase();
+      return (["png","jpg","jpeg","gif","webp","bmp","svg"].indexOf(e) >= 0);
+    }
+
+    function _motk_isVideoExt_(ext){
+      var e = String(ext || "").toLowerCase();
+      return (["mp4","webm","ogg","mov","m4v"].indexOf(e) >= 0);
+    }
+
+    // Drive URL builders
+    function _motk_drivePreviewUrl_(id){
+      return "https://drive.google.com/file/d/" + encodeURIComponent(String(id || "")) + "/preview";
+    }
+    function _motk_driveOpenUrl_(id){
+      return "https://drive.google.com/file/d/" + encodeURIComponent(String(id || "")) + "/view";
+    }
+    function _motk_driveDownloadUrl_(id){
+      return "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(String(id || ""));
+    }
+    function _motk_driveViewUrl_(id){
+      return "https://drive.google.com/uc?export=view&id=" + encodeURIComponent(String(id || ""));
     }
 
     function _driveThumbUrl_(id) {
@@ -502,85 +559,7 @@
       return "https://drive.google.com/thumbnail?id=" + encodeURIComponent(id) + "&sz=w320";
     }
 
-    function _driveMediaUrl_(id, mime, name) {
-      if (!id) return "";
-      mime = String(mime || "").toLowerCase();
-      name = String(name || "").toLowerCase();
-
-      if (mime.indexOf("image/") === 0 || /\.(png|jpg|jpeg|webp|gif)$/.test(name)) {
-        return "https://drive.google.com/uc?export=view&id=" + encodeURIComponent(id);
-      }
-      return "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(id);
-    }
-
-    function _drivePreviewUrl_(id) {
-      id = String(id || "");
-      if (!id) return "";
-      return "https://drive.google.com/file/d/" + id + "/preview";
-    }
-
-    function _driveViewUrl_(id) {
-      id = String(id || "");
-      if (!id) return "";
-      return "https://drive.google.com/file/d/" + id + "/view";
-    }
-
-    function _driveImageViewUrl_(id) {
-      id = String(id || "");
-      if (!id) return "";
-      return "https://drive.google.com/uc?export=view&id=" + encodeURIComponent(id);
-    }
-
-    function _motk_isVideoUrl_(url, opt) {
-      var u = String(url || "");
-      var mime = (opt && opt.mime) ? String(opt.mime) : "";
-      var t = (opt && opt.title) ? String(opt.title) : "";
-      return (
-        /video\//i.test(mime) ||
-        /\.(mp4|m4v|mov|webm|ogv|ogg)(\?|#|$)/i.test(u) ||
-        /\.(mp4|m4v|mov|webm|ogv|ogg)(\?|#|$)/i.test(t)
-      );
-    }
-
-    function _motk_isImageUrl_(url, opt) {
-      var u = String(url || "");
-      var mime = (opt && opt.mime) ? String(opt.mime) : "";
-      var t = (opt && opt.title) ? String(opt.title) : "";
-      return (
-        /image\//i.test(mime) ||
-        /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(u) ||
-        /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(t)
-      );
-    }
-
-    /**
-     * Normalize Drive "view" URLs into direct-download URLs usable in <video>/<img>.
-     * - Never returns iframe-preview URLs.
-     * - If it cannot normalize, returns the original.
-     */
-    function _motk_normalizeMediaUrl_(url) {
-      if (!url) return url;
-      var s = String(url);
-
-      // Don't rewrite Drive thumbnail URLs; they are already direct image endpoints (low-res but valid).
-      if (s.indexOf("drive.google.com/thumbnail") !== -1) return s;
-
-      // https://drive.google.com/file/d/<ID>/view
-      var m = s.match(/https?:\/\/drive\.google\.com\/file\/d\/([^\/?#]+)\//);
-      if (m && m[1]) {
-        return "https://drive.google.com/uc?export=download&id=" + m[1];
-      }
-
-      // https://drive.google.com/open?id=<ID>  or any drive.google.com url that contains ?id=<ID>
-      if (s.indexOf("drive.google.com") !== -1) {
-        var m2 = s.match(/[?&]id=([^&#]+)/);
-        if (m2 && m2[1]) {
-          return "https://drive.google.com/uc?export=download&id=" + m2[1];
-        }
-      }
-
-      return s;
-    }
+    // NOTE: legacy Drive normalization helpers removed (Take34)
 
     function _motk_getMediaModalState_() {
       if (!window.__motkMediaModalState__) {
@@ -599,45 +578,42 @@
       var st = _motk_getMediaModalState_();
 
       var bd = document.getElementById("motk-media-modal-backdrop");
+      var modal = null;
       if (!bd) {
         bd = document.createElement("div");
         bd.id = "motk-media-modal-backdrop";
         bd.className = "motk-media-backdrop";
-        bd.innerHTML = ""
-          + "<div class='motk-media-modal' role='dialog' aria-modal='true'>"
-          + "  <div class='motk-media-modal__header'>"
-          + "    <div class='motk-media-title'></div>"
-          + "    <button type='button' class='motk-media-close' aria-label='Close'>×</button>"
-          + "  </div>"
-          + "  <div class='motk-media-modal__body'>"
-          + "    <div class='motk-preview-body'></div>"
-          + "  </div>"
-          + "</div>";
+
+        modal = document.createElement("div");
+        modal.className = "motk-media-modal";
+        modal.setAttribute("role", "dialog");
+        modal.setAttribute("aria-modal", "true");
+
+        bd.appendChild(modal);
 
         // IMPORTANT: append to <html>, not <body>
         // If any route/render logic ever does `document.body.innerHTML = ...`,
         // the modal will survive.
         document.documentElement.appendChild(bd);
+      } else {
+        modal = bd.querySelector(".motk-media-modal");
+        if (!modal) {
+          modal = document.createElement("div");
+          modal.className = "motk-media-modal";
+          modal.setAttribute("role", "dialog");
+          modal.setAttribute("aria-modal", "true");
+          bd.appendChild(modal);
+        }
       }
 
       if (!bd.__motkWired) {
         bd.__motkWired = true;
 
-        var closeBtn = bd.querySelector(".motk-media-close");
-        if (closeBtn) {
-          closeBtn.addEventListener("click", function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            window.MOTK_closeMediaModal("closeBtn");
-          });
-        }
-
         // Backdrop click closes, but ignore the immediate click that can be generated
         // right after opening (pointer-up / click-through).
         bd.addEventListener("click", function(e) {
           if (e.target !== bd) return;
-          var st2 = _motk_getMediaModalState_();
-          if (st2.ignoreBackdropUntil && Date.now() < st2.ignoreBackdropUntil) return;
+          if (st && st.ignoreBackdropUntil && Date.now() < st.ignoreBackdropUntil) return;
           window.MOTK_closeMediaModal("backdrop");
         });
 
@@ -653,155 +629,188 @@
       return bd;
     }
 
-    function MOTK_openMediaModalImpl_(url, title, opt) {
+    function MOTK_openMediaModal(input, title) {
+      var payload = (input && typeof input === "object")
+        ? input
+        : { url: input, title: title };
+
+      // Support legacy signature: (url, title, opt)
+      var opt = (arguments.length >= 3 && arguments[2] && typeof arguments[2] === "object") ? arguments[2] : null;
+      if (opt) {
+        try {
+          if (!payload.mime && opt.mime) payload.mime = opt.mime;
+          if (!payload.name && opt.name) payload.name = opt.name;
+          if (!payload.filename && opt.filename) payload.filename = opt.filename;
+          if (!payload.kind && opt.kind) payload.kind = opt.kind;
+        } catch (_) { }
+      }
+
+      var rawUrl = String(payload.url || payload.src || payload.media || "");
+      var displayTitle = String(payload.title || title || rawUrl || "");
+      var name = String(payload.name || payload.filename || payload.fileName || displayTitle || "");
+      var mime = String(payload.mime || "");
+
       var st = _motk_getMediaModalState_();
       var bd = _motk_ensureMediaModalUI_();
-
-      var body = bd.querySelector(".motk-preview-body");
-      var titleEl = bd.querySelector(".motk-media-title");
-
-      opt = opt || {};
-      var rawUrl = url ? String(url) : "";
-      var safeTitle = title ? String(title) : "";
-      var kindHint = opt && opt.kind ? String(opt.kind) : "";
-      var mimeHint = opt && opt.mime ? String(opt.mime) : "";
-      if (!opt.title && safeTitle) opt.title = safeTitle;
-
-      st.lastOpen = { url: rawUrl || "", title: safeTitle || "", opt: opt || null, at: Date.now() };
-
-      if (titleEl) titleEl.textContent = safeTitle || "";
-      if (!body) return;
+      var modal = bd.querySelector(".motk-media-modal");
+      if (!modal) return;
 
       // Reset + open
       if (st.isOpen === true) {
-        // Silent internal close: release resources + clear content before replacing.
         try { window.MOTK_closeMediaModal("reopen_override"); } catch (_) { }
       }
 
-      body.innerHTML = "";
       st.isOpen = true;
       st.openedAt = Date.now();
       st.ignoreBackdropUntil = st.openedAt + 350;
       st.lastCloseReason = "";
-      bd.classList.add("is-open");
-      try { console.log("[MOTK_MEDIA_MODAL] open ts=" + st.openedAt); } catch (_) { }
+      st.lastOpen = { url: rawUrl, title: displayTitle, name: name, mime: mime, at: st.openedAt };
 
-      var mediaUrl = (typeof _motk_normalizeMediaUrl_ === "function") ? _motk_normalizeMediaUrl_(rawUrl) : rawUrl;
-      if (!mediaUrl) return;
+      var driveId = String(payload.driveId || _motk_driveIdFromAny_(rawUrl) || "");
+      var isDrive = !!driveId;
 
-      var isVideo =
-        kindHint === "video" ||
-        _motk_isVideoUrl_(rawUrl, opt) ||
-        _motk_isVideoUrl_(mediaUrl, opt);
-      var isImage =
-        kindHint === "img" ||
-        kindHint === "image" ||
-        _motk_isImageUrl_(rawUrl, opt) ||
-        _motk_isImageUrl_(mediaUrl, opt) ||
-        (rawUrl.indexOf("drive.google.com/thumbnail") !== -1) ||
-        (mediaUrl.indexOf("drive.google.com/thumbnail") !== -1);
+      var ext = _motk_guessExt_(name, rawUrl, mime);
+      var isImg = _motk_isImageExt_(ext);
+      var isVid = _motk_isVideoExt_(ext);
 
-      // If unknown kind, fall back to new tab (keeps modal from looking "broken").
-      if (!isVideo && !isImage) {
-        try { bd.classList.remove("is-open"); } catch (_) { }
-        st.isOpen = false;
-        window.open(rawUrl || mediaUrl, "_blank", "noopener");
-        return;
+      var kind = String(payload.kind || "");
+      if (kind === "video") { isVid = true; isImg = false; }
+      if (kind === "img" || kind === "image") { isImg = true; isVid = false; }
+
+      var openUrl = isDrive ? _motk_driveOpenUrl_(driveId) : rawUrl;
+      var downloadUrl = isDrive ? _motk_driveDownloadUrl_(driveId) : rawUrl;
+      var previewUrl = isDrive ? _motk_drivePreviewUrl_(driveId) : rawUrl;
+      var viewUrl = isDrive ? _motk_driveViewUrl_(driveId) : rawUrl;
+
+      // Build DOM (no innerHTML injection)
+      modal.textContent = "";
+
+      var header = document.createElement("div");
+      header.className = "motk-media-modal__header";
+
+      var titleEl = document.createElement("div");
+      titleEl.className = "motk-media-modal__title";
+      titleEl.textContent = displayTitle;
+
+      var actions = document.createElement("div");
+      actions.className = "motk-media-modal__actions";
+
+      var closeBtn = document.createElement("button");
+      closeBtn.className = "motk-media-modal__close";
+      closeBtn.type = "button";
+      closeBtn.textContent = "×";
+      closeBtn.addEventListener("click", function (ev) {
+        try { ev.preventDefault(); ev.stopPropagation(); } catch (_) { }
+        window.MOTK_closeMediaModal("closeBtn");
+      });
+
+      actions.appendChild(closeBtn);
+      header.appendChild(titleEl);
+      header.appendChild(actions);
+
+      var body = document.createElement("div");
+      body.className = "motk-media-modal__body";
+
+      var host = document.createElement("div");
+      host.className = "motk-media-modal__host";
+
+      var loading = document.createElement("div");
+      loading.className = "motk-media-modal__loading";
+      loading.textContent = "Loading…";
+      host.appendChild(loading);
+
+      body.appendChild(host);
+
+      var footer = document.createElement("div");
+      footer.className = "motk-media-modal__footer";
+
+      var openA = document.createElement("a");
+      openA.className = "motk-media-modal__link";
+      openA.href = openUrl;
+      openA.target = "_blank";
+      openA.rel = "noopener";
+      openA.textContent = "Open in new tab";
+      footer.appendChild(openA);
+
+      if (isDrive) {
+        var dlA = document.createElement("a");
+        dlA.className = "motk-media-modal__link";
+        dlA.href = downloadUrl;
+        dlA.target = "_blank";
+        dlA.rel = "noopener";
+        dlA.textContent = "Download";
+        footer.appendChild(dlA);
       }
 
-      // Drive-aware URL selection:
-      // - Drive image: uc?export=view&id=...
-      // - Drive video: file/d/<id>/preview via <iframe> (more reliable than <video> for large files)
-      var isDrive = false;
-      var driveId = "";
-      try {
-        if ((rawUrl && rawUrl.indexOf("drive.google.com") !== -1) || (mediaUrl && mediaUrl.indexOf("drive.google.com") !== -1)) {
-          isDrive = true;
-          driveId = _driveIdFromAny_(rawUrl) || _driveIdFromAny_(mediaUrl) || "";
-        }
-      } catch (_) { }
+      modal.appendChild(header);
+      modal.appendChild(body);
+      modal.appendChild(footer);
 
-      var finalUrl = mediaUrl;
-      var openUrl = finalUrl;
-      var useIframe = false;
-      if (isDrive && driveId) {
-        if (isVideo) {
-          finalUrl = _drivePreviewUrl_(driveId);
-          openUrl = _driveViewUrl_(driveId);
-          useIframe = true;
-        } else if (isImage) {
-          finalUrl = _driveImageViewUrl_(driveId);
-          openUrl = _driveViewUrl_(driveId);
-        }
+      function setHost_(el) {
+        host.textContent = "";
+        host.appendChild(el);
       }
 
-      function showFail_(msg) {
-        try { body.innerHTML = ""; } catch (_) { }
-        var wrap = document.createElement("div");
-        wrap.className = "motk-media-fallback";
-        var m = document.createElement("div");
-        m.className = "motk-media-fallback__msg";
-        m.appendChild(document.createTextNode(String(msg || "Failed to load media.")));
-        wrap.appendChild(m);
-        var href = String(openUrl || finalUrl || rawUrl || "");
-        if (href) {
-          var a = document.createElement("a");
-          a.className = "motk-media-fallback__open";
-          a.href = href;
-          a.target = "_blank";
-          a.rel = "noopener noreferrer";
-          a.textContent = "Open in new tab";
-          wrap.appendChild(a);
-        }
-        body.appendChild(wrap);
+      function showError_(msg) {
+        var box = document.createElement("div");
+        box.className = "motk-media-modal__error";
+        box.textContent = String(msg || "Failed to load media.");
+        host.textContent = "";
+        host.appendChild(box);
       }
 
-      if (isVideo) {
-        if (useIframe) {
-          var ifr = document.createElement("iframe");
-          ifr.className = "motk-preview-iframe";
-          ifr.src = finalUrl;
-          ifr.allow = "autoplay; fullscreen";
-          ifr.allowFullscreen = true;
-          try { ifr.referrerPolicy = "no-referrer-when-downgrade"; } catch (_) { }
-          ifr.setAttribute("loading", "eager");
-          ifr.onerror = function () { showFail_("Failed to load media."); };
-          body.appendChild(ifr);
-        } else {
-          var v = document.createElement("video");
-          v.className = "motk-preview-video";
-          v.src = finalUrl;
-          v.controls = true;
-          v.playsInline = true;
-
-          v.onerror = function () { showFail_("Failed to load media."); };
-
-          if (opt && opt.autoplay) {
-            v.autoplay = true;
-            v.muted = true;
-            try { v.play(); } catch (_) { }
-          }
-
-          body.appendChild(v);
-        }
-      } else {
+      // Choose embed strategy
+      if (isDrive && isVid) {
+        var iframe = document.createElement("iframe");
+        iframe.className = "motk-media-modal__iframe";
+        iframe.src = previewUrl;
+        iframe.allowFullscreen = true;
+        iframe.setAttribute("allow", "autoplay; fullscreen; picture-in-picture");
+        iframe.referrerPolicy = "no-referrer";
+        setHost_(iframe);
+      } else if (isImg) {
         var img = document.createElement("img");
-        img.className = "motk-preview-img";
-        img.alt = safeTitle || "";
-        img.src = finalUrl;
-        img.onerror = function () { showFail_("Failed to load media."); };
-        body.appendChild(img);
+        img.className = "motk-media-modal__img";
+        img.alt = displayTitle;
+        img.referrerPolicy = "no-referrer";
+        img.onerror = function () {
+          if (isDrive) {
+            var ifr2 = document.createElement("iframe");
+            ifr2.className = "motk-media-modal__iframe";
+            ifr2.src = previewUrl;
+            ifr2.allowFullscreen = true;
+            ifr2.setAttribute("allow", "autoplay; fullscreen; picture-in-picture");
+            ifr2.referrerPolicy = "no-referrer";
+            setHost_(ifr2);
+          } else {
+            showError_("Failed to load image.");
+          }
+        };
+        img.src = isDrive ? viewUrl : rawUrl;
+        setHost_(img);
+      } else if (!isDrive && isVid) {
+        var video = document.createElement("video");
+        video.className = "motk-media-modal__video";
+        video.controls = true;
+        video.playsInline = true;
+        video.preload = "metadata";
+        video.onerror = function () { showError_("Failed to load video."); };
+        video.src = rawUrl;
+        setHost_(video);
+      } else if (isDrive) {
+        var ifr3 = document.createElement("iframe");
+        ifr3.className = "motk-media-modal__iframe";
+        ifr3.src = previewUrl;
+        ifr3.allowFullscreen = true;
+        ifr3.setAttribute("allow", "autoplay; fullscreen; picture-in-picture");
+        ifr3.referrerPolicy = "no-referrer";
+        setHost_(ifr3);
+      } else {
+        showError_("Unsupported media type.");
       }
-    }
 
-    function MOTK_openMediaModal(arg1, arg2, arg3) {
-      if (arg1 && typeof arg1 === "object") {
-        var o = arg1;
-        var src = (o.src || o.url || o.media || "");
-        var title = (o.title || o.name || "");
-        return MOTK_openMediaModalImpl_(src, title, o);
-      }
-      return MOTK_openMediaModalImpl_(arg1, arg2, arg3);
+      bd.classList.add("is-open");
+      try { document.body.classList.add("motk-modal-open"); } catch (_) { }
     }
 
     function MOTK_closeMediaModal(reason) {
@@ -816,33 +825,31 @@
         }
       } catch (_) { }
 
+      var modal = bd.querySelector(".motk-media-modal");
       try {
-        var delta = st && st.openedAt ? (Date.now() - st.openedAt) : -1;
-        console.log("[MOTK_MEDIA_MODAL] close reason=" + String(reason || "unknown") + " deltaMs=" + delta);
-      } catch (_) { }
-
-      var body = bd.querySelector(".motk-preview-body");
-      try {
-        if (body) {
-          var v = body.querySelector && body.querySelector("video");
-          if (v) {
-            try { v.pause(); } catch (_) { }
-            try { v.removeAttribute("src"); } catch (_) { }
-            try { v.load(); } catch (_) { }
+        var host = modal && modal.querySelector ? modal.querySelector(".motk-media-modal__host") : null;
+        if (host) {
+          var iframe = host.querySelector && host.querySelector("iframe");
+          if (iframe) {
+            try { iframe.src = "about:blank"; } catch (_) { }
+            try { iframe.removeAttribute("src"); } catch (_) { }
           }
-          var ifr = body.querySelector && body.querySelector("iframe");
-          if (ifr) {
-            try { ifr.src = "about:blank"; } catch (_) { }
-            try { ifr.removeAttribute("src"); } catch (_) { }
+          var video = host.querySelector && host.querySelector("video");
+          if (video) {
+            try { video.pause(); } catch (_) { }
+            try { video.removeAttribute("src"); } catch (_) { }
+            try { video.load(); } catch (_) { }
           }
         }
       } catch (_) { }
 
-      if (body) body.innerHTML = "";
-      bd.classList.remove("is-open");
+      try { if (modal) modal.textContent = ""; } catch (_) { }
+      try { bd.classList.remove("is-open"); } catch (_) { }
+      try { document.body.classList.remove("motk-modal-open"); } catch (_) { }
 
       st.isOpen = false;
-      st.lastCloseReason = reason || "";
+      st.lastCloseReason = String(reason || "");
+      try { console.log("[MOTK_MEDIA_MODAL] close reason=" + st.lastCloseReason); } catch (_) { }
     }
 
     window.MOTK_openMediaModal = MOTK_openMediaModal;
@@ -859,7 +866,7 @@
       function getClosestTrigger_(t) {
         try {
           if (!t || !t.closest) return null;
-          return t.closest('[data-motk-media-trigger="1"],[data-motk-proxy-thumb="1"]');
+          return t.closest('[data-motk-media-trigger="1"]');
         } catch (_) { }
         return null;
       }
@@ -899,10 +906,10 @@
 
           if (typeof window.MOTK_openMediaModal === "function") {
             window.MOTK_openMediaModal({
-              src: src,
+              url: src,
               title: title,
-              mime: mime,
-              kind: /^video\//i.test(String(mime || "")) ? "video" : "img"
+              name: title,
+              mime: mime
             });
           } else {
             window.open(src, "_blank", "noopener");
@@ -917,7 +924,7 @@
       var entry = _proxyEntryFromCache_(recordId, fieldId);
       var driveId =
         (entry && entry.id) ? String(entry.id) :
-        _driveIdFromAny_(url);
+        _motk_driveIdFromAny_(url);
 
       var name =
         (entry && (entry.name || entry.fileName || entry.filename)) ? String(entry.name || entry.fileName || entry.filename) : "";
@@ -929,13 +936,18 @@
         (entry && entry.thumb) ? String(entry.thumb) :
         (driveId ? _driveThumbUrl_(driveId) : _thumbFromProxyUrl_(url));
 
-      var media =
-        (entry && (entry.mediaUrl || entry.media || entry.directUrl)) ? String(entry.mediaUrl || entry.media || entry.directUrl) :
-        (driveId ? _driveMediaUrl_(driveId, mime, name) : String(url || ""));
+      var media = "";
+      if (driveId) {
+        media = _motk_driveOpenUrl_(driveId);
+      } else if (entry && (entry.mediaUrl || entry.media || entry.directUrl)) {
+        media = String(entry.mediaUrl || entry.media || entry.directUrl);
+      } else {
+        media = String(url || "");
+      }
 
       var btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "motk-preview-btn proxy-thumb";
+      btn.className = "motk-media-trigger-btn proxy-thumb";
       btn.title = "Open preview";
       btn.setAttribute("data-motk-media-trigger", "1");
       btn.setAttribute("data-motk-media-src", String(media || ""));

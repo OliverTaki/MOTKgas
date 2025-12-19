@@ -777,7 +777,7 @@ body.motk-modal-open .motk-modal-backdrop{
   }
 
   /* ===== Media Modal (Proxy Viewer) ===== */
-  .motk-preview-btn {
+  .motk-media-trigger-btn {
     background: transparent;
     border: 0;
     padding: 0;
@@ -786,123 +786,129 @@ body.motk-modal-open .motk-modal-backdrop{
     line-height: 0;
   }
 
-  .motk-media-backdrop {
+  /* (Media Modal - 2025-12) */
+  .motk-media-backdrop{
     position: fixed;
     inset: 0;
+    background: rgba(0,0,0,.55);
     display: none;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.72);
-    z-index: 2147483646;
+    z-index: 2147483646; /* keep above #detailBar */
     pointer-events: auto;
   }
 
-  .motk-media-backdrop.is-open {
-    display: flex;
-  }
+  .motk-media-backdrop.is-open{ display: flex; }
 
-  .motk-media-modal {
-    /* Always fit horizontally; no hard cap */
-    width: 94vw;
-    max-width: 94vw;
+  .motk-media-modal{
+    width: 96vw;          /* no pixel cap */
+    height: 92vh;         /* viewport-based height */
+    max-width: 96vw;
     max-height: 92vh;
+    background: #1a1a1a;
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0,0,0,.45);
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    border-radius: 12px;
-    border: 1px solid rgba(255,255,255,0.14);
-    background: rgba(18,18,18,0.98);
-    box-shadow: 0 12px 40px rgba(0,0,0,0.55);
     position: relative;
     z-index: 2147483647;
-    pointer-events: auto;
   }
 
-  .motk-media-modal__header {
-    display: flex;
-    align-items: center;
+  .motk-media-modal__header{
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(255,255,255,.12);
+    display:flex;
+    align-items:center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 10px 12px;
-    border-bottom: 1px solid rgba(255,255,255,0.12);
+    gap: 10px;
+    flex: 0 0 auto;
   }
 
-  .motk-media-title {
-    font-size: 13px;
-    opacity: 0.9;
+  .motk-media-modal__title{
+    font-weight: 600;
+    font-size: 14px;
+    color: rgba(255,255,255,.92);
+    overflow: hidden;
     white-space: nowrap;
-    overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 72vw;
+    min-width: 0;
   }
 
-  .motk-media-modal__body {
-    position: relative;
-    flex: 1 1 auto;
-    min-height: 120px;
-    overflow: hidden;
-    pointer-events: auto;
-  }
-
-  .motk-media-close{
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-    border: 1px solid rgba(255,255,255,0.18);
-    background: rgba(0,0,0,0.35);
-    color: #fff;
-    font-size: 22px;
-    line-height: 34px;
+  .motk-media-modal__actions{ display:flex; gap: 8px; align-items:center; }
+  .motk-media-modal__close{
+    border: 0;
+    background: rgba(255,255,255,.08);
+    color: rgba(255,255,255,.9);
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
     cursor: pointer;
+    font-size: 18px;
+    line-height: 30px;
   }
+  .motk-media-modal__close:hover{ background: rgba(255,255,255,.14); }
 
-  .motk-preview-body {
-    position: absolute;
-    inset: 0;
+  .motk-media-modal__body{
+    flex: 1 1 auto;
+    overflow: hidden;
+    padding: 0;
+    background: #111;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: auto;
-    padding: 8px;
   }
 
-  .motk-preview-body img,
-  .motk-preview-body video {
-    width: 100%;
-    height: 100%;
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-    display: block;
-    pointer-events: auto;
+  .motk-media-modal__host{
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
   }
 
-  .motk-preview-body iframe{
+  .motk-media-modal__loading{
+    margin: auto;
+    color: rgba(255,255,255,.75);
+    font-size: 13px;
+  }
+
+  .motk-media-modal__img,
+  .motk-media-modal__video,
+  .motk-media-modal__iframe{
     width: 100%;
     height: 100%;
     border: 0;
     display: block;
-    pointer-events: auto;
+    background: #000;
   }
 
-  .motk-media-fallback{
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 14px;
-    text-align: center;
+  .motk-media-modal__img,
+  .motk-media-modal__video{
+    object-fit: contain;
   }
-  .motk-media-fallback__msg{ opacity: 0.92; }
-  .motk-media-fallback__open{
-    display: inline-block;
-    padding: 8px 12px;
-    border-radius: 10px;
-    border: 1px solid rgba(255,255,255,0.18);
-    background: rgba(0,0,0,0.35);
-    color: #fff;
-    text-decoration: none;
+
+  .motk-media-modal__footer{
+    flex: 0 0 auto;
+    padding: 10px 14px;
+    border-top: 1px solid rgba(255,255,255,.12);
+    display:flex;
+    justify-content: flex-end;
+    gap: 12px;
+  }
+
+  .motk-media-modal__link{
+    color: rgba(180,220,255,.95);
+    text-decoration: underline;
+    font-size: 12px;
+  }
+  .motk-media-modal__link:hover{
+    color: rgba(210,235,255,.98);
+  }
+
+  .motk-media-modal__error{
+    margin: auto;
+    color: rgba(255,255,255,.85);
+    font-size: 13px;
+    padding: 14px;
   }
 
   /* Enforce operability even if other CSS accidentally disables pointer events. */
