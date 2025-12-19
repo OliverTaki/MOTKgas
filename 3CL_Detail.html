@@ -1232,7 +1232,7 @@
           act.className = "card-actions";
 
           var btnEdit = document.createElement("button");
-          btnEdit.className = "btn";
+          btnEdit.className = "btn edit-only";
           btnEdit.type = "button";
           btnEdit.textContent = "Edit";
           btnEdit.title = "Edit card";
@@ -1243,7 +1243,7 @@
           });
 
           var btnDup = document.createElement("button");
-          btnDup.className = "btn";
+          btnDup.className = "btn edit-only";
           btnDup.type = "button";
           btnDup.textContent = "Duplicate";
           btnDup.title = "Duplicate card";
@@ -1254,7 +1254,7 @@
           });
 
           var btnFit = document.createElement("button");
-          btnFit.className = "btn";
+          btnFit.className = "btn edit-only";
           btnFit.type = "button";
           btnFit.textContent = "Auto height";
           btnFit.title = "Auto fit height";
@@ -1265,10 +1265,14 @@
           });
 
           var btnReload = document.createElement("button");
-          btnReload.className = "btn";
+          btnReload.className = "btn btn-icon btn-reload";
           btnReload.type = "button";
-          btnReload.textContent = "Reload";
-          btnReload.title = "Reload card contents";
+          btnReload.setAttribute("aria-label", "Reload");
+          btnReload.title = "Reload";
+          btnReload.innerHTML =
+            '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">' +
+              '<path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L14 10h6V4l-2.35 2.35Z"/>' +
+            '</svg>';
           btnReload.onmousedown = function(e) { e.stopPropagation(); };
           btnReload.addEventListener("click", function (e) {
             e.preventDefault(); e.stopPropagation();

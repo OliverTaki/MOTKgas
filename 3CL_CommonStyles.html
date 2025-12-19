@@ -473,8 +473,12 @@ body.detail-page .card-header{
     }
 
 body.detail-page .card-title{flex:1 1 auto;min-width:0;margin-left:28px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-body.detail-page .card-actions{display:none;align-items:center;gap:6px}
-body.detail-page.layout-edit .card-actions{display:flex}
+body.detail-page .card-actions{display:flex;align-items:center;gap:6px}
+body.detail-page:not(.layout-edit) .card-actions .edit-only{display:none !important;}
+body.detail-page .btn-icon{line-height:0;display:inline-flex;align-items:center;justify-content:center}
+body.detail-page .btn-icon svg{display:block}
+body.detail-page .btn-icon:focus{outline:2px solid rgba(255,255,255,.35);outline-offset:2px}
+body.detail-page .btn-icon:focus:not(:focus-visible){outline:none}
 
 /* FIX: enforce delete button hidden via .btn-del */
 body.detail-page .card-remove,
