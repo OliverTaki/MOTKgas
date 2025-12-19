@@ -779,28 +779,33 @@ body.motk-modal-open .motk-modal-backdrop{
   .date-indicator.warn .dot{ background:#f0b429; }
   .date-indicator.bad .dot{ background:#ff5c5c; }
 
-  /* Inline editor */
+  /* Shared inline editor styling (Table + Detail) */
   .motk-inline-editor{
-    width: 100%;
-    min-height: 36px;
-    padding: 8px 10px;
-    border-radius: 10px;
+    width:100%;
+    box-sizing:border-box;
+    font:inherit;
+    padding:6px 8px;
+    border-radius:8px;
     border:1px solid var(--border);
     background:var(--surface);
     color:var(--fg);
   }
+  .motk-inline-editor:focus{
+    outline:none;
+    box-shadow: 0 0 0 2px rgba(255,255,255,.22) inset;
+  }
+  .motk-inline-textarea{
+    min-height: 0;
+    resize: none;
+    overflow: auto;
+  }
+
   /* Make the date picker icon visible (Chrome/Edge). */
   .motk-inline-editor[type="date"]::-webkit-calendar-picker-indicator,
   input[type="date"]::-webkit-calendar-picker-indicator{
     filter: invert(1) brightness(1.25);
     opacity: 0.9;
   }
-  .motk-inline-editor:focus{
-    outline: none;
-    border-color: rgba(255,255,255,0.35);
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.35) inset;
-  }
-  .motk-inline-textarea{ min-height:140px; resize:vertical; }
 
   /* Preview thumb wrapper (used by Table/Detail renderers) */
   .proxy-thumb { display:block; cursor:pointer; width:100%; }
