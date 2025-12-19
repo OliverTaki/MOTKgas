@@ -513,26 +513,43 @@
       return "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(id);
     }
 
-    function _motk_isVideoUrl_(url) {
-      if (!url) return false;
-      var u = String(url).split("?")[0].toLowerCase();
+    function _drivePreviewUrl_(id) {
+      id = String(id || "");
+      if (!id) return "";
+      return "https://drive.google.com/file/d/" + id + "/preview";
+    }
+
+    function _driveViewUrl_(id) {
+      id = String(id || "");
+      if (!id) return "";
+      return "https://drive.google.com/file/d/" + id + "/view";
+    }
+
+    function _driveImageViewUrl_(id) {
+      id = String(id || "");
+      if (!id) return "";
+      return "https://drive.google.com/uc?export=view&id=" + encodeURIComponent(id);
+    }
+
+    function _motk_isVideoUrl_(url, opt) {
+      var u = String(url || "");
+      var mime = (opt && opt.mime) ? String(opt.mime) : "";
+      var t = (opt && opt.title) ? String(opt.title) : "";
       return (
-        u.endsWith(".mp4") ||
-        u.endsWith(".webm") ||
-        u.endsWith(".mov") ||
-        u.endsWith(".m4v")
+        /video\//i.test(mime) ||
+        /\.(mp4|m4v|mov|webm|ogv|ogg)(\?|#|$)/i.test(u) ||
+        /\.(mp4|m4v|mov|webm|ogv|ogg)(\?|#|$)/i.test(t)
       );
     }
 
-    function _motk_isImageUrl_(url) {
-      if (!url) return false;
-      var u = String(url).split("?")[0].toLowerCase();
+    function _motk_isImageUrl_(url, opt) {
+      var u = String(url || "");
+      var mime = (opt && opt.mime) ? String(opt.mime) : "";
+      var t = (opt && opt.title) ? String(opt.title) : "";
       return (
-        u.endsWith(".jpg") ||
-        u.endsWith(".jpeg") ||
-        u.endsWith(".png") ||
-        u.endsWith(".webp") ||
-        u.endsWith(".gif")
+        /image\//i.test(mime) ||
+        /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(u) ||
+        /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(t)
       );
     }
 
@@ -643,10 +660,12 @@
       var body = bd.querySelector(".motk-preview-body");
       var titleEl = bd.querySelector(".motk-media-title");
 
+      opt = opt || {};
       var rawUrl = url ? String(url) : "";
       var safeTitle = title ? String(title) : "";
       var kindHint = opt && opt.kind ? String(opt.kind) : "";
       var mimeHint = opt && opt.mime ? String(opt.mime) : "";
+      if (!opt.title && safeTitle) opt.title = safeTitle;
 
       st.lastOpen = { url: rawUrl || "", title: safeTitle || "", opt: opt || null, at: Date.now() };
 
@@ -672,17 +691,13 @@
 
       var isVideo =
         kindHint === "video" ||
-        /^video\//i.test(mimeHint) ||
-        _motk_isVideoUrl_(rawUrl) ||
-        _motk_isVideoUrl_(mediaUrl) ||
-        _motk_isVideoUrl_(safeTitle);
+        _motk_isVideoUrl_(rawUrl, opt) ||
+        _motk_isVideoUrl_(mediaUrl, opt);
       var isImage =
         kindHint === "img" ||
         kindHint === "image" ||
-        /^image\//i.test(mimeHint) ||
-        _motk_isImageUrl_(rawUrl) ||
-        _motk_isImageUrl_(mediaUrl) ||
-        _motk_isImageUrl_(safeTitle) ||
+        _motk_isImageUrl_(rawUrl, opt) ||
+        _motk_isImageUrl_(mediaUrl, opt) ||
         (rawUrl.indexOf("drive.google.com/thumbnail") !== -1) ||
         (mediaUrl.indexOf("drive.google.com/thumbnail") !== -1);
 
@@ -707,13 +722,16 @@
       } catch (_) { }
 
       var finalUrl = mediaUrl;
+      var openUrl = finalUrl;
       var useIframe = false;
       if (isDrive && driveId) {
         if (isVideo) {
-          finalUrl = "https://drive.google.com/file/d/" + encodeURIComponent(driveId) + "/preview";
+          finalUrl = _drivePreviewUrl_(driveId);
+          openUrl = _driveViewUrl_(driveId);
           useIframe = true;
         } else if (isImage) {
-          finalUrl = "https://drive.google.com/uc?export=view&id=" + encodeURIComponent(driveId);
+          finalUrl = _driveImageViewUrl_(driveId);
+          openUrl = _driveViewUrl_(driveId);
         }
       }
 
@@ -725,7 +743,7 @@
         m.className = "motk-media-fallback__msg";
         m.appendChild(document.createTextNode(String(msg || "Failed to load media.")));
         wrap.appendChild(m);
-        var href = String(finalUrl || rawUrl || "");
+        var href = String(openUrl || finalUrl || rawUrl || "");
         if (href) {
           var a = document.createElement("a");
           a.className = "motk-media-fallback__open";
@@ -745,6 +763,7 @@
           ifr.src = finalUrl;
           ifr.allow = "autoplay; fullscreen";
           ifr.allowFullscreen = true;
+          try { ifr.referrerPolicy = "no-referrer-when-downgrade"; } catch (_) { }
           ifr.setAttribute("loading", "eager");
           ifr.onerror = function () { showFail_("Failed to load media."); };
           body.appendChild(ifr);
@@ -813,6 +832,7 @@
           }
           var ifr = body.querySelector && body.querySelector("iframe");
           if (ifr) {
+            try { ifr.src = "about:blank"; } catch (_) { }
             try { ifr.removeAttribute("src"); } catch (_) { }
           }
         }
