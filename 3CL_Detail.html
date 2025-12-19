@@ -1479,6 +1479,7 @@
             /* FIX: reduce padding calculation from +20px to +4px */
             var rows = Math.ceil( (targetH + m.gap + 4) / m.rowStep );
             rows = Math.max(4, rows);
+            rows += 1;
             
             applyXYWH(card, +card.dataset.x, +card.dataset.y, +card.dataset.w, rows);
             lockCardHeaderHeights();
@@ -1500,6 +1501,7 @@
         var rows2 = Math.ceil( (needPx + m.gap) / m.rowStep );
         
         rows2 = Math.max(6, Math.min(rows2, 300));
+        rows2 = Math.min(300, rows2 + 1);
         applyXYWH(card, +card.dataset.x, +card.dataset.y, +card.dataset.w, rows2);
         lockCardHeaderHeights();
       }
