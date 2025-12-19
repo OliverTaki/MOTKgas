@@ -785,9 +785,16 @@ body.motk-modal-open .motk-modal-backdrop{
     background:var(--surface);
     color:var(--fg);
   }
+  /* Make the date picker icon visible (Chrome/Edge). */
+  .motk-inline-editor[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="date"]::-webkit-calendar-picker-indicator{
+    filter: invert(1) brightness(1.25);
+    opacity: 0.9;
+  }
   .motk-inline-editor:focus{
-    outline:2px solid rgba(255,255,255,.22);
-    outline-offset:1px;
+    outline: none;
+    border-color: rgba(255,255,255,0.35);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.35) inset;
   }
   .motk-inline-textarea{ min-height:140px; resize:vertical; }
 

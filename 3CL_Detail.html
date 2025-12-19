@@ -1264,7 +1264,63 @@
             autoFitHeight(card, true);
           });
 
-          act.appendChild(btnEdit); act.appendChild(btnDup); act.appendChild(btnFit);
+          var btnReload = document.createElement("button");
+          btnReload.className = "btn";
+          btnReload.type = "button";
+          btnReload.textContent = "Reload";
+          btnReload.title = "Reload card contents";
+          btnReload.onmousedown = function(e) { e.stopPropagation(); };
+          btnReload.addEventListener("click", function (e) {
+            e.preventDefault(); e.stopPropagation();
+            try {
+              var cardType = String(card.dataset.type || "");
+              if (cardType === "shotview") {
+                var inner = card.querySelector(".media .inner");
+                if (inner) renderShotViewContent(inner);
+                return;
+              }
+
+              var tds = card.querySelectorAll('td.v[data-fid]');
+              tds.forEach(function(td) {
+                var fid = td.getAttribute("data-fid");
+                if (!fid) return;
+
+                var meta = (STATE.fieldsMeta && STATE.fieldsMeta[fid]) ? STATE.fieldsMeta[fid] : null;
+                var ftype = (meta && meta.type) ? String(meta.type).trim().toLowerCase() : "";
+                var val = (STATE.row && STATE.row[fid] != null) ? STATE.row[fid] : "";
+
+                td.innerHTML = "";
+                var node = null;
+                if (window.FieldsAPI && typeof FieldsAPI.renderCellByField === "function") {
+                  node = FieldsAPI.renderCellByField({
+                    fid: fid,
+                    fieldId: fid,
+                    val: val,
+                    value: val,
+                    row: STATE.row || {},
+                    labels: STATE.labels || {},
+                    entity: STATE.entity,
+                    recordId: STATE.id,
+                    rowId: STATE.id,
+                    id: STATE.id,
+                    type: ftype,
+                    field: meta || null,
+                    editable: !!(meta && meta.editable === true)
+                  });
+                }
+                if (!node) node = document.createTextNode(val == null ? "" : String(val));
+                td.appendChild(node);
+              });
+
+              if (window.FieldsAPI && typeof FieldsAPI.hydrateLinks === "function") {
+                FieldsAPI.hydrateLinks(card, { entity: STATE.entity, row: STATE.row, labels: STATE.labels });
+              }
+            } catch (err) {
+              console.error("[DetailV2] Card reload failed", err);
+            }
+          });
+
+          act.appendChild(btnEdit); act.appendChild(btnDup); act.appendChild(btnFit); act.appendChild(btnReload);
 
           /* FIX: explicitly add card-remove class */
           var delBtn = document.createElement("button");
@@ -2025,12 +2081,8 @@
             var nextVal = newValue;
             dv2_queueFieldWrite(entity, id, fid, nextVal,
               function (confirmedVal, _res) {
-                try {
-                  if (confirmedVal !== nextVal) {
-                    cell.textContent = (confirmedVal == null) ? '' : String(confirmedVal);
-                    if (STATE && STATE.row) STATE.row[fid] = confirmedVal;
-                  }
-                } catch (_e) {}
+                try { if (STATE && STATE.row) STATE.row[fid] = confirmedVal; } catch (_e) {}
+                try { renderAllDetailCellsForFid(fid, meta, confirmedVal, null); } catch (_e) {}
                 try { if (typeof showStatus === 'function') showStatus('Updated!'); } catch (_e) {}
               },
               function (rollbackVal, err) {
@@ -2038,10 +2090,8 @@
                 try { if (typeof showError === 'function') showError('Update Failed: ' + msg); } catch (_e) {}
 
                 var v = (rollbackVal !== undefined) ? rollbackVal : originalRaw;
-                try {
-                  cell.textContent = (v == null) ? '' : String(v);
-                  if (STATE && STATE.row) STATE.row[fid] = v;
-                } catch (_e) {}
+                try { if (STATE && STATE.row) STATE.row[fid] = v; } catch (_e) {}
+                try { renderAllDetailCellsForFid(fid, meta, v, null); } catch (_e) {}
                 try { if (typeof showStatus === 'function') showStatus('Update Failed'); } catch (_e) {}
               }
             );
