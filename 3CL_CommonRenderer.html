@@ -920,6 +920,7 @@
 
     function _fillPreviewSingle_(host, recordId, fieldId, url) {
       host.innerHTML = "";
+      try { host.style.display = "block"; host.style.width = "100%"; } catch (_) { }
 
       var entry = _proxyEntryFromCache_(recordId, fieldId);
       var driveId =
@@ -969,6 +970,10 @@
       var url = _proxyUrlFromCache_(rid, fid);
 
       var box = document.createElement("span");
+      try {
+        box.setAttribute("data-motk-proxy-thumb", "1");
+        box.setAttribute("data-proxy-record-id", String(rid || ""));
+      } catch (_) { }
 
       if (url) {
         _fillPreviewSingle_(box, rid, fid, url);
