@@ -721,41 +721,66 @@ body.motk-modal-open .motk-modal-backdrop{
   .motk-link-picker .ft{ padding: 12px 14px; border-top: 1px solid rgba(255,255,255,.12); display:flex; gap:8px; justify-content:flex-end; }
   .motk-link-picker input.q{
     width: 100%;
-    padding: 10px 10px;
+    padding: 10px 12px;
     border-radius: 10px;
-    border: 1px solid rgba(255,255,255,.18);
-    background: #222;
-    color: #fff;
-    box-sizing: border-box;
+    border: 1px solid rgba(255,255,255,.14);
+    background: #0f0f0f;
+    color: #eee;
   }
   .motk-link-picker .list{
-    display: grid;
-    gap: 6px;
-    max-height: 55vh;
-    overflow: auto;
-    padding-right: 4px;
+    max-height: min(55vh, 520px);
+    overflow:auto;
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: 10px;
+    background:#0f0f0f;
   }
   .motk-link-picker .row{
-    display:flex;
-    gap:10px;
-    align-items:center;
-    padding: 6px 8px;
-    border-radius: 10px;
-    border: 1px solid rgba(255,255,255,.06);
-    background: rgba(255,255,255,.04);
-    cursor: pointer;
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+    cursor:pointer;
   }
-  .motk-link-picker .row:hover{ background: rgba(255,255,255,.08); }
-  .motk-link-picker .row input{ cursor: pointer; }
-  .motk-link-picker .txt{ font-size: 13px; }
+  .motk-link-picker .row:hover{ background: rgba(255,255,255,.06); }
+  .motk-link-picker .row:last-child{ border-bottom:0; }
+  .motk-link-picker .row .t{ font-size: 13px; font-weight: 600; }
+  .motk-link-picker .row .s{ font-size: 12px; opacity:.8; margin-top:2px; }
+  .motk-link-picker .btn{
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,.14);
+    background: rgba(255,255,255,.06);
+    color: #eee;
+    cursor:pointer;
+  }
+  .motk-link-picker .btn:hover{ background: rgba(255,255,255,.10); }
 
-  /* Shared inline editor styling (Table + Detail) */
+  .date-indicator{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,.14);
+    background: rgba(255,255,255,.06);
+    color: #eee;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .date-indicator .d{ opacity:.9; }
+  .date-indicator .dot{
+    width: 7px; height:7px; border-radius: 50%;
+    background: #999;
+    box-shadow: 0 0 0 2px rgba(0,0,0,.25) inset;
+  }
+  .date-indicator.ok .dot{ background:#39d353; }
+  .date-indicator.warn .dot{ background:#f0b429; }
+  .date-indicator.bad .dot{ background:#ff5c5c; }
+
+  /* Inline editor */
   .motk-inline-editor{
-    width:100%;
-    box-sizing:border-box;
-    font:inherit;
-    padding:6px 8px;
-    border-radius:8px;
+    width: 100%;
+    min-height: 36px;
+    padding: 8px 10px;
+    border-radius: 10px;
     border:1px solid var(--border);
     background:var(--surface);
     color:var(--fg);
@@ -767,7 +792,7 @@ body.motk-modal-open .motk-modal-backdrop{
   .motk-inline-textarea{ min-height:140px; resize:vertical; }
 
   /* Preview thumb wrapper (used by Table/Detail renderers) */
-  .proxy-thumb { display:block; cursor:pointer; }
+  .proxy-thumb { display:block; cursor:pointer; width:100%; }
   .proxy-thumb img {
     width: 100%;
     aspect-ratio: 16/9;
@@ -786,146 +811,103 @@ body.motk-modal-open .motk-modal-backdrop{
     line-height: 0;
   }
 
-  /* (Media Modal - 2025-12) */
-  .motk-media-backdrop{
+  .motk-media-trigger-btn.proxy-thumb { width: 100%; }
+
+  .motk-media-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,.55);
-    display: none;
+    z-index: 99999;
+    background: rgba(0,0,0,0.72);
+    display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 2147483646; /* keep above #detailBar */
-    pointer-events: auto;
+    padding: 12px;
   }
 
-  .motk-media-backdrop.is-open{ display: flex; }
+  .motk-media-modal {
+    width: 72vw;
+    height: 69vh;
+    max-width: 1200px;
+    max-height: 820px;
 
-  .motk-media-modal{
-    width: 96vw;          /* no pixel cap */
-    height: 92vh;         /* viewport-based height */
-    max-width: 96vw;
-    max-height: 92vh;
-    background: #1a1a1a;
-    border: 1px solid rgba(255,255,255,.12);
+    background: #111;
     border-radius: 12px;
-    box-shadow: 0 10px 40px rgba(0,0,0,.45);
+    box-shadow: 0 20px 80px rgba(0,0,0,0.55);
+
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    position: relative;
-    z-index: 2147483647;
   }
 
-  .motk-media-modal__header{
-    padding: 12px 14px;
-    border-bottom: 1px solid rgba(255,255,255,.12);
-    display:flex;
-    align-items:center;
+  .motk-media-modal__header {
+    flex: 0 0 auto;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
     justify-content: space-between;
     gap: 10px;
-    flex: 0 0 auto;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.04);
   }
 
-  .motk-media-modal__title{
+  .motk-media-modal__title {
     font-weight: 600;
-    font-size: 14px;
-    color: rgba(255,255,255,.92);
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    min-width: 0;
-  }
-
-  .motk-media-modal__actions{ display:flex; gap: 8px; align-items:center; }
-  .motk-media-modal__close{
-    border: 0;
-    background: rgba(255,255,255,.08);
-    color: rgba(255,255,255,.9);
-    width: 30px;
-    height: 30px;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 18px;
-    line-height: 30px;
-  }
-  .motk-media-modal__close:hover{ background: rgba(255,255,255,.14); }
-
-  .motk-media-modal__body{
-    flex: 1 1 auto;
-    overflow: hidden;
-    padding: 0;
-    background: #111;
-    display: flex;
-  }
-
-  .motk-media-modal__host{
-    flex: 1 1 auto;
-    min-width: 0;
-    min-height: 0;
-    display: flex;
-  }
-
-  .motk-media-modal__loading{
-    margin: auto;
-    color: rgba(255,255,255,.75);
     font-size: 13px;
+    color: rgba(255,255,255,0.92);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 70vw;
   }
 
-  .motk-media-modal__img,
-  .motk-media-modal__video,
-  .motk-media-modal__iframe{
+  .motk-media-modal__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .motk-media-modal__btn {
+    padding: 6px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.92);
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .motk-media-modal__btn:hover { background: rgba(255,255,255,0.10); }
+
+  .motk-media-modal__body {
+    flex: 1 1 auto;
+    min-height: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: #000;
+    overflow: hidden;
+  }
+
+  .motk-media-modal__body > img,
+  .motk-media-modal__body > video,
+  .motk-media-modal__body > iframe {
     width: 100%;
     height: 100%;
+    max-width: 100%;
+    max-height: 100%;
     border: 0;
     display: block;
-    background: #000;
   }
 
-  .motk-media-modal__img,
-  .motk-media-modal__video{
+  .motk-media-modal__body > img,
+  .motk-media-modal__body > video {
     object-fit: contain;
   }
 
-  .motk-media-modal__footer{
-    flex: 0 0 auto;
-    padding: 10px 14px;
-    border-top: 1px solid rgba(255,255,255,.12);
-    display:flex;
-    justify-content: flex-end;
-    gap: 12px;
-  }
-
-  .motk-media-modal__link{
-    color: rgba(180,220,255,.95);
-    text-decoration: underline;
-    font-size: 12px;
-  }
-  .motk-media-modal__link:hover{
-    color: rgba(210,235,255,.98);
-  }
-
-  .motk-media-modal__error{
-    margin: auto;
-    color: rgba(255,255,255,.85);
-    font-size: 13px;
-    padding: 14px;
-  }
-
-  /* Enforce operability even if other CSS accidentally disables pointer events. */
-  .motk-media-modal,
-  .motk-media-modal * { pointer-events: auto; }
-
-  @media (prefers-color-scheme: dark) {
-    /* Force light picker popups while keeping dark input styling */
-    input[type="date"], input[type="time"], input[type="datetime-local"] { color-scheme: light; }
-    .motk-inline-editor[type="date"], .motk-inline-editor[type="time"], .motk-inline-editor[type="datetime-local"] { color-scheme: light; }
-
-    /* Make the date picker icon visible (Chrome/Edge). */
-    .motk-inline-editor[type="date"]::-webkit-calendar-picker-indicator{
-      filter: invert(1) brightness(1.25);
-      opacity: 0.9;
-    }
-  }
+  /* Keep JS-controlled open/close behavior (CommonRenderer toggles .is-open) */
+  .motk-media-backdrop { display: none; }
+  .motk-media-backdrop.is-open { display: flex; }
 </style>
 <!-- ===== 97. End ===== -->
 
@@ -936,6 +918,15 @@ body.motk-modal-open .motk-modal-backdrop{
   .tag{ cursor:default; }
   .thumbs{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
   .thumb{ width:64px; height:36px; object-fit:cover; border-radius:6px; border:1px solid #eee; }
+  
+  /* Table page: keep fitting to the cell width */
+  #tableWrap .thumbs{ display:block; }
+  #tableWrap .thumb{
+    width:100%;
+    height:auto;
+    aspect-ratio:16/9;
+    object-fit:cover;
+  }
 </style>
 <!-- ===== 41. End ===== -->
 
