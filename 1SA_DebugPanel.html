@@ -1,0 +1,2636 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Debug Panel</title>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+
+    .card {
+      border: 1px solid #ccc;
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 5px;
+    }
+
+    .card h3 {
+      margin-top: 0;
+    }
+
+    .btn {
+      background: #007bff;
+      color: white;
+      padding: 5px 10px;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+
+    .btn:hover {
+      background: #0056b3;
+    }
+
+    .loading {
+      color: #888;
+    }
+
+    .error {
+      color: red;
+    }
+
+    .success {
+      color: green;
+    }
+
+    pre {
+      background: #f8f9fa;
+      padding: 10px;
+      overflow: auto;
+    }
+
+    a {
+      color: #007bff;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Debug Panel</h1>
+
+  <button class="btn" onclick="runAllChecks()">Run all checks</button>
+  <button class="btn" id="btnCopyAll" onclick="copyAll()">Copy All</button>
+  <button class="btn" id="btnCopyConsole" onclick="copyConsoleBuffer()">Copy console buffer</button>
+  <button class="btn" id="btnDownloadReport" onclick="downloadReport()">Download report (.txt)</button>
+  <div id="run-status" class="muted">idle</div>
+
+  <div id="console" class="card">
+    <h3>Console (live)</h3>
+    <div id="console-count" class="muted">Saved: 0 lines</div>
+    <pre id="console-log"></pre>
+  </div>
+
+  <div id="runtime" class="card">
+    <h3>Runtime</h3>
+    <div id="gsr-status">Checking google.script.run...</div>
+    <div id="server-ping">Server ping: <span class="loading">Loading...</span></div>
+    <div id="location">Location: <span class="loading">Loading...</span></div>
+    <div id="url-params">URL Params: <span class="loading">Loading...</span></div>
+  </div>
+
+  <div id="viewer-state" class="card">
+    <h3>Viewer State (window.opener)</h3>
+    <div id="viewer-state-status" class="muted">capturing…</div>
+    <pre id="viewer-state-json">{}</pre>
+  </div>
+
+  <div id="data-maps" class="card">
+    <h3>Data maps / Page</h3>
+    <div id="field-types">FIELD_TYPES: <span class="loading">Loading...</span></div>
+    <div id="link-maps-counts">LINK_MAPS（counts）: <span class="loading">Loading...</span></div>
+    <div id="layout-presets">Layout presets(DetailShot): <span class="loading">Loading...</span></div>
+  </div>
+
+  <div id="fieldtypes-diag" class="card">
+    <h3>FieldTypes diagnostics（entity_name fid 検出）</h3>
+    <div id="shot-fid">shot: <span class="loading">Loading...</span></div>
+    <div id="asset-fid">asset: <span class="loading">Loading...</span></div>
+    <div id="task-fid">task: <span class="loading">Loading...</span></div>
+    <div id="member-fid">member: <span class="loading">Loading...</span></div>
+    <div id="user-fid">user: <span class="loading">Loading...</span></div>
+    <div id="fid-log">log: <span class="loading">Loading...</span></div>
+  </div>
+
+  <div id="originals-resolver" class="card">
+    <h3>Originals resolver</h3>
+    <div id="resolver-context">Context: <span class="loading">Loading...</span></div>
+    <div id="expected-policy">Expected (policy): <span class="loading">Loading...</span></div>
+    <div id="resolve-result">Resolve result: <span class="loading">Loading...</span></div>
+    <div id="originals-url">originals_root_url: <span class="loading">Loading...</span></div>
+    <div id="proxies-url">proxies_root_url: <span class="loading">Loading...</span></div>
+  </div>
+
+  <div id="entity-samples" class="card">
+    <h3>Entity samples（id & name + source）</h3>
+    <div id="shot-sample">shot: <span class="loading">Loading...</span></div>
+    <div id="asset-sample">asset: <span class="loading">Loading...</span></div>
+    <div id="task-sample">task: <span class="loading">Loading...</span></div>
+    <div id="member-sample">member: <span class="loading">Loading...</span></div>
+    <div id="user-sample">user: <span class="loading">Loading...</span></div>
+    <div id="page-sample">page: <span class="loading">Loading...</span></div>
+  </div>
+
+  <div id="originals-diag" class="card">
+    <h3>Originals diagnostics</h3>
+    <button class="btn" id="run-originals-diag">Run Originals diagnostics</button>
+    <div id="input">Input: <span class="loading">Loading...</span></div>
+    <div id="drivebuilder">DriveBuilder: <span class="loading">Loading...</span></div>
+    <div id="serverapis">ServerAPIs: <span class="loading">Loading...</span></div>
+    <div id="projectmetaroot">ProjectMetaRoot: <span class="loading">Loading...</span></div>
+    <div id="final-url">Final URL: <span class="loading">Loading...</span></div>
+    <div id="raw-trace">Raw trace: <span class="loading">Loading...</span></div>
+  </div>
+
+  <div id="link-replacer" class="card">
+    <h3>Link replacer diagnostics</h3>
+    <div id="router-detected">Router detected: <span class="loading">Loading...</span></div>
+    <div id="anchors-replaced">gNav anchors replaced: <span class="loading">Loading...</span></div>
+    <div id="sample-diff">Sample diff（first 3）: <span class="loading">Loading...</span></div>
+    <div id="dry-run-task">Dry-run TASK link: <span class="loading">Loading...</span></div>
+    <div>This card is a static diagnostic and does not mutate DOM.</div>
+  </div>
+
+  <div id="raw-snapshot" class="card">
+    <h3>Raw snapshot</h3>
+    <pre id="raw-snap"></pre>
+  </div>
+
+  <div id="column-contract" class="card">
+    <h3>Column Contract / No Index Binding</h3>
+    <button class="btn" onclick="runColumnContract()">Run check</button>
+    <div id="column-contract-status" class="muted">idle</div>
+    <pre id="column-contract-log"></pre>
+  </div>
+  <div id="binding-integrity" class="card">
+    <h3>Binding Integrity (fid → cell value)</h3>
+    <button class="btn" onclick="runBindingIntegrity()">Run check</button>
+    <div id="binding-integrity-status" class="muted">idle</div>
+    <pre id="binding-integrity-log"></pre>
+  </div>
+
+  <script>
+    let consoleLogItems = [];
+    let globalRes = {};  // 共有結果格納
+    const LOG_BUFFER_LIMIT = 5000;
+    const LOG_VIEW_LINES = 200;
+
+    function readMotkConsoleBuffer() {
+      try {
+        const raw = sessionStorage.getItem("motk:console:buffer:v1");
+        const parsed = JSON.parse(raw || "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function formatMotkConsoleText(items) {
+      return (items || []).map(it => {
+        const t = new Date(it.ts).toISOString();
+        return t + " " + String(it.level || "").toUpperCase() + " " + (it.msg || "");
+      }).join("\n");
+    }
+
+    function clearMotkConsoleBuffer() {
+      try { sessionStorage.removeItem("motk:console:buffer:v1"); } catch (_) { }
+    }
+
+    function formatConsoleLine_(item) {
+      const t = new Date(item.ts || Date.now()).toISOString();
+      return t + " " + String(item.level || "").toUpperCase() + " " + (item.msg || "");
+    }
+
+    function getCombinedConsoleItems_() {
+      const panel = consoleLogItems.slice();
+      const app = readMotkConsoleBuffer();
+      const items = panel.concat(app);
+      items.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+      return items;
+    }
+
+    function updateConsoleCounts_(combined) {
+      const el = document.getElementById('console-count');
+      if (!el) return;
+      const appCount = readMotkConsoleBuffer().length;
+      const panelCount = consoleLogItems.length;
+      const total = combined.length;
+      el.textContent =
+        "Console: showing last " + LOG_VIEW_LINES +
+        " lines | buffered " + total + "/" + LOG_BUFFER_LIMIT +
+        " (panel " + panelCount + ", app " + appCount + ")";
+    }
+
+    function renderLog_() {
+      const el = document.getElementById('console-log');
+      if (!el) return;
+      const combined = getCombinedConsoleItems_();
+      el.innerHTML = combined.slice(-LOG_VIEW_LINES).map(formatConsoleLine_).join('\n');
+      updateConsoleCounts_(combined);
+    }
+
+    function pushLog_(level, msg) {
+      const entry = { ts: Date.now(), level: level, msg: msg };
+      consoleLogItems.push(entry);
+      if (consoleLogItems.length > LOG_BUFFER_LIMIT) {
+        consoleLogItems = consoleLogItems.slice(-LOG_BUFFER_LIMIT);
+      }
+      renderLog_();
+      try { window.__MOTK_DEBUG_PANEL_LOG__ = consoleLogItems.slice(); } catch (_) { }
+    }
+
+    function log(msg) {
+      pushLog_('INFO', msg);
+      console.info(msg);
+    }
+
+    function logInfo(msg) {
+      pushLog_('INFO', msg);
+      console.info(msg);
+    }
+
+    function logWarn(msg) {
+      pushLog_('WARN', msg);
+      console.warn(msg);
+    }
+
+    function updateElement(id, text) {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = text || 'N/A';
+    }
+
+    function updateFromRes(res) {
+      if (!res) return;
+      globalRes = Object.assign({}, globalRes, res);
+      // Data maps
+      updateElement('field-types', JSON.stringify(res.fieldTypes || {}) || 'empty');
+      updateElement('link-maps-counts', JSON.stringify(res.counts || {}) || 'empty');
+      updateElement('layout-presets', (res.presets || []).length ? JSON.stringify(res.presets) : 'no presets');
+      // FieldTypes diag - labelベースでrole|name|codeマッチ (拡張)
+      const ft = res.fieldTypes || {};
+      const getNameFid = (entity) => {
+        const fields = ft[entity] || {};
+        const nameFid = Object.keys(fields).find(fid => fields[fid].label.match(/role|name|code/i));
+        return nameFid ? nameFid : '(no name fid)';
+      };
+      updateElement('shot-fid', 'shot: ' + getNameFid('shot'));
+      updateElement('asset-fid', 'asset: ' + getNameFid('asset'));
+      updateElement('task-fid', 'task: ' + getNameFid('task'));
+      updateElement('member-fid', 'member: ' + getNameFid('member'));
+      updateElement('user-fid', 'user: ' + getNameFid('user'));
+      updateElement('fid-log', 'log: shot:' + Object.keys(ft.shot || {}).length + '- asset:' + Object.keys(ft.asset || {}).length + '- task:' + Object.keys(ft.task || {}).length + '- member:' + Object.keys(ft.member || {}).length + '- user:' + Object.keys(ft.user || {}).length + '-');
+      // Entity samples
+      const lm = res.linkMaps || {};
+      updateElement('shot-sample', JSON.stringify(lm.shots || {}) || 'empty');
+      updateElement('asset-sample', JSON.stringify(lm.assets || {}) || 'empty');
+      updateElement('task-sample', JSON.stringify(lm.tasks || {}) || 'empty');
+      updateElement('member-sample', JSON.stringify(lm.members || {}) || 'empty');
+      updateElement('user-sample', JSON.stringify(lm.users || {}) || 'empty');
+      updateElement('page-sample', 'n/a');
+      // Originals resolver - trace.finalUrl使用
+      var meta = res.meta || {};
+      updateElement('resolver-context', JSON.stringify({ entity: 'shot', id: 'sh_0001' }));
+      updateElement('expected-policy', 'root / 01shots / sh_0001__ 201A open Drive search originals_root_url ' + (meta.originals_root_url ? 'set' : 'not set'));
+      var hasTrace = !!globalRes.trace;
+      var originalsUrl = hasTrace ? globalRes.trace.finalUrl : res.originalsUrl;
+      var resolveText = hasTrace
+        ? (originalsUrl ? '<span class="success">found: <a href="' + originalsUrl + '" target="_blank" rel="noopener">Open Folder</a></span>' : '(Originals not found)')
+        : '(diagnostics not run)';
+      updateElement('resolve-result', resolveText);
+      updateElement('originals-url', meta.originals_root_url ? '<a href="' + meta.originals_root_url + '" target="_blank" rel="noopener">' + meta.originals_root_url + '</a>' : '(not set)');
+      updateElement('proxies-url', meta.proxies_root_url ? '<a href="' + meta.proxies_root_url + '" target="_blank" rel="noopener">' + meta.proxies_root_url + '</a>' : '(not set)');
+      // Originals diag
+      const trace = globalRes.trace || null;
+      if (!trace) {
+        updateElement('input', 'diagnostics not run');
+        updateElement('drivebuilder', 'diagnostics not run');
+        updateElement('serverapis', 'diagnostics not run');
+        updateElement('projectmetaroot', 'diagnostics not run');
+        updateElement('final-url', 'diagnostics not run');
+        updateElement('raw-trace', 'diagnostics not run');
+      } else {
+        updateElement('input', JSON.stringify(trace.input || {}));
+        updateElement('drivebuilder', JSON.stringify(trace.steps?.find(s => s.name === 'DriveBuilder') || 'not found'));
+        updateElement('serverapis', JSON.stringify(trace.steps?.find(s => s.name === 'ServerAPIs') || 'not found'));
+        updateElement('projectmetaroot', JSON.stringify(trace.steps?.find(s => s.name === 'ProjectMetaRoot') || 'not found'));
+        var finalText = trace.finalUrl ? '<span class="success"><a href="' + trace.finalUrl + '" target="_blank" rel="noopener">' + trace.finalUrl + '</a></span>' : 'fallback root (NOT resolved to leaf). expected deeper: 01shots / sh_0001__ 201A';
+        updateElement('final-url', finalText);
+        updateElement('raw-trace', JSON.stringify(trace, null, 2));
+      }
+      // Link replacer (static sim for now)
+      updateElement('router-detected', 'no');
+      updateElement('anchors-replaced', '3 / 3');
+      updateElement('sample-diff', '[1] page: Dashboard before: - target: (none) after: [URL]?page=Dashboard target: _top [2] page: Settings ... [3] page: DebugPanelPage ...');
+      var taskFinal = res.taskLink ? res.taskLink : '(not provided)';
+      updateElement('dry-run-task', JSON.stringify({ ent: 'task', id: 'tk_0001', final: taskFinal }));
+      // Raw snapshot update
+      const snap = {
+        href: window.location.href,
+        params: getUrlParams(),
+        gsr: !!google.script.run,
+        fieldTypesKeys: Object.keys(ft).reduce((acc, e) => acc + Object.keys(ft[e] || {}).length, 0),
+        linkMapsCounts: res.counts || { assets: 0, shots: 0, tasks: 0, users: 0, members: 0 },
+        originalsUrl: originalsUrl || null,
+        ts: Date.now()
+      };
+      document.getElementById('raw-snap').innerHTML = JSON.stringify(snap, null, 2);
+    }
+
+    function setRunStatus(text, isError) {
+      var el = document.getElementById('run-status');
+      if (!el) return;
+      el.innerHTML = isError ? ('<span class="error">' + text + '</span>') : text;
+      try {
+        var running = /running/i.test(text || '');
+        setCopyButtonsEnabled_(!running);
+      } catch (_) { }
+    }
+
+    function setCopyButtonsEnabled_(enabled) {
+      try {
+        var ids = ['btnCopyAll', 'btnCopyConsole', 'btnDownloadReport'];
+        for (var i = 0; i < ids.length; i++) {
+          var b = document.getElementById(ids[i]);
+          if (b) b.disabled = !enabled;
+        }
+      } catch (_) { }
+    }
+
+    async function runAllChecks() {
+      try { window.__MOTK_EXPORT_READY__ = false; } catch (_) { }
+      try { normalizeCreateOAuthDialogParam_(); } catch (_) { }
+      try {
+        if (isOAuthDialog_()) {
+          logWarn('DebugPanel: OAuth dialog context detected; skip heavy checks.');
+          setRunStatus('skipped (OAuth dialog)');
+          return;
+        }
+      } catch (e) {}
+      log('Run all checks: begin');
+      setRunStatus('running…');
+      renderEntitySamples();
+      var hadError = false;
+      function logErr_(name, err) {
+        hadError = true;
+        logWarn(name + " error: " + String(err && err.message ? err.message : err));
+      }
+      function safeSync_(name, fn) {
+        try { fn(); } catch (e) { logErr_(name, e); }
+      }
+      function withTimeout_(promise, ms, name) {
+        var timer = null;
+        return Promise.race([
+          promise,
+          new Promise(function (resolve) {
+            timer = setTimeout(function () {
+              logWarn(name + " timeout after " + ms + "ms");
+              resolve();
+            }, ms);
+          })
+        ]).then(function (res) {
+          if (timer) clearTimeout(timer);
+          return res;
+        }).catch(function (e) {
+          if (timer) clearTimeout(timer);
+          throw e;
+        });
+      }
+      async function safeAsync_(name, fn, ms) {
+        try {
+          await withTimeout_(Promise.resolve().then(fn), ms || 12000, name);
+        } catch (e) {
+          logErr_(name, e);
+        }
+      }
+      try {
+        await safeAsync_("checkRuntimeAsync", checkRuntimeAsync, 8000);
+        await safeAsync_("loadAppDataAsync", loadAppDataAsync, 12000);
+        await safeAsync_("checkProxyIndexLatestCacheIntegrityAsync", checkProxyIndexLatestCacheIntegrityAsync, 8000);
+        await safeAsync_("checkOriginalsAsync", checkOriginalsAsync, 20000);
+        safeSync_("checkTableInlineEdit", checkTableInlineEdit);
+        safeSync_("checkTableEntityContractV2", checkTableEntityContractV2);
+        safeSync_("checkTableFieldEntityLeakage", checkTableFieldEntityLeakage);
+        safeSync_("checkDataHubCoverage", checkDataHubCoverage);
+        safeSync_("checkTablePerfBudget", checkTablePerfBudget);
+        safeSync_("checkTableBootState", checkTableBootState);
+        safeSync_("checkRowsModeDiagnostics", checkRowsModeDiagnostics);
+        safeSync_("checkG1FastBootSLO", checkG1FastBootSLO);
+        safeSync_("checkG2FixedColumns", checkG2FixedColumns);
+        safeSync_("checkG3NoSilentFallback", checkG3NoSilentFallback);
+        safeSync_("checkG4SingleShotDiagnosis", checkG4SingleShotDiagnosis);
+        safeSync_("runColumnContract", runColumnContract);
+        safeSync_("runBindingIntegrity", runBindingIntegrity);
+        var tableFn =
+          (typeof runTableTake18Checks_ === "function") ? runTableTake18Checks_ :
+          (typeof runTableTake04Checks_ === "function") ? runTableTake04Checks_ :
+          (typeof runTableTake01Checks_ === "function") ? runTableTake01Checks_ :
+          null;
+
+        if (tableFn) {
+          await safeAsync_("runTableChecks", tableFn, 12000);
+        } else {
+          logWarn("Run all checks: table checks fn not found (expected one of runTableTakeXXChecks_)");
+        }
+        log('Run all checks: done');
+      } catch (err) {
+        logErr_("Run all checks", err);
+      } finally {
+        var suffix = hadError ? ' (with warnings)' : '';
+        setRunStatus('completed at ' + new Date().toLocaleTimeString() + suffix);
+        try { window.__MOTK_EXPORT_READY__ = true; } catch (_) { }
+      }
+    }
+
+    function checkRuntimeAsync() {
+      log('checkRuntime: start');
+      updateElement('gsr-status', google.script.run ? 'available' : 'unavailable');
+      const loc = document.getElementById('location');
+      loc.innerHTML = 'Location: ' + window.location.href;
+      updateElement('url-params', JSON.stringify(getUrlParams()));
+      return new Promise(function (resolve) {
+        google.script.run.withSuccessHandler(function (res) {
+          updateElement('server-ping', 'ok ts=' + res.ts);
+          log('checkRuntime: ping ok ' + res.ts);
+          resolve();
+        }).withFailureHandler(function (err) {
+          updateElement('server-ping', '<span class="error">failed: ' + err + '</span>');
+          resolve();
+        }).dp_debugPing();
+      });
+    }
+
+    function checkTableInlineEdit() {
+      logInfo("checkTableInlineEdit: start");
+      try {
+        var op = window.opener;
+        if (!op) {
+          var snap = readViewerSnapshotFromStorage();
+          if (!snap || !(snap.entityParam || snap.pageParam || snap.sheetName)) {
+            logWarn("checkTableInlineEdit: SKIP (no window.opener and no stored viewer context)");
+            return;
+          }
+          logInfo("checkTableInlineEdit: INFO (no window.opener; using stored viewer context)");
+          if (snap.inlineEditBound === true) {
+            logInfo("checkTableInlineEdit: stored inlineEditBound=true");
+          } else if (snap.inlineEditBound === false) {
+            logWarn("checkTableInlineEdit: stored inlineEditBound=false");
+          } else {
+            logInfo("checkTableInlineEdit: stored inlineEditBound not captured");
+          }
+          return;
+        }
+        var sig = op.__MOTK_TABLE_INLINE_EDIT_IMPL__ || null;
+        if (!sig) {
+          logWarn("checkTableInlineEdit: missing __MOTK_TABLE_INLINE_EDIT_IMPL__");
+          return;
+        }
+        logInfo("checkTableInlineEdit: ok " + JSON.stringify(sig));
+      } catch (e) {
+        logWarn("checkTableInlineEdit error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkOpenerContext() {
+      logInfo("checkOpenerContext: start");
+      try {
+        var op = window.opener;
+        if (!op) {
+          logInfo("checkOpenerContext: INFO (no window.opener - using stored view context if available)");
+          return null;
+        }
+        var doc = op.document;
+        if (!doc || !doc.querySelector) {
+          logInfo("checkOpenerContext: INFO (opener document not accessible)");
+          return null;
+        }
+        var wrap = doc.querySelector("#tableWrap");
+        if (!wrap) {
+          logInfo("checkOpenerContext: INFO (no #tableWrap in opener)");
+          return null;
+        }
+        logInfo("checkOpenerContext: ok");
+        return { op: op, doc: doc, wrap: wrap };
+      } catch (e) {
+        logWarn("checkOpenerContext error: " + String(e && e.message ? e.message : e));
+        return null;
+      }
+    }
+
+    function checkDatePickerCapability() {
+      logInfo("checkDatePickerCapability: start");
+      try {
+        var proto = window.HTMLInputElement && window.HTMLInputElement.prototype;
+        var hasShowPicker = proto && typeof proto.showPicker === 'function';
+        logInfo("checkDatePickerCapability: HTMLInputElement.prototype.showPicker = " + (hasShowPicker ? "YES" : "NO"));
+
+        if (window.top !== window.self) {
+          logInfo("checkDatePickerCapability: showPicker() skipped (iframe context)");
+          return;
+        }
+
+        var inp = document.createElement("input");
+        inp.type = "date";
+        inp.style.position = "absolute";
+        inp.style.visibility = "hidden";
+        document.body.appendChild(inp);
+        inp.focus();
+        var error = null;
+        try {
+          if (hasShowPicker) inp.showPicker();
+        } catch (e) {
+          error = e;
+        }
+        document.body.removeChild(inp);
+
+        if (error) {
+          var msg = String(error.message || error);
+          if (/cross-origin iframe/i.test(msg)) logInfo("checkDatePickerCapability: showPicker() blocked by iframe policy");
+          else logWarn("checkDatePickerCapability: showPicker() threw: " + msg);
+        } else {
+          logInfo("checkDatePickerCapability: showPicker() call success (or skipped)");
+        }
+      } catch (e) {
+        logWarn("checkDatePickerCapability error: " + String(e));
+      }
+    }
+
+    function normalizeEntityToken_(raw) {
+      var s = String(raw || '').trim().toLowerCase();
+      if (!s) return '';
+      if (s === 'projectmembers' || s === 'projectmember') s = 'member';
+      var ent = (typeof singularEntityFor === 'function')
+        ? singularEntityFor(s)
+        : (s === 'shots' ? 'shot' :
+          s === 'assets' ? 'asset' :
+            s === 'tasks' ? 'task' :
+              s === 'members' ? 'member' :
+                s === 'users' ? 'user' : s);
+      ent = String(ent || '').toLowerCase();
+      return ['shot', 'asset', 'task', 'member', 'user'].indexOf(ent) >= 0 ? ent : '';
+    }
+
+    function normalizeFieldName_(name) {
+      return String(name || '').trim().toLowerCase().replace(/[^\w]+/g, '_');
+    }
+
+    function listFieldMetas_(fieldTypes, entity) {
+      var ent = normalizeEntityToken_(entity);
+      var list = [];
+      if (!fieldTypes || !ent) return list;
+      if (fieldTypes[ent] && typeof fieldTypes[ent] === 'object' && !fieldTypes[ent].field_id) {
+        Object.keys(fieldTypes[ent]).forEach(function (fid) {
+          var m = fieldTypes[ent][fid];
+          if (!m) return;
+          list.push(Object.assign({ __fid: fid }, m));
+        });
+        return list;
+      }
+      Object.keys(fieldTypes).forEach(function (fid) {
+        var m = fieldTypes[fid];
+        if (!m) return;
+        var mEnt = normalizeEntityToken_(m.entity || m.ent || '');
+        if (mEnt === ent) list.push(Object.assign({ __fid: fid }, m));
+      });
+      return list;
+    }
+
+    function findFidByType_(fieldTypes, entity, type) {
+      var want = String(type || '').toLowerCase().trim();
+      var list = listFieldMetas_(fieldTypes, entity);
+      for (var i = 0; i < list.length; i++) {
+        var t = String(list[i].type || '').toLowerCase().trim();
+        if (t === want) return list[i].__fid;
+      }
+      return '';
+    }
+
+    function findFidByName_(fieldTypes, entity, fieldName) {
+      var want = normalizeFieldName_(fieldName);
+      var list = listFieldMetas_(fieldTypes, entity);
+      for (var i = 0; i < list.length; i++) {
+        var name = normalizeFieldName_(list[i].field_name || list[i].name || list[i].label || '');
+        if (name === want) return list[i].__fid;
+      }
+      return '';
+    }
+
+    function checkTableEntityContractV2() {
+      logInfo("checkTableEntityContractV2: start");
+      try {
+        var op = window.opener || null;
+        var rawE = '';
+        var rawEnt = '';
+        var norm = '';
+        if (op && op.location) {
+          try {
+            var usp = new URLSearchParams(op.location.search);
+            rawE = usp.get('e') || '';
+            rawEnt = usp.get('entity') || '';
+            norm = normalizeEntityToken_(rawE || rawEnt);
+          } catch (_) { }
+        }
+
+        var snap = null;
+        if (!op) snap = readViewerSnapshotFromStorage();
+        if (!norm && snap && snap.entityParamNormalized) norm = snap.entityParamNormalized;
+
+        logInfo("checkTableEntityContractV2: url e=" + rawE + " entity=" + rawEnt + " normalized=" + norm);
+
+        var sheetName = (op && op.STATE && op.STATE.sheetName) ? op.STATE.sheetName : (snap && snap.sheetName) || '';
+        logInfo("checkTableEntityContractV2: STATE.sheetName=" + (sheetName || '(blank)'));
+
+        var payload = op && (op.__lastListRowsPayloadSummary || op.__lastListRowsPayload) ? (op.__lastListRowsPayloadSummary || op.__lastListRowsPayload) : (snap && snap.lastListRowsPayload) || null;
+        var diag = op && op.__lastListRowsRespDiag ? op.__lastListRowsRespDiag : (snap && snap.lastListRowsRespDiag) || null;
+        var mismatch = op && op.__lastListRowsEntityMismatch ? op.__lastListRowsEntityMismatch : (snap && snap.lastListRowsEntityMismatch) || null;
+
+        logInfo("checkTableEntityContractV2: last payload=" + (payload ? JSON.stringify(payload) : '(none)'));
+        logInfo("checkTableEntityContractV2: last diag=" + (diag ? JSON.stringify(diag) : '(none)'));
+
+        if (diag && diag.missingCount > 0) {
+          logWarn("checkTableEntityContractV2: missingFieldIds=" + JSON.stringify(diag.missingFieldIds || []) + " count=" + diag.missingCount);
+        }
+
+        if (mismatch) {
+          logWarn("checkTableEntityContractV2: mismatch FAIL " + JSON.stringify(mismatch));
+        } else {
+          logInfo("checkTableEntityContractV2: mismatch PASS");
+        }
+      } catch (e) {
+        logWarn("checkTableEntityContractV2 error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkTableFieldEntityLeakage() {
+      logInfo("checkTableFieldEntityLeakage: start");
+      try {
+        var ctx = getTableDiagContext_();
+        var op = ctx.op || null;
+        var state = ctx.state || {};
+        var ent = normalizeEntityToken_(state.sheetName || '');
+        if (!ent) {
+          logWarn("checkTableFieldEntityLeakage: missing entity");
+          return;
+        }
+        var fieldIds = Array.isArray(state.fieldIds) ? state.fieldIds : [];
+        if (!fieldIds.length) {
+          logWarn("checkTableFieldEntityLeakage: missing fieldIds");
+          return;
+        }
+
+        var fieldTypes = (op && op.FIELD_TYPES) ? op.FIELD_TYPES : (window.FIELD_TYPES || {});
+        if (!fieldTypes || !Object.keys(fieldTypes).length) {
+          if (globalRes && globalRes.fieldTypes) fieldTypes = globalRes.fieldTypes;
+        }
+        if (!fieldTypes || !Object.keys(fieldTypes).length) {
+          var snap = readViewerSnapshotFromStorage();
+          if (snap && snap.fieldTypes) fieldTypes = snap.fieldTypes;
+        }
+        if (!fieldTypes || !Object.keys(fieldTypes).length) {
+          logWarn("checkTableFieldEntityLeakage: FIELD_TYPES missing (opener/global/storage)");
+          return;
+        }
+
+        function inferEntityForField_(fid) {
+          var keys = Object.keys(fieldTypes);
+          for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
+            if (fieldTypes[k] && fieldTypes[k][fid]) return k;
+          }
+          return '';
+        }
+
+        function resolvePageEntity_(pid, list) {
+          if (!pid || !Array.isArray(list)) return '';
+          for (var i = 0; i < list.length; i++) {
+            var x = list[i];
+            var id = (x && (x.pageId || x.id || x['Page ID'])) || '';
+            if (String(id) !== String(pid)) continue;
+            var raw = (x.entity || x.Entity || x['Entity'] || '');
+            return normalizeEntityToken_(raw);
+          }
+          return '';
+        }
+
+        var entMap = fieldTypes[ent] || {};
+        var mismatches = [];
+        for (var j = 0; j < fieldIds.length; j++) {
+          var fid = String(fieldIds[j] || '').trim();
+          if (!fid) continue;
+          if (entMap[fid]) continue;
+          var owner = inferEntityForField_(fid);
+          if (owner && owner !== ent) {
+            var meta = fieldTypes[owner] && fieldTypes[owner][fid] ? fieldTypes[owner][fid] : null;
+            mismatches.push({
+              fid: fid,
+              owner: owner,
+              label: meta && meta.label ? meta.label : ''
+            });
+          }
+        }
+
+        var pid = state.pageId || '';
+        var pageEnt = resolvePageEntity_(pid, state.pageList || []);
+
+        if (mismatches.length) {
+          logWarn("checkTableFieldEntityLeakage: FAIL entity=" + ent + " pageId=" + pid + " pageEntity=" + (pageEnt || 'n/a'));
+          logWarn("checkTableFieldEntityLeakage: offending=" + JSON.stringify(mismatches));
+          return;
+        }
+
+        logInfo("checkTableFieldEntityLeakage: PASS entity=" + ent + " pageId=" + pid);
+      } catch (e) {
+        logWarn("checkTableFieldEntityLeakage error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkDataHubCoverage() {
+      logInfo("checkDataHubCoverage: start");
+      try {
+        var op = window.opener || null;
+        var diag = op && op.__lastListRowsRespDiag ? op.__lastListRowsRespDiag : null;
+        if (!diag) {
+          var sessionDiag = readTableSessionSnapshot_('MOTK_LAST_TABLE_DIAG_V1');
+          diag = sessionDiag && sessionDiag.diag ? sessionDiag.diag : null;
+        }
+        if (!diag) {
+          var listSnap = readTableSessionSnapshot_('MOTK_LAST_LISTROWS_DIAG_V1');
+          diag = listSnap && listSnap.diag ? listSnap.diag : null;
+        }
+        if (!diag) {
+          logInfo("checkDataHubCoverage: no diag found (open a Table view to populate)");
+          return;
+        }
+        logInfo("checkDataHubCoverage: dataSourceUsed=" + (diag.dataSourceUsed || 'n/a'));
+        if (diag.missingCount > 0) {
+          logWarn("checkDataHubCoverage: missingFieldIds=" + JSON.stringify(diag.missingFieldIds || []));
+        } else {
+          logInfo("checkDataHubCoverage: missingFieldIds=none");
+        }
+      } catch (e) {
+        logWarn("checkDataHubCoverage error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkRowsModeDiagnostics() {
+      logInfo("checkRowsModeDiagnostics: start");
+      try {
+        var op = window.opener || null;
+        var diag = op && op.__lastListRowsRespDiag ? op.__lastListRowsRespDiag : (window.__lastListRowsRespDiag || null);
+        var summary = op && op.__lastListRowsPayloadSummary ? op.__lastListRowsPayloadSummary : (window.__lastListRowsPayloadSummary || null);
+
+        if (!diag) {
+          var snap = readTableSessionSnapshot_('MOTK_LAST_LISTROWS_DIAG_V1');
+          if (snap && snap.diag) diag = snap.diag;
+          if (!summary && snap && snap.payload) summary = snap.payload;
+        }
+
+        if (!diag) {
+          logInfo("checkRowsModeDiagnostics: no list-rows diag found (open a Table view to populate)");
+          return;
+        }
+
+        var mode = String(diag.mode || diag.dataSourceUsed || diag.source || 'n/a');
+        var reason = String(diag.modeReason || 'n/a');
+        var requestedCount = (summary && typeof summary.requestedFieldsCount === 'number')
+          ? summary.requestedFieldsCount
+          : 'n/a';
+        var missing = Array.isArray(diag.missingFieldIds) ? diag.missingFieldIds : [];
+        var fn = String(diag.listRowsFn || 'n/a');
+
+        logInfo("checkRowsModeDiagnostics: mode=" + mode + " reason=" + reason + " dataSourceUsed=" + String(diag.dataSourceUsed || 'n/a'));
+        logInfo("checkRowsModeDiagnostics: requestedFieldsCount=" + requestedCount + " missingFieldIds=" + JSON.stringify(missing));
+        logInfo("checkRowsModeDiagnostics: listRowsFn=" + fn);
+      } catch (e) {
+        logWarn("checkRowsModeDiagnostics error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkTablePerfBudget() {
+      logInfo("checkTablePerfBudget: start");
+      try {
+        var op = window.opener || null;
+        var perf = op && op.__MOTK_LAST_TABLE_PERF__ ? op.__MOTK_LAST_TABLE_PERF__ : null;
+        if (!perf) {
+          var sessionPerf = readTableSessionSnapshot_('MOTK_LAST_TABLE_PERF_V1');
+          perf = sessionPerf && sessionPerf.perf ? sessionPerf.perf : null;
+        }
+        if (!perf) {
+          var vs = readViewerSnapshotFromStorage();
+          if (vs && vs.perf) perf = vs.perf;
+        }
+        if (!perf) {
+          logInfo("checkTablePerfBudget: no perf data found (open a Table view to populate)");
+          return;
+        }
+        logInfo("checkTablePerfBudget: " + JSON.stringify(perf));
+        var nav = getNavTimingSnapshot_();
+        if (nav && nav.timings) {
+          var t = nav.timings;
+          var extra = {
+            table_cache_painted_ms: t.table_cache_painted_ms,
+            rows_updated_ms: t.rows_updated_ms,
+            shotview_ready_ms: t.shotview_ready_ms
+          };
+          logInfo("checkTablePerfBudget: readiness " + JSON.stringify(extra));
+          var r0 = (t.table_painted_ms != null) ? t.table_painted_ms : t.render_first_paint_ms;
+          var r1 = t.table_cache_painted_ms;
+          var r2 = t.rows_updated_ms;
+          var r3 = t.shotview_ready_ms != null ? t.shotview_ready_ms : t.thumbs_ready_ms;
+          logInfo("checkTablePerfBudget: Ready-0..3 " + JSON.stringify({ Ready0: r0 || 0, Ready1: r1 || 0, Ready2: r2 || 0, Ready3: r3 || 0 }));
+        }
+      } catch (e) {
+        logWarn("checkTablePerfBudget error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkTableBootState() {
+      logInfo("checkTableBootState: start");
+      try {
+        var op = window.opener || null;
+        var bootState = op && op.__MOTK_LAST_TABLE_BOOTSTATE__ ? op.__MOTK_LAST_TABLE_BOOTSTATE__ : null;
+        var bootPack = op && op.__MOTK_LAST_TABLE_BOOTPACK__ ? op.__MOTK_LAST_TABLE_BOOTPACK__ : null;
+        if (!bootState) {
+          var sessionState = readTableSessionSnapshot_('MOTK_LAST_TABLE_BOOTSTATE_V1');
+          bootState = sessionState || null;
+        }
+        if (!bootPack) {
+          var sessionPack = readTableSessionSnapshot_('MOTK_LAST_TABLE_BOOTPACK_V3')
+            || readTableSessionSnapshot_('MOTK_LAST_TABLE_BOOTPACK_V1');
+          bootPack = sessionPack || null;
+        }
+        if (!bootState && !bootPack) {
+          if (isOAuthDialog_()) {
+            logInfo("checkTableBootState: SKIP (OAuth dialog context)");
+            return;
+          }
+          logInfo("checkTableBootState: no boot snapshots found (expected when opened without opener)");
+          return;
+        }
+        if (bootState) {
+          logInfo("checkTableBootState: bootState " + JSON.stringify({
+            entity: bootState.entity || bootState.entityNormalized || '',
+            pageId: bootState.pageId || '',
+            fieldIds: Array.isArray(bootState.fieldIds) ? bootState.fieldIds.length : 0,
+            ts: bootState.ts || null
+          }));
+        }
+        if (bootPack) {
+          logInfo("checkTableBootState: bootPack " + JSON.stringify({
+            entity: bootPack.entity || bootPack.entityNormalized || '',
+            pageId: bootPack.pageId || '',
+            fieldIds: Array.isArray(bootPack.fieldIds) ? bootPack.fieldIds.length : 0,
+            cached: bootPack.cached === true,
+            ts: bootPack.ts || bootPack.cachedAt || null
+          }));
+        }
+      } catch (e) {
+        logWarn("checkTableBootState error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function getTableDiagContext_() {
+      var op = window.opener || null;
+      var nav = op && op.__MOTK_TABLE_NAV_TIMINGS__ ? op.__MOTK_TABLE_NAV_TIMINGS__ : null;
+      var flags = op && op.__MOTK_TABLE_NAV_FLAGS__ ? op.__MOTK_TABLE_NAV_FLAGS__ : null;
+      var navSnap = readTableSessionSnapshot_('MOTK_LAST_TABLE_NAV_V1');
+      var diagSnap = readTableSessionSnapshot_('MOTK_LAST_TABLE_DIAG_V1');
+
+      var navFromStorage =
+        (navSnap && navSnap.timings && typeof navSnap.timings === 'object') ? navSnap.timings :
+        (navSnap && typeof navSnap === 'object') ? navSnap :
+        null;
+
+      var diagFromStorage =
+        (diagSnap && diagSnap.diag && typeof diagSnap.diag === 'object') ? diagSnap.diag :
+        (diagSnap && typeof diagSnap === 'object') ? diagSnap :
+        null;
+
+      if (!nav && navFromStorage) nav = navFromStorage;
+      if (!flags && navSnap && navSnap.flags) flags = navSnap.flags;
+      var bootDiag = op && op.__MOTK_BOOTPACK_DIAG__ ? op.__MOTK_BOOTPACK_DIAG__ : null;
+      if (!bootDiag) bootDiag = readTableSessionSnapshot_('MOTK_LAST_TABLE_BOOTPACK_DIAG_V3');
+      if (!nav && bootDiag && bootDiag.timing) nav = bootDiag.timing;
+      var fallback = op && op.__MOTK_TABLE_FALLBACK_STATE__ ? op.__MOTK_TABLE_FALLBACK_STATE__ : null;
+      if (!fallback && bootDiag && bootDiag.fallback) fallback = bootDiag.fallback;
+      if (!fallback) fallback = readTableSessionSnapshot_('MOTK_LAST_TABLE_FALLBACK_V1');
+      var state = op && op.STATE ? op.STATE : null;
+      if (!state) {
+        state = readViewerSnapshotFromStorage();
+      }
+      return { op: op, nav: nav || {}, flags: flags || {}, bootDiag: bootDiag || null, fallback: fallback || null, state: state, diag: diagFromStorage || null };
+    }
+
+    function emitGFailureDiagnostics_(label, ctx, actionMsg) {
+      try {
+        var bootDiag = ctx.bootDiag || {};
+        var nav = ctx.nav || {};
+        var timingEntries = [];
+        Object.keys(bootDiag.timing || {}).forEach(function (k) {
+          var v = Number(bootDiag.timing[k]);
+          if (isFinite(v)) timingEntries.push({ k: k, v: v });
+        });
+        Object.keys(nav || {}).forEach(function (k) {
+          var v2 = Number(nav[k]);
+          if (isFinite(v2)) timingEntries.push({ k: k, v: v2 });
+        });
+        timingEntries.sort(function (a, b) { return b.v - a.v; });
+        var top = timingEntries.slice(0, 3).map(function (x) { return x.k + '=' + x.v + 'ms'; }).join(', ') || 'n/a';
+
+        var cache = bootDiag.cache || {};
+        var cacheLine = [
+          'tier=' + (cache.tier || 'n/a'),
+          'cacheServiceHit=' + !!cache.cacheServiceHit,
+          'sheetHit=' + !!cache.sheetHit,
+          (cache.attempted != null) ? ('attempted=' + !!cache.attempted) : '',
+          cache.cacheServiceRejectReason ? ('cacheServiceReject=' + cache.cacheServiceRejectReason) : '',
+          cache.sheetRejectReason ? ('sheetReject=' + cache.sheetRejectReason) : ''
+        ].filter(Boolean).join(' ') || 'n/a';
+
+        var fallback = ctx.fallback || {};
+        var fallbackLine = 'attempted=' + !!fallback.attempted + ' used=' + !!fallback.used + ' blocked=' + !!fallback.blocked;
+
+        logWarn(label + " diag top slow: " + top);
+        logWarn(label + " diag cache: " + cacheLine);
+        logWarn(label + " diag fallback: " + fallbackLine);
+        if (actionMsg) logWarn(label + " action: " + actionMsg);
+      } catch (e) {
+        logWarn(label + " diag error: " + String(e));
+      }
+    }
+
+    function checkG1FastBootSLO() {
+      logInfo("checkG1FastBootSLO: start");
+      try {
+        var ctx = getTableDiagContext_();
+        var nav = ctx.nav || {};
+        var resolvedPid = (ctx.state && ctx.state.pageId) ? String(ctx.state.pageId) : (ctx.bootDiag && ctx.bootDiag.pageId ? String(ctx.bootDiag.pageId) : '');
+        var resolvedEnt = (ctx.state && ctx.state.sheetName) ? String(ctx.state.sheetName) : (ctx.bootDiag && ctx.bootDiag.entity ? String(ctx.bootDiag.entity) : '');
+        if (!resolvedPid || !resolvedEnt) {
+          logWarn("G1 FAIL: entity/pageId not resolved before render");
+          emitGFailureDiagnostics_("G1", ctx, "resolve entity/pageId before first paint; auto-pick table page when pid is missing");
+          return;
+        }
+        var painted = (nav.table_painted_ms != null) ? nav.table_painted_ms : nav.render_first_paint_ms;
+        var degraded = !!(ctx.state && ctx.state.__DEGRADED_MODE__);
+        if (painted == null) {
+          logWarn("G1 FAIL: timing missing (table_painted_ms)");
+          emitGFailureDiagnostics_("G1", ctx, "ensure nav timings are recorded and BootPack is applied before first paint");
+          return;
+        }
+        if (!degraded && painted > 4000) {
+          logWarn("G1 FAIL: table_painted_ms=" + painted + " (>4000ms)");
+          emitGFailureDiagnostics_("G1", ctx, "verify BootPack cache hit/tier and manifest_ready_ms is early");
+          return;
+        }
+        if (ctx.state && ctx.state.__FIXED_COLUMNS__ !== true) {
+          logWarn("G1 FAIL: columns not fixed at first paint");
+          emitGFailureDiagnostics_("G1", ctx, "ensure BootPack sets __FIXED_COLUMNS__ and manifest before render");
+          return;
+        }
+        logInfo("G1 PASS: table_painted_ms=" + painted);
+      } catch (e) {
+        logWarn("checkG1FastBootSLO error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkG2FixedColumns() {
+      logInfo("checkG2FixedColumns: start");
+      try {
+        if (isOAuthDialog_()) {
+          logInfo("G2 SKIP: OAuth dialog context (columns manifest not expected)");
+          return;
+        }
+        var ctx = getTableDiagContext_();
+        var state = ctx.state || {};
+        var bootPack = (ctx.op && ctx.op.__MOTK_LAST_TABLE_BOOTPACK__) ? ctx.op.__MOTK_LAST_TABLE_BOOTPACK__ : null;
+        if (!bootPack) {
+          var snap = readTableSessionSnapshot_('MOTK_LAST_TABLE_BOOTPACK_V3') || readTableSessionSnapshot_('MOTK_LAST_TABLE_BOOTPACK_V1');
+          bootPack = snap || null;
+        }
+        var current = (ctx.currentFieldIds && Array.isArray(ctx.currentFieldIds)) ? ctx.currentFieldIds
+          : (state && Array.isArray(state.fieldIds) ? state.fieldIds : null);
+        if (!current || !current.length) {
+          logWarn("G2 WARN: current columns missing (open a Table view once, then rerun checks)");
+          return;
+        }
+        var manifest = bootPack && Array.isArray(bootPack.fieldIds) ? bootPack.fieldIds : null;
+        if (!manifest || !manifest.length) {
+          var pid = (state && (state.pageId || state.pid)) || (bootPack && bootPack.pageId) || '';
+          var mf = readTableColManifestFieldIds_(pid);
+          if (mf && mf.length) manifest = mf;
+        }
+        if (!manifest || !manifest.length) {
+          logWarn("G2 WARN: manifest columns missing (open a Table view once, then rerun checks)");
+          return;
+        }
+        if (manifest.length !== current.length) {
+          logWarn("G2 FAIL: column length mismatch manifest=" + manifest.length + " current=" + current.length);
+          logWarn("G2 manifest: " + manifest.join(", "));
+          logWarn("G2 current: " + current.join(", "));
+          emitGFailureDiagnostics_("G2", ctx, "prevent column rebuild during hydration; enforce fixed columns");
+          return;
+        }
+        for (var i = 0; i < manifest.length; i++) {
+          if (manifest[i] !== current[i]) {
+            logWarn("G2 FAIL: column mismatch at " + i + " manifest=" + manifest[i] + " current=" + current[i]);
+            logWarn("G2 manifest: " + manifest.join(", "));
+            logWarn("G2 current: " + current.join(", "));
+            emitGFailureDiagnostics_("G2", ctx, "keep manifest order from BootPack through hydration");
+            return;
+          }
+        }
+        var cache = ctx.bootDiag && ctx.bootDiag.cache ? ctx.bootDiag.cache : null;
+        if (!cache || cache.attempted !== true) {
+          logWarn("G2 WARN: cache path not recorded (rerun after a table view loads)");
+          return;
+        }
+        if (!cache.tier && !cache.cacheServiceHit && !cache.sheetHit && !cache.computed &&
+            !cache.cacheServiceRejectReason && !cache.sheetRejectReason) {
+          logWarn("G2 WARN: cache miss reason missing (check BootPack diag recording)");
+          return;
+        }
+        logInfo("G2 PASS: columns fixed (" + manifest.length + ")");
+      } catch (e) {
+        logWarn("checkG2FixedColumns error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkG3NoSilentFallback() {
+      logInfo("checkG3NoSilentFallback: start");
+      try {
+        var ctx = getTableDiagContext_();
+        var degraded = !!(ctx.state && ctx.state.__DEGRADED_MODE__);
+        var fallback = ctx.fallback || {};
+        if (!degraded && fallback.used) {
+          logWarn("G3 FAIL: fallback used in normal mode");
+          emitGFailureDiagnostics_("G3", ctx, "disable fallback in normal mode or enter degraded mode explicitly");
+          return;
+        }
+        if (degraded) {
+          var bannerOk = false;
+          if (ctx.op && ctx.op.document) {
+            var el = ctx.op.document.getElementById('degradedBanner');
+            bannerOk = !!(el && el.style && el.style.display !== 'none');
+          }
+          if (!bannerOk) {
+            logWarn("G3 FAIL: degraded mode without banner");
+            emitGFailureDiagnostics_("G3", ctx, "render degraded banner when fallback is allowed");
+            return;
+          }
+          logInfo("G3 PASS: degraded mode with banner");
+          return;
+        }
+        logInfo("G3 PASS: no fallback used");
+      } catch (e) {
+        logWarn("checkG3NoSilentFallback error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkG4SingleShotDiagnosis() {
+      logInfo("checkG4SingleShotDiagnosis: start");
+      try {
+        if (isOAuthDialog_()) {
+          logInfo("G4 SKIP: OAuth dialog context (bootpack diag not expected)");
+          return;
+        }
+        var ctx = getTableDiagContext_();
+        var bootDiag = ctx.bootDiag;
+        var nav = ctx.nav || {};
+        if (!bootDiag || !bootDiag.cache || !bootDiag.timing) {
+          logWarn("G4 FAIL: bootpack cache/timing missing");
+          emitGFailureDiagnostics_("G4", ctx, "ensure BootPack diag is stored to window/session and includes cache/timing");
+          return;
+        }
+        if (nav.table_painted_ms == null && nav.render_first_paint_ms == null) {
+          logWarn("G4 FAIL: navigation timing missing");
+          emitGFailureDiagnostics_("G4", ctx, "capture nav timing marks in table boot flow");
+          return;
+        }
+
+        var timingEntries = [];
+        Object.keys(bootDiag.timing || {}).forEach(function (k) {
+          var v = Number(bootDiag.timing[k]);
+          if (isFinite(v)) timingEntries.push({ k: k, v: v });
+        });
+        Object.keys(nav || {}).forEach(function (k) {
+          var v2 = Number(nav[k]);
+          if (isFinite(v2)) timingEntries.push({ k: k, v: v2 });
+        });
+        timingEntries.sort(function (a, b) { return b.v - a.v; });
+        var top = timingEntries.slice(0, 3).map(function (x) { return x.k + '=' + x.v + 'ms'; }).join(', ');
+
+        var cache = bootDiag.cache || {};
+        var cacheLine = [
+          'tier=' + (cache.tier || 'n/a'),
+          'cacheServiceHit=' + !!cache.cacheServiceHit,
+          'sheetHit=' + !!cache.sheetHit,
+          (cache.attempted != null) ? ('attempted=' + !!cache.attempted) : '',
+          cache.cacheServiceRejectReason ? ('cacheServiceReject=' + cache.cacheServiceRejectReason) : '',
+          cache.sheetRejectReason ? ('sheetReject=' + cache.sheetRejectReason) : ''
+        ].filter(Boolean).join(' ');
+
+        var fallback = ctx.fallback || bootDiag.fallback || {};
+        var fallbackLine = 'attempted=' + !!fallback.attempted + ' used=' + !!fallback.used + ' blocked=' + !!fallback.blocked;
+
+        logInfo("G4 PASS: top slow stages: " + top);
+        logInfo("G4 cache: " + cacheLine);
+        logInfo("G4 fallback: " + fallbackLine);
+      } catch (e) {
+        logWarn("checkG4SingleShotDiagnosis error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkServerDateCoercion() {
+      logInfo("checkServerDateCoercion: start");
+      // This is an async check calling server
+      var fieldTypes = window.FIELD_TYPES || {};
+      var fid = findFidByName_(fieldTypes, "shot", "Due Date") || findFidByType_(fieldTypes, "shot", "date");
+      if (!fid) {
+        logWarn("checkServerDateCoercion: missing date field for shot");
+        return;
+      }
+      google.script.run
+        .withSuccessHandler(function(res) {
+          logInfo("checkServerDateCoercion: entity=" + res.entity + " fid=" + res.fieldId + " val=" + res.returnedValue + " type=" + res.returnedType);
+          if (res.returnedValue && /^\d{4}-\d{2}-\d{2}$/.test(res.returnedValue)) {
+             logInfo("checkServerDateCoercion: PASS (format is YYYY-MM-DD)");
+          } else if (res.returnedValue === "") {
+             logInfo("checkServerDateCoercion: WARN (empty value, cannot verify format)");
+          } else {
+             logWarn("checkServerDateCoercion: FAIL (expected YYYY-MM-DD, got " + res.returnedValue + ")");
+          }
+        })
+        .withFailureHandler(function(err) {
+          logWarn("checkServerDateCoercion: server error " + err);
+        })
+        .dp_diag_dateCoercion("shot", "sh_0001", fid);
+    }
+
+    async function runTableTake18Checks_() {
+      var ctx = checkOpenerContext();
+      if (ctx) {
+        checkTableRendererWiring(ctx);
+        checkTableQuickSearch(ctx);
+        checkShotviewRender(ctx);
+        checkFieldsMetaCompleteness(ctx);
+        checkDateFormatHealth(ctx);
+        checkSelectOptionsAvailability(ctx);
+        checkSelectOptionsHydrated(ctx);
+        checkLinkRenderingConsistency(ctx);
+        checkOriginalsRendering(ctx);
+        checkOriginalsNotFoundRate(ctx);
+        checkOriginalsLazyResolve(ctx);
+        checkInlineEditSignature(ctx);
+        checkRenderPerfGuard(ctx);
+        checkEditorThemeParity(ctx);
+        checkVersionsPreviewHealth(ctx);
+      }
+      checkDatePickerCapability();
+      checkServerDateCoercion();
+      await checkHubSchemaCacheIntegrityAsync_();
+    }
+
+    function checkHubSchemaCacheIntegrityAsync_() {
+      logInfo("Hub schema cache integrity: start");
+      return new Promise(function (resolve, reject) {
+        try {
+          if (!google.script || !google.script.run || typeof google.script.run.dp_diag_hubSchemaCache_v1 !== "function") {
+            logWarn("Hub schema cache integrity: dp_diag_hubSchemaCache_v1 not available");
+            resolve();
+            return;
+          }
+          google.script.run
+            .withSuccessHandler(function (r) {
+              if (!r || !r.ok) {
+                var msg = (r && r.mismatches) ? JSON.stringify(r.mismatches, null, 2) : JSON.stringify(r, null, 2);
+                logWarn("Hub schema cache integrity: FAIL " + msg);
+                reject(new Error("Hub schema cache mismatch"));
+                return;
+              }
+              logInfo("Hub schema cache integrity: PASS");
+              resolve();
+            })
+            .withFailureHandler(function (err) {
+              logWarn("Hub schema cache integrity: server error " + err);
+              reject(new Error(String(err)));
+            })
+            .dp_diag_hubSchemaCache_v1();
+        } catch (e) {
+          logWarn("Hub schema cache integrity error: " + String(e && e.message ? e.message : e));
+          reject(e);
+        }
+      });
+    }
+
+    function checkTableRendererWiring(ctx) {
+      logInfo("checkTableRendererWiring: start");
+      try {
+        var op = ctx.op;
+        if (!op.FieldsAPI) logWarn("checkTableRendererWiring: missing opener.FieldsAPI");
+        else if (typeof op.FieldsAPI.renderCellByField !== "function") logWarn("checkTableRendererWiring: opener.FieldsAPI.renderCellByField not a function");
+        else logInfo("checkTableRendererWiring: FieldsAPI.renderCellByField ok");
+
+        if (!op.STATE) logWarn("checkTableRendererWiring: missing opener.STATE");
+        else if (!op.STATE.fieldsMeta) logWarn("checkTableRendererWiring: missing opener.STATE.fieldsMeta");
+        else logInfo("checkTableRendererWiring: STATE.fieldsMeta ok");
+      } catch (e) {
+        logWarn("checkTableRendererWiring error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkTableQuickSearch(ctx) {
+      logInfo("checkTableQuickSearch: start");
+      try {
+        var op = ctx.op;
+        if (typeof op.serverSearch === "function") logInfo("checkTableQuickSearch: ok");
+        else logWarn("checkTableQuickSearch: ERROR serverSearch missing");
+      } catch (e) {
+        logWarn("checkTableQuickSearch error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkShotviewRender(ctx) {
+      logInfo("checkShotviewRender: start");
+      try {
+        var op = ctx.op;
+        if (!op.CommonRenderer || typeof op.CommonRenderer.renderCellByField !== "function") {
+          logWarn("checkShotviewRender: missing opener.CommonRenderer.renderCellByField");
+          return;
+        }
+
+        var meta = { label: "shotview", type: "versions" };
+        var node = null;
+        var fid = findFidByName_(op.FIELD_TYPES || window.FIELD_TYPES || {}, "shot", "shotview");
+        if (!fid) {
+          logWarn("checkShotviewRender: missing shotview field");
+          return;
+        }
+        try {
+          node = op.CommonRenderer.renderCellByField("shot", fid, (op.__dbg_sampleShotviewValue || ""), meta);
+        } catch (e) {
+          logWarn("checkShotviewRender: render threw " + String(e && e.message ? e.message : e));
+          return;
+        }
+
+        var ok = !!(node && node.nodeType === 1);
+        if (!ok) logWarn("checkShotviewRender: ERROR non-element node " + String(node && node.nodeType));
+        else logInfo("checkShotviewRender: ok tag=" + String(node.tagName || ""));
+      } catch (e) {
+        logWarn("checkShotviewRender error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkFieldsMetaCompleteness(ctx) {
+      logInfo("checkFieldsMetaCompleteness: start");
+      try {
+        var op = ctx.op;
+        var st = op.STATE || {};
+        var fids = Array.isArray(st.fieldIds) ? st.fieldIds : [];
+        var meta = st.fieldsMeta || {};
+        var missing = 0;
+        var emptySelect = 0;
+
+        for (var i = 0; i < fids.length; i++) {
+          var fid = String(fids[i] || "");
+          if (!fid) continue;
+          var m = meta[fid];
+          if (!m) {
+            missing++;
+            logWarn("checkFieldsMetaCompleteness: missing meta " + fid);
+            continue;
+          }
+          var t = String(m.type || "");
+          if (t === "select") {
+            var opts = Array.isArray(m.options) ? m.options : [];
+            if (opts.length === 0) {
+              emptySelect++;
+              logWarn("checkFieldsMetaCompleteness: select " + fid + " meta.options empty");
+            }
+          }
+        }
+
+        logInfo("checkFieldsMetaCompleteness: done missing=" + missing + " selectOptionsEmpty=" + emptySelect);
+      } catch (e) {
+        logWarn("checkFieldsMetaCompleteness error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkDateFormatHealth(ctx) {
+      logInfo("checkDateFormatHealth: start");
+      try {
+        var op = ctx.op;
+        var st = op.STATE || {};
+        var fids = Array.isArray(st.fieldIds) ? st.fieldIds : [];
+        var meta = st.fieldsMeta || {};
+        var rows = Array.isArray(st.rows) ? st.rows : [];
+        var sampleN = Math.min(5, rows.length);
+        var isoRe = /^\d{4}-\d{2}-\d{2}$/;
+
+        for (var i = 0; i < fids.length; i++) {
+          var fid = String(fids[i] || "");
+          var m = meta[fid];
+          if (!m || String(m.type || "") !== "date") continue;
+          var idx = fids.indexOf(fid);
+          var ok = 0;
+          var tot = 0;
+          for (var r = 0; r < sampleN; r++) {
+            var row = rows[r] || [];
+            var v = row[idx];
+            if (v == null || v === "") continue;
+            tot++;
+            var s = String(v);
+            if (isoRe.test(s)) ok++;
+            else logWarn("checkDateFormatHealth: " + fid + " non-ISO value " + s);
+          }
+          var ratio = tot ? Math.round((ok / tot) * 100) : 100;
+          logInfo("checkDateFormatHealth: " + fid + " ISO ratio " + ratio + "% (" + ok + "/" + tot + ")");
+        }
+      } catch (e) {
+        logWarn("checkDateFormatHealth error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkSelectOptionsAvailability(ctx) {
+      logInfo("checkSelectOptionsAvailability: start");
+      try {
+        var op = ctx.op;
+        var st = op.STATE || {};
+        var fids = Array.isArray(st.fieldIds) ? st.fieldIds : [];
+        var meta = st.fieldsMeta || {};
+        for (var i = 0; i < fids.length; i++) {
+          var fid = String(fids[i] || "");
+          var m = meta[fid];
+          if (!m || String(m.type || "") !== "select") continue;
+          var opts = Array.isArray(m.options) ? m.options : [];
+          if (!opts.length) logWarn("checkSelectOptionsAvailability: select " + fid + " has no options");
+        }
+        logInfo("checkSelectOptionsAvailability: done");
+      } catch (e) {
+        logWarn("checkSelectOptionsAvailability error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkSelectOptionsHydrated(ctx) {
+      logInfo("checkSelectOptionsHydrated: start");
+      try {
+        var op = ctx.op;
+        var st = op.STATE || {};
+        var fids = Array.isArray(st.fieldIds) ? st.fieldIds : [];
+        var meta = st.fieldsMeta || {};
+        var missing = [];
+
+        for (var i = 0; i < fids.length; i++) {
+          var fid = String(fids[i] || "");
+          var m = meta[fid];
+          if (!m || String(m.type || "") !== "select") continue;
+          var opts = Array.isArray(m.options) ? m.options : [];
+          if (!opts.length) missing.push(fid);
+        }
+
+        if (missing.length) logWarn("checkSelectOptionsHydrated: missing options for " + missing.join(", "));
+        else logInfo("checkSelectOptionsHydrated: ok");
+      } catch (e) {
+        logWarn("checkSelectOptionsHydrated error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkLinkRenderingConsistency(ctx) {
+      logInfo("checkLinkRenderingConsistency: start");
+      try {
+        var op = ctx.op;
+        var doc = ctx.doc;
+        var st = op.STATE || {};
+        var fids = Array.isArray(st.fieldIds) ? st.fieldIds : [];
+        var meta = st.fieldsMeta || {};
+
+        for (var i = 0; i < fids.length; i++) {
+          var fid = String(fids[i] || "");
+          var m = meta[fid];
+          if (!m || !/_link$/.test(String(m.type || ""))) continue;
+          var cells = doc.querySelectorAll('#tableWrap td[data-col-id=\"' + fid + '\"]');
+          if (!cells || !cells.length) continue;
+
+          var withAnchor = 0;
+          var withChip = 0;
+          for (var c = 0; c < cells.length; c++) {
+            var td = cells[c];
+            if (td.querySelector && td.querySelector('a[href]')) withAnchor++;
+            if (td.querySelector && td.querySelector('a.chip[href]')) withChip++;
+          }
+
+          var pct = Math.round((withChip / Math.max(1, cells.length)) * 100);
+          if (withAnchor === 0) logWarn("checkLinkRenderingConsistency: link " + fid + " no anchors found");
+          else if (withChip === 0) logWarn("checkLinkRenderingConsistency: link " + fid + " no chip anchors found");
+          logInfo("checkLinkRenderingConsistency: " + fid + " chip% " + pct + "% (" + withChip + "/" + cells.length + ")");
+        }
+      } catch (e) {
+        logWarn("checkLinkRenderingConsistency error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkOriginalsRendering(ctx) {
+      logInfo("checkOriginalsRendering: start");
+      try {
+        var op = ctx.op;
+        var doc = ctx.doc;
+        var st = op.STATE || {};
+        var fids = Array.isArray(st.fieldIds) ? st.fieldIds : [];
+        var meta = st.fieldsMeta || {};
+        for (var i = 0; i < fids.length; i++) {
+          var fid = String(fids[i] || "");
+          var m = meta[fid];
+          if (!m || String(m.type || "") !== "originals") continue;
+          var cells = doc.querySelectorAll('#tableWrap td[data-col-id=\"' + fid + '\"]');
+          if (!cells || !cells.length) continue;
+
+          var ok = 0;
+          var chip = 0;
+          var idle = 0;
+          var loading = 0;
+          var resolved = 0;
+          var failed = 0;
+          for (var c = 0; c < cells.length; c++) {
+            var td = cells[c];
+            if (!td.querySelector) continue;
+
+            var a = td.querySelector('a[data-originals-state]');
+            if (a) {
+              chip++;
+              var st2 = String(a.getAttribute('data-originals-state') || '');
+              if (st2 === 'idle') idle++;
+              else if (st2 === 'loading') loading++;
+              else if (st2 === 'resolved') resolved++;
+              else if (st2 === 'failed') failed++;
+              if (a.getAttribute && a.getAttribute('href')) {
+                var href = String(a.getAttribute('href') || '');
+                if (href.indexOf('drive.google.com/drive/folders/') !== -1) ok++;
+              }
+              continue;
+            }
+
+            if (td.querySelector('a[href*=\"drive.google.com/drive/folders/\"]')) ok++;
+          }
+
+          if (chip === 0 && ok === 0) {
+            logWarn("checkOriginalsRendering: originals " + fid + " missing originals chip");
+            continue;
+          }
+          logInfo("checkOriginalsRendering: originals " + fid + " chip=" + chip + " idle=" + idle + " loading=" + loading + " resolved=" + resolved + " failed=" + failed + " folderLink=" + ok);
+          if (loading > 0) logWarn("checkOriginalsRendering: originals " + fid + " should not auto-resolve (loading detected)");
+        }
+      } catch (e) {
+        logWarn("checkOriginalsRendering error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkOriginalsNotFoundRate(ctx) {
+      logInfo("checkOriginalsNotFoundRate: start");
+      try {
+        var op = ctx.op;
+        var doc = ctx.doc;
+        var wrap = ctx.wrap;
+        var st = op.STATE || {};
+        var fids = Array.isArray(st.fieldIds) ? st.fieldIds : [];
+        var meta = st.fieldsMeta || {};
+        var vr = wrap.getBoundingClientRect ? wrap.getBoundingClientRect() : null;
+        var maxSamples = 30;
+
+        var total = 0;
+        var notFound = 0;
+        var loading = 0;
+
+        function isInView(td) {
+          try {
+            if (!vr || !td.getBoundingClientRect) return true;
+            var r = td.getBoundingClientRect();
+            return (r.bottom >= vr.top && r.top <= vr.bottom);
+          } catch (_) { return true; }
+        }
+
+        for (var i = 0; i < fids.length; i++) {
+          var fid = String(fids[i] || "");
+          var m = meta[fid];
+          if (!m || String(m.type || "") !== "originals") continue;
+          var cells = doc.querySelectorAll('#tableWrap td[data-col-id=\"' + fid + '\"]');
+          for (var c = 0; c < cells.length; c++) {
+            if (total >= maxSamples) break;
+            var td = cells[c];
+            if (!isInView(td)) continue;
+            total++;
+
+             var t = (td.textContent || "").trim();
+             if (/originals not found/i.test(t) || /not found/i.test(t) || t === "NOT FOUND") notFound++;
+             if (td.querySelector) {
+               var a = td.querySelector('a[data-originals-state]');
+               if (a) {
+                 var st2 = String(a.getAttribute('data-originals-state') || '');
+                 if (st2 === 'loading') loading++;
+                 if (st2 === 'failed') notFound++;
+               }
+             }
+           }
+         }
+
+        if (total === 0) {
+          logInfo("checkOriginalsNotFoundRate: SKIP (no originals cells in view)");
+          return;
+        }
+
+        var rate = notFound / Math.max(1, total);
+        logInfo("checkOriginalsNotFoundRate: notFound=" + notFound + " loading=" + loading + " total=" + total + " rate=" + Math.round(rate * 100) + "%");
+        if (rate > 0.5 && loading === 0) logWarn("checkOriginalsNotFoundRate: high NOT FOUND rate");
+      } catch (e) {
+        logWarn("checkOriginalsNotFoundRate error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkOriginalsLazyResolve(ctx) {
+      logInfo("checkOriginalsLazyResolve: start");
+      try {
+        var doc = ctx.doc;
+        var chips = doc.querySelectorAll('a[data-originals-state]');
+        if (!chips || !chips.length) {
+          logInfo("checkOriginalsLazyResolve: SKIP (no originals chips found)");
+          return;
+        }
+
+        var total = 0, idle = 0, loading = 0, failed = 0, resolved = 0;
+        for (var i = 0; i < chips.length && i < 20; i++) {
+          var st = String(chips[i].getAttribute('data-originals-state') || '');
+          total++;
+          if (st === 'idle') idle++;
+          else if (st === 'loading') loading++;
+          else if (st === 'failed') failed++;
+          else if (st === 'resolved') resolved++;
+        }
+        logInfo("checkOriginalsLazyResolve: sample total=" + total + " idle=" + idle + " loading=" + loading + " resolved=" + resolved + " failed=" + failed);
+        if (loading > 0) logWarn("checkOriginalsLazyResolve: originals should not auto-resolve (loading detected)");
+      } catch (e) {
+        logWarn("checkOriginalsLazyResolve error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkVersionsPreviewHealth(ctx) {
+      logInfo("checkVersionsPreviewHealth: start");
+      try {
+        var op = ctx.op;
+        var doc = ctx.doc;
+
+        var pending = doc.querySelector('[data-proxy-pending=\"1\"][data-proxy-id]');
+        var img = doc.querySelector('#tableWrap td[data-col-id] a img');
+
+        if (!pending && !img) {
+          logInfo("checkVersionsPreviewHealth: SKIP (no preview/pending nodes found)");
+          return;
+        }
+
+        if (pending) {
+          var rid = String(pending.getAttribute('data-proxy-id') || '');
+          var hasCache = false;
+          try { hasCache = !!(rid && op.PROXY_CACHE && op.PROXY_CACHE[rid]); } catch (_) { hasCache = false; }
+          if (hasCache) logWarn("checkVersionsPreviewHealth: pending preview despite PROXY_CACHE hit for " + rid);
+          else logInfo("checkVersionsPreviewHealth: pending ok (cache not ready for sample " + rid + ")");
+        }
+
+        if (img) {
+          var src = String(img.getAttribute('src') || '');
+          if (!src || /undefined|null/.test(src)) logWarn("checkVersionsPreviewHealth: broken preview img src=" + src);
+          else logInfo("checkVersionsPreviewHealth: preview ok src=" + src);
+        }
+      } catch (e) {
+        logWarn("checkVersionsPreviewHealth error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkInlineEditSignature(ctx) {
+      logInfo("checkInlineEditSignature: start");
+      try {
+        var sig = ctx.op.__MOTK_TABLE_INLINE_EDIT_IMPL__ || null;
+        var ok = !!(sig &&
+          sig.linkPicker === "dblclick" &&
+          sig.primitive === "dblclick" &&
+          sig.checkbox === "click" &&
+          Object.keys(sig).length === 3);
+        if (!ok) logWarn("checkInlineEditSignature: mismatch " + JSON.stringify(sig));
+        else logInfo("checkInlineEditSignature: ok");
+      } catch (e) {
+        logWarn("checkInlineEditSignature error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkRenderPerfGuard(ctx) {
+      logInfo("checkRenderPerfGuard: start");
+      try {
+        var v = ctx.op.__MOTK_TABLE_LAST_RENDER_MS__;
+        if (v === undefined || v === null) {
+          logWarn("checkRenderPerfGuard: missing __MOTK_TABLE_LAST_RENDER_MS__");
+          return;
+        }
+        var n = Number(v);
+        if (!isFinite(n)) {
+          logWarn("checkRenderPerfGuard: invalid __MOTK_TABLE_LAST_RENDER_MS__ " + String(v));
+          return;
+        }
+        if (n > 500) logWarn("checkRenderPerfGuard: slow render " + Math.round(n) + "ms");
+        else logInfo("checkRenderPerfGuard: ok " + Math.round(n) + "ms");
+      } catch (e) {
+        logWarn("checkRenderPerfGuard error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function checkEditorThemeParity(ctx) {
+      logInfo("checkEditorThemeParity: start");
+      try {
+        var op = ctx.op;
+        var doc = ctx.doc;
+
+        // Verify shared editor class exists in opener CSS.
+        var hasRule = false;
+        try {
+          var sheets = doc.styleSheets || [];
+          for (var i = 0; i < sheets.length; i++) {
+            var s = sheets[i];
+            var rules = null;
+            try { rules = s.cssRules || s.rules; } catch (_) { rules = null; }
+            if (!rules) continue;
+            for (var j = 0; j < rules.length; j++) {
+              var txt = String(rules[j] && rules[j].cssText ? rules[j].cssText : "");
+              if (txt.indexOf(".motk-inline-editor") >= 0) { hasRule = true; break; }
+            }
+            if (hasRule) break;
+          }
+        } catch (_) { }
+
+        if (!hasRule) logWarn("checkEditorThemeParity: missing .motk-inline-editor CSS rule");
+        else logInfo("checkEditorThemeParity: CSS ok");
+
+        // If an editor is currently open in Table, verify it uses the shared class and is not white-background.
+        var el = doc.querySelector("#tableWrap .motk-inline-editor");
+        if (!el) {
+          logInfo("checkEditorThemeParity: SKIP (no open Table editor)");
+          return;
+        }
+        if (String(el.tagName || "").toLowerCase() === "input" && el.type === "date") {
+          logInfo("checkEditorThemeParity: date editor found");
+        }
+        var cs = op.getComputedStyle ? op.getComputedStyle(el) : null;
+        var bg = cs ? String(cs.backgroundColor || "") : "";
+        if (bg === "rgb(255, 255, 255)" || bg === "rgba(255, 255, 255, 1)") {
+          logWarn("checkEditorThemeParity: editor background appears white");
+        } else {
+          logInfo("checkEditorThemeParity: editor background ok " + bg);
+        }
+      } catch (e) {
+        logWarn("checkEditorThemeParity error: " + String(e && e.message ? e.message : e));
+      }
+    }
+
+    function loadAppDataAsync() {
+      return new Promise(function (resolve) {
+        try {
+          var op = window.opener || null;
+          var snap = readViewerSnapshotFromStorage();
+          if (!op && snap) {
+            logInfo('loadAppDataAsync: skip (no opener; using stored viewer snapshot)');
+            try {
+              var res = {
+                fieldTypes: snap.fieldTypes || {},
+                counts: snap.counts || snap.linkMapsCounts || {},
+                presets: snap.presets || []
+              };
+              updateFromRes(res);
+            } catch (_) { }
+            try {
+              google.script.run
+                .withSuccessHandler(function (res2) { updateFromRes(res2); })
+                .withFailureHandler(function (err2) { logInfo('loadAppDataAsync: background error ' + err2); })
+                .dp_loadAppData();
+            } catch (_) { }
+            resolve();
+            return;
+          }
+        } catch (_) { }
+        google.script.run
+          .withSuccessHandler(function (res) { updateFromRes(res); resolve(); })
+          .withFailureHandler(function (err) {
+            log('Global res error: ' + err);
+            updateElement('field-types', '<span class="error">error: ' + err + '</span>');
+            resolve();
+          })
+          .dp_loadAppData();
+      });
+    }
+
+    function checkOriginalsAsync() {
+      log('checkOriginals: start');
+      return new Promise(function (resolve) {
+        google.script.run.withSuccessHandler(function (trace) {
+          globalRes.trace = trace;
+          updateFromRes(globalRes);
+          resolve();
+        }).withFailureHandler(function (err) {
+          updateElement('resolve-result', '<span class="error">failed: ' + err + '</span>');
+          resolve();
+        }).dp_traceOriginals({ entity: 'shot', id: 'sh_0001' });
+      });
+    }
+
+    function checkProxyIndexLatestCacheIntegrityAsync() {
+      logInfo('checkProxyIndexLatestCacheIntegrity: start');
+      return new Promise(function (resolve) {
+        google.script.run.withSuccessHandler(function (res) {
+          function normalize_(src) {
+            if (!src || !src.ok) return null;
+            var updatedAt = String(src.updatedAt || '');
+            var count = Number(src.count);
+            var dateOk = !!updatedAt && !isNaN(Date.parse(updatedAt));
+            var countOk = isFinite(count) && count >= 0;
+            return {
+              ok: dateOk && countOk,
+              updatedAt: updatedAt,
+              count: count,
+              mode: String(src.mode || '')
+            };
+          }
+          var cacheObj = normalize_(res && res.cacheService);
+          var sheetObj = normalize_(res && res.cacheSheet);
+          var cacheOk = !!(cacheObj && cacheObj.ok);
+          var sheetOk = !!(sheetObj && sheetObj.ok);
+          var msg = 'proxyIndexLatest cacheService=' + (cacheOk ? 'ok' : 'missing') +
+            ' cacheSheet=' + (sheetOk ? 'ok' : 'missing') +
+            ' updatedAt=' + String((cacheObj && cacheObj.updatedAt) || (sheetObj && sheetObj.updatedAt) || '');
+          if (cacheOk || sheetOk) logInfo('checkProxyIndexLatestCacheIntegrity: PASS ' + msg);
+          else logWarn('checkProxyIndexLatestCacheIntegrity: WARN ' + msg);
+          resolve();
+        }).withFailureHandler(function (err) {
+          logWarn('checkProxyIndexLatestCacheIntegrity error: ' + String(err && err.message ? err.message : err));
+          resolve();
+        }).sv_getProxyIndexLatestSummary();
+      });
+    }
+
+    function getUrlParams() {
+      const params = new URLSearchParams(window.location.search);
+      const obj = {};
+      params.forEach((v, k) => obj[k] = v);
+      return obj;
+    }
+
+    function isOAuthDialog_() {
+      try {
+        var params = getUrlParams();
+        var raw = (params.createOAuthDialog || '').toString().toLowerCase();
+        if (raw !== 'true' && raw !== '1') return false;
+        if (params.pid || params.id || params.p || params.page || params.e || params.entity) return false;
+      } catch (_) {
+        return false;
+      }
+      try {
+        var op = window.opener || null;
+        var st = op && op.STATE ? op.STATE : null;
+        if (st && (st.pageId || st.sheetName || st.page)) return false;
+      } catch (_) { }
+      try {
+        var snap = readViewerSnapshotFromStorage();
+        if (snap && (snap.pageId || snap.sheetName || snap.entityParam || snap.origin)) return false;
+      } catch (_) { }
+      return true;
+    }
+
+    function normalizeCreateOAuthDialogParam_() {
+      try {
+        var params = getUrlParams();
+        var raw = (params.createOAuthDialog || '').toString().toLowerCase();
+        if (raw !== 'true' && raw !== '1') return false;
+        if (isOAuthDialog_()) return false;
+        var usp = new URLSearchParams(window.location.search);
+        usp.delete('createOAuthDialog');
+        var qs = usp.toString();
+        history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+        return true;
+      } catch (_) { return false; }
+    }
+
+    function renderEntitySamples() {
+      log('renderEntitySamples: start');
+      // dp_loadAppDataでカバー済み
+    }
+
+    function getViewerSnapshotForExport_() {
+      try {
+        var fromStorage = readViewerSnapshotFromStorage();
+        if (fromStorage) return fromStorage;
+      } catch (_) { }
+      try {
+        var box = document.getElementById('viewer-state-json');
+        if (box && box.textContent) return JSON.parse(box.textContent);
+      } catch (_) { }
+      return null;
+    }
+
+    function getRawSnapshotForExport_() {
+      try {
+        var box = document.getElementById('raw-snap');
+        if (box && box.textContent) return JSON.parse(box.textContent);
+      } catch (_) { }
+      return null;
+    }
+
+    function getContractInspectorForExport_() {
+      try {
+        if (window.__MOTK_CONTRACT_INSPECTOR__ && typeof window.__MOTK_CONTRACT_INSPECTOR__ === 'object') {
+          return window.__MOTK_CONTRACT_INSPECTOR__;
+        }
+      } catch (_) { }
+      try {
+        var ci = document.getElementById('ciLog');
+        if (ci && ci.textContent) {
+          return { ts: Date.now(), rawText: ci.textContent };
+        }
+      } catch (_) { }
+      return null;
+    }
+
+    function runColumnContract() {
+      return new Promise((resolve) => {
+        const statusEl = document.getElementById('column-contract-status');
+        const logEl = document.getElementById('column-contract-log');
+        const opener = window.opener;
+        if (statusEl) statusEl.textContent = 'running...';
+        if (!opener || !opener.STATE) {
+          const msg = 'No opener/STATE. Open DebugPanel from table window.';
+          if (logEl) logEl.textContent = msg;
+          if (statusEl) statusEl.textContent = 'fail';
+          resolve();
+          return;
+        }
+        try {
+          const st = opener.STATE || {};
+          const fieldIds = Array.isArray(st.fieldIds) ? st.fieldIds.slice() : [];
+          const uniq = new Set(fieldIds);
+          const dupCount = fieldIds.length - uniq.size;
+          const hasObject = fieldIds.some(fid => typeof fid === 'object');
+          const table = opener.document && opener.document.querySelector('#tableWrap table');
+          const headerFids = [];
+          if (table && table.tHead && table.tHead.rows[0]) {
+            const ths = table.tHead.rows[0].querySelectorAll('th[data-col-id]');
+            ths.forEach(th => headerFids.push(String(th.getAttribute('data-col-id') || '').trim()));
+          }
+          const mismatch = (fieldIds.length !== headerFids.length) || fieldIds.some((fid, i) => fid !== headerFids[i]);
+          const version = Number(st.__TABLE_VERSION__ || 0);
+          const expected = Number(st.__TABLE_EXPECTED_VERSION__ || 0);
+          const lastApply = Array.isArray(st.__TABLE_LAST_APPLY__) ? st.__TABLE_LAST_APPLY__ : [];
+          const fieldIdsHash = fieldIds.join('|');
+          const logLines = [];
+          logLines.push('fieldIds count=' + fieldIds.length + ' uniq=' + uniq.size + ' dup=' + dupCount + (hasObject ? ' hasObject=true' : ''));
+          logLines.push('header fids count=' + headerFids.length);
+          logLines.push('mismatch=' + mismatch);
+          logLines.push('version=' + version + ' expected=' + expected + ' hash=' + fieldIdsHash);
+          if (lastApply.length) {
+            const last = lastApply[lastApply.length - 1];
+            logLines.push('last apply: ' + JSON.stringify(last));
+          }
+          if (mismatch || dupCount > 0 || hasObject) {
+            logLines.unshift('FAIL');
+            if (fieldIds.length !== headerFids.length) {
+              logLines.push('count mismatch: ids=' + fieldIds.length + ' header=' + headerFids.length);
+            }
+            if (mismatch) {
+              const idx = fieldIds.findIndex((fid, i) => fid !== headerFids[i]);
+              if (idx >= 0) logLines.push('first mismatch at index ' + idx + ': ids=' + (fieldIds[idx] || '') + ' header=' + (headerFids[idx] || ''));
+            }
+            if (dupCount > 0) logLines.push('duplicates detected');
+            if (hasObject) logLines.push('fieldIds contains non-primitive');
+            if (statusEl) statusEl.textContent = 'FAIL';
+          } else {
+            logLines.unshift('PASS');
+            if (statusEl) statusEl.textContent = 'PASS';
+          }
+          if (logEl) logEl.textContent = logLines.join('\\n');
+        } catch (err) {
+          if (logEl) logEl.textContent = 'Error: ' + String(err && err.message || err);
+          if (statusEl) statusEl.textContent = 'fail';
+        }
+        resolve();
+      });
+    }
+
+    function runBindingIntegrity() {
+      const statusEl = document.getElementById('binding-integrity-status');
+      const logEl = document.getElementById('binding-integrity-log');
+      const opener = window.opener;
+      if (statusEl) statusEl.textContent = 'running...';
+      const lines = [];
+      try {
+        if (!opener || !opener.STATE || !Array.isArray(opener.STATE.rows) || !Array.isArray(opener.STATE.fieldIds)) {
+          throw new Error('No opener/STATE rows to inspect');
+        }
+        const fieldIds = opener.STATE.fieldIds.slice();
+        const rows = opener.STATE.rows.slice();
+        const fieldTypes = opener.FIELD_TYPES || window.FIELD_TYPES || {};
+        const ent = normalizeEntityToken_(opener.STATE.sheetName || '');
+        const idFid = findFidByType_(fieldTypes, ent, 'id') || fieldIds[0];
+        const anchors = fieldIds.slice(0, Math.min(6, fieldIds.length));
+        if (idFid && anchors.indexOf(idFid) < 0) anchors.unshift(idFid);
+        if (!anchors.length) throw new Error('No anchor fids found in current view');
+        const idIdx = fieldIds.indexOf(idFid);
+        const idxMap = {};
+        anchors.forEach(fid => { idxMap[fid] = fieldIds.indexOf(fid); });
+        let mismatches = 0;
+        let checked = 0;
+        const maxRows = Math.min(rows.length, 25);
+        for (let r = 0; r < maxRows; r++) {
+          const row = rows[r] || [];
+          const rowId = idIdx >= 0 ? String(row[idIdx] || '') : '';
+          if (!rowId) continue;
+          anchors.forEach(fid => {
+            const colIdx = idxMap[fid];
+            if (colIdx < 0) return;
+            const expected = String(row[colIdx] == null ? '' : row[colIdx]);
+            const q = '#tableWrap tr[data-row-id="' + rowId + '"] td[data-col-id="' + fid + '"]';
+            const cell = opener.document && opener.document.querySelector ? opener.document.querySelector(q) : null;
+            const got = cell ? String((cell.textContent || '').trim()) : '';
+            checked++;
+            if (expected !== got) {
+              mismatches++;
+              lines.push('Mismatch rowId=' + rowId + ' fid=' + fid + ' expected="' + expected + '" got="' + got + '"');
+            }
+          });
+        }
+        if (mismatches > 0) {
+          lines.unshift('FAIL mismatches=' + mismatches + ' checked=' + checked);
+          if (statusEl) statusEl.textContent = 'FAIL';
+        } else {
+          lines.unshift('PASS checked=' + checked + ' anchors=' + anchors.join(','));
+          if (statusEl) statusEl.textContent = 'PASS';
+        }
+      } catch (err) {
+        lines.unshift('Error: ' + String(err && err.message || err));
+        if (statusEl) statusEl.textContent = 'fail';
+      }
+      if (logEl) logEl.textContent = lines.join('\n');
+    }
+
+    function formatContractInspectorText_(ci) {
+      if (!ci) return 'Contract Inspector: n/a';
+      if (ci.rawText) return ci.rawText;
+      if (!Array.isArray(ci.groups)) return JSON.stringify(ci, null, 2);
+      var lines = [];
+      lines.push('== Contract groups (presence only) ==');
+      for (var i = 0; i < ci.groups.length; i++) {
+        var g = ci.groups[i] || {};
+        var ok = g.ok ? 'OK   ' : 'MISS ';
+        lines.push(ok + (g.name || 'n/a') + '  [' + (g.anyOf || '') + ']');
+      }
+      lines.push('== done ==');
+      return lines.join('\n');
+    }
+
+    function getSectionTextById_(id, title) {
+      var el = document.getElementById(id);
+      var text = el ? (el.innerText || el.textContent || '') : 'n/a';
+      if (title) return '=== ' + title + ' ===\n' + text;
+      return text;
+    }
+
+    function ensureExportReady_() {
+      return new Promise(function (resolve) {
+        var start = Date.now();
+        (function poll() {
+          var ready = false;
+          try { ready = window.__MOTK_EXPORT_READY__ === true; } catch (_) { }
+          var status = (document.getElementById('run-status') || {}).textContent || '';
+          if (ready || !/running/i.test(status)) return resolve();
+          if (Date.now() - start > 1500) return resolve();
+          setTimeout(poll, 50);
+        })();
+      });
+    }
+
+    function buildExportBundle_() {
+      var combined = getCombinedConsoleItems_();
+      return {
+        ts: Date.now(),
+        href: window.location.href,
+        userAgent: navigator.userAgent,
+        debugPanelConsole: consoleLogItems.slice(),
+        appConsole: readMotkConsoleBuffer(),
+        combinedConsole: combined,
+        viewerState: getViewerSnapshotForExport_(),
+        rawSnapshot: getRawSnapshotForExport_(),
+        runStatus: (document.getElementById('run-status') || {}).textContent || '',
+        contractInspector: getContractInspectorForExport_(),
+        ready: (window.__MOTK_EXPORT_READY__ === true)
+      };
+    }
+
+    function buildCopyAllText_() {
+      const combined = getCombinedConsoleItems_();
+      const logs = formatMotkConsoleText(combined);
+      const exportBundle = buildExportBundle_();
+      const contractInspectorText = formatContractInspectorText_(exportBundle.contractInspector);
+      const header = [
+        '=== Debug Panel ===',
+        'Run status: ' + ((document.getElementById('run-status') || {}).textContent || ''),
+        'Timestamp: ' + new Date().toISOString(),
+        'Location: ' + window.location.href,
+        'User agent: ' + navigator.userAgent
+      ].join('\n');
+      const parts = [
+        header,
+        getSectionTextById_('runtime', 'Runtime'),
+        getSectionTextById_('viewer-state', 'Viewer State'),
+        getSectionTextById_('data-maps', 'Data maps / Page'),
+        getSectionTextById_('fieldtypes-diag', 'FieldTypes diagnostics'),
+        getSectionTextById_('originals-resolver', 'Originals resolver'),
+        getSectionTextById_('entity-samples', 'Entity samples'),
+        getSectionTextById_('originals-diag', 'Originals diagnostics'),
+        getSectionTextById_('link-replacer', 'Link replacer diagnostics'),
+        getSectionTextById_('raw-snapshot', 'Raw snapshot'),
+        '=== Contract Inspector ===\n' + contractInspectorText,
+        '=== DebugPanel Console Buffer ===\n' + logs,
+        '=== Export JSON ===\n' + JSON.stringify(exportBundle, null, 2)
+      ];
+      return parts.join('\n\n');
+    }
+
+    function copyAll() {
+      ensureExportReady_().then(function () {
+        const combined = getCombinedConsoleItems_();
+        const text = buildCopyAllText_();
+        navigator.clipboard.writeText(text).then(function () {
+          const lineCount = combined.length + 1;
+          logInfo('copyAll: complete length=' + text.length + ' lines=' + lineCount);
+        });
+      });
+    }
+
+    function copyConsoleBuffer() {
+      ensureExportReady_().then(function () {
+        const combined = getCombinedConsoleItems_();
+        const logs = formatMotkConsoleText(combined);
+        navigator.clipboard.writeText(logs).then(function () {
+          logInfo('copyConsoleBuffer: complete length=' + logs.length + ' lines=' + combined.length);
+        });
+      });
+    }
+
+    function downloadReport() {
+      ensureExportReady_().then(function () {
+        const text = buildCopyAllText_();
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'motk-debugpanel-report.txt';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+        logInfo('downloadReport: complete length=' + text.length);
+      });
+    }
+
+    // Ensure inline onclick handlers can always find these in global scope.
+    window.runAllChecks = runAllChecks;
+    window.runColumnContract = runColumnContract;
+    window.runBindingIntegrity = runBindingIntegrity;
+    window.copyAll = copyAll;
+    window.copyConsoleBuffer = copyConsoleBuffer;
+    window.downloadReport = downloadReport;
+
+    var VIEWER_STATE_STORAGE_KEY = 'MOTK.viewer.state';
+    var VIEWER_STATE_STORAGE_KEY_LEGACY = 'motk:viewerStateSnapshot';
+    var viewerStateServerFetchInFlight = false;
+
+    function readViewerSnapshotFromStorage() {
+      try {
+        if (!window || !window.localStorage) return null;
+        var raw = localStorage.getItem(VIEWER_STATE_STORAGE_KEY)
+          || localStorage.getItem(VIEWER_STATE_STORAGE_KEY_LEGACY);
+        if (!raw) return null;
+        var snap = JSON.parse(raw);
+        try {
+          if (snap && snap.origin && typeof snap.origin === 'string') {
+            snap.origin = snap.origin.replace(/([?&])createOAuthDialog=true(&|$)/, '$1').replace(/[?&]$/, '');
+          }
+        } catch (e) {}
+        if (!snap || !snap.updatedAt) return null;
+        snap.source = 'storage';
+        return snap;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function readTableSessionSnapshot_(key) {
+      try {
+        var raw = null;
+        var source = 'sessionStorage';
+
+        try {
+          raw = sessionStorage.getItem(key);
+        } catch (_) {
+          raw = null;
+        }
+
+        if (!raw) {
+          var lsKey = null;
+          if (key === 'MOTK_LAST_TABLE_NAV_V1') lsKey = 'MOTK_LAST_TABLE_NAV_LS_V1';
+          if (key === 'MOTK_LAST_TABLE_DIAG_V1') lsKey = 'MOTK_LAST_TABLE_DIAG_LS_V1';
+
+          if (lsKey) {
+            source = 'localStorage';
+            try {
+              raw = localStorage.getItem(lsKey);
+            } catch (_) {
+              raw = null;
+            }
+          }
+        }
+
+        if (!raw) {
+          source = 'localStorage';
+          try { raw = localStorage.getItem(key); } catch (_) { raw = null; }
+        }
+
+        if (!raw) return null;
+
+        var obj = JSON.parse(raw);
+        if (!obj || typeof obj !== 'object') return null;
+
+        if (!obj.__source) obj.__source = source;
+
+        return obj;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function getNavTimingSnapshot_() {
+      var snap = readTableSessionSnapshot_('MOTK_LAST_TABLE_NAV_V1');
+      if (!snap) return null;
+      if (snap && !snap.timings && typeof snap.table_painted_ms === 'number') {
+        return { timings: snap };
+      }
+      return snap;
+    }
+
+    function readTableColManifestFieldIds_(pageId) {
+      try {
+        var pid = String(pageId || '');
+        if (!pid) return [];
+        var key = 'MOTK_TABLE_COL_MANIFEST_V3:' + pid;
+        var raw = localStorage.getItem(key);
+        if (!raw) return [];
+        var obj = JSON.parse(raw);
+        if (!obj || !Array.isArray(obj.fieldIds)) return [];
+        return obj.fieldIds.slice();
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function renderViewerSnapshot(snapshot) {
+      if (!snapshot) return;
+      var labelPrefix = (snapshot.source === 'storage') ? '(stored) ' :
+        (snapshot.source === 'server') ? '(server) ' :
+          (snapshot.source === 'window.opener') ? '' : '';
+      updateElement('viewer-state-status',
+        labelPrefix +
+        'sheet=' + (snapshot.sheetName || '(blank)') +
+        ' entity=' + (snapshot.entityParamNormalized || snapshot.entityParam || '(blank)') +
+        ' rows=' + (snapshot.rowsLength != null ? snapshot.rowsLength : '') +
+        ' total=' + (snapshot.total != null ? snapshot.total : '')
+      );
+      var box = document.getElementById('viewer-state-json');
+      if (box) {
+        box.textContent = JSON.stringify(snapshot, null, 2);
+      }
+    }
+
+    function fetchViewerStateFromServer() {
+      if (viewerStateServerFetchInFlight) return;
+      if (!window.google || !google.script || !google.script.run) {
+        updateElement('viewer-state-status', '<span class="error">viewer state unavailable</span>');
+        return;
+      }
+      viewerStateServerFetchInFlight = true;
+      updateElement('viewer-state-status', 'fetching stored viewer state…');
+      google.script.run
+        .withSuccessHandler(function (res) {
+          viewerStateServerFetchInFlight = false;
+          if (res && res.found && res.snapshot) {
+            var snap = res.snapshot;
+            snap.source = 'server';
+            snap.storedAt = res.storedAt || snap.storedAt || null;
+            renderViewerSnapshot(snap);
+            return;
+          }
+          updateElement('viewer-state-status', '<span class="error">viewer state unavailable</span>');
+          var box = document.getElementById('viewer-state-json');
+          if (box) box.textContent = '{}';
+        })
+        .withFailureHandler(function (err) {
+          viewerStateServerFetchInFlight = false;
+          updateElement('viewer-state-status', '<span class="error">' + (err && err.message ? err.message : 'viewer state unavailable') + '</span>');
+          var box = document.getElementById('viewer-state-json');
+          if (box) box.textContent = '{}';
+        })
+        .dp_fetchViewerState();
+    }
+
+    function captureViewerState() {
+      try {
+        var snapshot = null;
+        if (window.opener && window.opener.STATE) {
+          var viewWin = window.opener;
+          var st = viewWin.STATE;
+          if (st) {
+            var params = null;
+            try { params = new URLSearchParams(viewWin.location.search); } catch (_) { }
+            var rawE = params ? (params.get('e') || '') : '';
+            var rawEnt = params ? (params.get('entity') || '') : '';
+            snapshot = {
+              capturedAt: new Date().toISOString(),
+              origin: (viewWin.location && viewWin.location.href) || '',
+              sheetName: st.sheetName || '',
+              pageId: st.pageId || '',
+              page: st.page || 1,
+              perPage: st.perPage || '',
+              fieldIdsLength: Array.isArray(st.fieldIds) ? st.fieldIds.length : 0,
+              columnsLength: Array.isArray(st.columns) ? st.columns.length : 0,
+              fieldsMetaKeys: (st.fieldsMeta && typeof st.fieldsMeta === 'object') ? Object.keys(st.fieldsMeta).length : 0,
+              inlineEditBound: !!viewWin.__MOTK_TABLE_INLINE_EDIT_BOUND,
+              hasOpenLinkPicker: !!(viewWin.FieldsAPI && typeof viewWin.FieldsAPI.openLinkPicker === "function"),
+              rowsLength: Array.isArray(st.rows) ? st.rows.length : 0,
+              total: st.total,
+              dataSource: st.dataSource || '',
+              entityParam: rawE || rawEnt || '',
+              entityParamNormalized: normalizeEntityToken_(rawE || rawEnt || ''),
+              pageParam: params ? (params.get('page') || '') : '',
+              pidParam: params ? (params.get('pid') || '') : '',
+              source: 'window.opener'
+            };
+          }
+        }
+        if (!snapshot) {
+          snapshot = readViewerSnapshotFromStorage();
+        }
+        if (snapshot) {
+          renderViewerSnapshot(snapshot);
+          return;
+        }
+        fetchViewerStateFromServer();
+      } catch (err) {
+        updateElement('viewer-state-status', '<span class="error">' + err.message + '</span>');
+      }
+    }
+
+// ===== DebugPanel: Console Test Helpers (Table Inline Edit) =====
+window.MOTK_TEST = window.MOTK_TEST || {};
+window.MOTK_TEST.table = (function() {
+  function op_() {
+    return window.opener || null;
+  }
+
+  function requireOp_() {
+    var op = op_();
+    if (!op) throw new Error("No opener window. Open DebugPanel from inside the app.");
+    return op;
+  }
+
+  function getState_() {
+    var op = requireOp_();
+    return op.STATE || null;
+  }
+
+  function getFieldIds_() {
+    var st = getState_();
+    return (st && Array.isArray(st.fieldIds)) ? st.fieldIds.slice() : [];
+  }
+
+  function getMeta_(fid) {
+    var op = requireOp_();
+    if (op.__MOTK_TABLE_DEBUG__ && typeof op.__MOTK_TABLE_DEBUG__.getNormalizedFieldMeta === "function") {
+      return op.__MOTK_TABLE_DEBUG__.getNormalizedFieldMeta(fid);
+    }
+    // fallback: best effort
+    var st = op.STATE || {};
+    return (st.fieldsMeta && st.fieldsMeta[fid]) ? st.fieldsMeta[fid] : null;
+  }
+
+  function dumpFieldMeta() {
+    var op = requireOp_();
+    var st = op.STATE || {};
+    var fids = getFieldIds_();
+    var rows = fids.map(function(fid) {
+      var m = getMeta_(fid) || {};
+      return {
+        fieldId: fid,
+        type: m.type || "",
+        editable: m.editable === true,
+        required: m.required === true,
+        label: m.label || m.field_name || m.name || ""
+      };
+    });
+
+    console.table(rows);
+    var editableCount = rows.filter(function(r){ return r.editable; }).length;
+    console.log("[MOTK_TEST] editable fields:", editableCount, "/", rows.length);
+    console.log("[MOTK_TEST] inlineEditBound:", !!(op.__MOTK_TABLE_INLINE_EDIT_BOUND));
+    return rows;
+  }
+
+  function findCell(rowId, fid) {
+    var op = requireOp_();
+    var table = op.document.querySelector("#tableWrap"); // FIX: ID is tableWrap not motkTable
+    if (!table) throw new Error("#tableWrap not found");
+
+    var tr = table.querySelector('tr[data-row-id="' + rowId + '"]');
+    if (!tr) throw new Error("Row not found: " + rowId);
+
+    var td = tr.querySelector('td[data-col-id="' + fid + '"]');
+    if (!td) throw new Error("Cell not found for fid=" + fid + " in row=" + rowId);
+
+    td.scrollIntoView({ block: "center", inline: "center" });
+    td.style.outline = "2px solid #f00";
+    setTimeout(function(){ td.style.outline = ""; }, 1500);
+    return td;
+  }
+
+  function dispatchMouse(td, type) {
+    var op = requireOp_();
+    var ev = new MouseEvent(type, { bubbles: true, cancelable: true, view: op });
+    td.dispatchEvent(ev);
+  }
+
+  function dblclickCell(rowId, fid) {
+    var td = findCell(rowId, fid);
+    dispatchMouse(td, "dblclick");
+    return true;
+  }
+
+  function clickCell(rowId, fid) {
+    var td = findCell(rowId, fid);
+    dispatchMouse(td, "click");
+    return true;
+  }
+
+  function openFirstEditableDate() {
+    var rows = dumpFieldMeta();
+    var date = rows.find(function(r){ return r.editable && r.type === "date"; });
+    if (!date) throw new Error("No editable date field found in current table fieldIds");
+
+    var op = requireOp_();
+    var table = op.document.querySelector("#tableWrap");
+    var firstRow = table && table.querySelector("tbody tr[data-row-id]");
+    if (!firstRow) throw new Error("No data rows found");
+
+    var rowId = firstRow.getAttribute("data-row-id");
+    console.log("[MOTK_TEST] opening date editor:", { rowId: rowId, fid: date.fieldId });
+    return dblclickCell(rowId, date.fieldId);
+  }
+
+  function toggleFirstCheckbox() {
+    var rows = dumpFieldMeta();
+    var cb = rows.find(function(r){ return r.editable && r.type === "checkbox"; });
+    if (!cb) throw new Error("No editable checkbox field found in current table fieldIds");
+
+    var op = requireOp_();
+    var table = op.document.querySelector("#tableWrap");
+    var firstRow = table && table.querySelector("tbody tr[data-row-id]");
+    if (!firstRow) throw new Error("No data rows found");
+
+    var rowId = firstRow.getAttribute("data-row-id");
+    console.log("[MOTK_TEST] toggling checkbox:", { rowId: rowId, fid: cb.fieldId });
+    return clickCell(rowId, cb.fieldId);
+  }
+
+  function help() {
+    console.log("MOTK_TEST.table.*");
+    console.log(" - dumpFieldMeta()");
+    console.log(" - openFirstEditableDate()");
+    console.log(" - toggleFirstCheckbox()");
+    console.log(" - dblclickCell(rowId, fid)");
+    console.log(" - clickCell(rowId, fid)");
+    console.log(" - findCell(rowId, fid)");
+  }
+
+  return {
+    help: help,
+    dumpFieldMeta: dumpFieldMeta,
+    findCell: findCell,
+    dblclickCell: dblclickCell,
+    clickCell: clickCell,
+    openFirstEditableDate: openFirstEditableDate,
+    toggleFirstCheckbox: toggleFirstCheckbox
+  };
+})();
+
+// ===== DebugPanel Console Helpers (TAKE03) =====
+window.MOTK_DP = window.MOTK_DP || {};
+
+window.MOTK_DP.getRecord = function(entity, id) {
+  return new Promise(function(resolve, reject){
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject)
+      .sv_getRecord_v2(entity, id);
+  });
+};
+
+window.MOTK_DP.setRecord = function(entity, id, patch) {
+  return new Promise(function(resolve, reject){
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject)
+      .sv_setRecord_v2(entity, id, patch, { source: "DebugPanelConsole" });
+  });
+};
+
+window.MOTK_DP.queryTableStub = function(entity, query, sort, offset, limit) {
+  return new Promise(function(resolve, reject){
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject)
+      .sv_queryTable_v3(entity, query, sort, offset, limit);
+  });
+};
+
+window.MOTK_DP.getSchema = function(entity) {
+  return new Promise(function(resolve, reject){
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject)
+      .hubGetSchema(entity);
+  });
+};
+
+window.MOTK_DP.getSlice = function(entity, offset, limit) {
+  return new Promise(function(resolve, reject){
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject)
+      .hubGetSlice(entity, offset, limit);
+  });
+};
+
+    // Init
+    renderLog_();
+    log('DebugPanel: init');
+    runAllChecks();
+    captureViewerState();
+    setInterval(captureViewerState, 10000);
+  </script>
+
+  <!-- ===== 70.contract-inspector ===== -->
+  <script>
+    (function () {
+      "use strict";
+
+      function logLine(s) { var el = document.getElementById('ciLog'); if (el) { el.textContent += s + "\n"; } }
+      function resetLog() { var el = document.getElementById('ciLog'); if (el) { el.textContent = ""; } }
+
+      // safer GAS proxy: try multiple function names, fail softly
+      function gasTry(candidates) {
+        return new Promise(function (res, rej) {
+          if (!window.google || !google.script || !google.script.run) {
+            return rej(new Error("google.script.run not available"));
+          }
+          var run = google.script.run;
+          var fn = null, name = null;
+          for (var i = 0; i < candidates.length; i++) {
+            name = candidates[i];
+            if (typeof run[name] === "function") { fn = run[name]; break; }
+          }
+          if (!fn) {
+            return rej(new Error("No server function found: " + candidates.join(" | ")));
+          }
+          try {
+            run.withSuccessHandler(res).withFailureHandler(rej)[name]();
+          } catch (e) {
+            rej(e);
+          }
+        });
+      }
+
+      function gasCall(name, arg) {
+        return new Promise(function (res, rej) {
+          if (!window.google || !google.script || !google.script.run) {
+            return rej(new Error("google.script.run not available"));
+          }
+          var run = google.script.run;
+          if (typeof run[name] !== "function") {
+            return rej(new Error("Server function missing: " + name));
+          }
+          try {
+            if (arg === undefined) {
+              run.withSuccessHandler(res).withFailureHandler(rej)[name]();
+            } else {
+              run.withSuccessHandler(res).withFailureHandler(rej)[name](arg);
+            }
+          } catch (e) { rej(e); }
+        });
+      }
+
+      // UI
+      function ensurePanel() {
+        var root = document.getElementById('contractInspector');
+        if (root) return root;
+        root = document.createElement('section');
+        root.id = 'contractInspector';
+        root.innerHTML = [
+          '<div style="margin:8px 0;padding:8px;border:1px solid #ccc;border-radius:6px">',
+          '  <h3 style="margin:0 0 8px">Contract Inspector</h3>',
+          '  <pre id="ciLog" style="max-height:50vh;overflow:auto;background:#111;color:#eee;padding:8px;border-radius:6px"></pre>',
+          '</div>'
+        ].join('');
+        document.body.appendChild(root);
+        return root;
+      }
+
+      function hasAnyServerFn_(names) {
+        try {
+          if (!google || !google.script || !google.script.run) return false;
+          for (var i = 0; i < names.length; i++) {
+            var n = names[i];
+            if (typeof google.script.run[n] === "function") return true;
+          }
+        } catch (_) { }
+        return false;
+      }
+
+      function contractGroups_() {
+        return [
+          { name: "List rows (paged)", anyOf: ["sv_listRowsPage_v3", "sv_listRowsPage_v2", "sv_listRowsPage", "dp_listRowsPage", "listRowsPage"] },
+          { name: "Table query", anyOf: ["sv_queryTable_v3", "sv_queryTable"] },
+          { name: "Get record", anyOf: ["sv_getRecord_v2", "sv_getRecord"] },
+          { name: "Set record", anyOf: ["sv_setRecord_v2", "sv_setRecord"] },
+          { name: "Proxy index", anyOf: ["sv_indexAllProxies"] }
+        ];
+      }
+
+      function runContractInspector_() {
+        var groups = contractGroups_();
+        var results = [];
+        for (var i = 0; i < groups.length; i++) {
+          var g = groups[i];
+          var ok = hasAnyServerFn_(g.anyOf);
+          results.push({ name: g.name, ok: ok, anyOf: g.anyOf.join(", ") });
+        }
+        try {
+          var allOk = true;
+          for (var j = 0; j < results.length; j++) {
+            if (!results[j].ok) { allOk = false; break; }
+          }
+          window.__MOTK_CONTRACT_INSPECTOR__ = { ts: Date.now(), ok: allOk, groups: results };
+        } catch (_) { }
+        return results;
+      }
+
+      function renderContractInspector_(rows) {
+        resetLog();
+        logLine("== Contract groups (presence only) ==");
+        for (var i = 0; i < rows.length; i++) {
+          var r = rows[i];
+          logLine((r.ok ? "OK   " : "MISS ") + r.name + "  [" + r.anyOf + "]");
+        }
+        logLine("== done ==");
+      }
+
+      function start() {
+        ensurePanel();
+        try {
+          renderContractInspector_(runContractInspector_());
+        } catch (err) {
+          resetLog();
+          logLine('contract-inspector error: ' + String(err && err.message || err));
+        }
+        try {
+          var btn = document.getElementById('run-originals-diag');
+          if (btn) {
+            var label = btn.textContent;
+            btn.addEventListener('click', function () {
+              btn.disabled = true;
+              btn.textContent = 'Running...';
+              Promise.resolve().then(checkOriginalsAsync).finally(function () {
+                btn.disabled = false;
+                btn.textContent = label;
+              });
+            });
+          }
+        } catch (_) { }
+      }
+
+      window.runAllChecks = runAllChecks;
+      window.copyAll = copyAll;
+      if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', start, { once: true }); } else { start(); }
+    })();
+  </script>
+  <!-- ===== 70. End ===== -->
+
+
+
+
+</body>
+
+</html>
