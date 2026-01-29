@@ -1,0 +1,1966 @@
+<!-- ===== FieldsAPI (strict, type-driven, full file) ===== -->
+<script>
+  (function () {
+    "use strict";
+
+    /* ========= 0. helpers ========= */
+    function gsr() { return (window.google && google.script && google.script.run) || null; }
+    function tryCall(names, args) {
+      return new Promise(function (resolve, reject) {
+        var r = gsr(); if (!r) return reject(new Error("gsr missing"));
+        (function next(i) {
+          if (i >= names.length) return reject(new Error("no api"));
+          var fn = names[i]; if (typeof r[fn] !== "function") return next(i + 1);
+          r.withSuccessHandler(resolve).withFailureHandler(function () { next(i + 1); })[fn](args);
+        })(0);
+      });
+    }
+    function el(tag, cls, text) {
+      var n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text != null) n.textContent = String(text);
+      return n;
+    }
+    function chip(href, label, newTab) {
+      var a = el("a", "chip", label || href || "");
+      if (href) a.href = href;
+      /* FIX: when newTab=true, always open in a new tab with noopener+noreferrer */
+      if (newTab) { 
+          a.target = "_blank"; 
+          a.rel = "noopener noreferrer"; 
+      }
+      return a;
+    }
+    function parseList(val) {
+      if (Array.isArray(val)) return val;
+      var s = (val == null ? "" : String(val));
+      return s.split(/[,;\s/|]+/).map(function (t) { return t.trim(); }).filter(Boolean);
+    }
+    function driveUrlFromId(id, kind) {
+      if (!id) return "";
+      if (kind === "file") return "https://drive.google.com/file/d/" + id + "/view";
+      return "https://drive.google.com/drive/folders/" + id;
+    }
+    function extractDriveId(s) {
+      if (!s) return "";
+      var m = String(s).match(/[a-zA-Z0-9_-]{25,}/);
+      return m ? m[0] : "";
+    }
+    function isoDateOnly(s) {
+      if (!s) return "";
+      var d = (s instanceof Date) ? s : new Date(s);
+      if (isNaN(d.getTime())) return String(s);
+      var y = d.getFullYear(), m = ("0" + (d.getMonth() + 1)).slice(0 - 2), da = ("0" + d.getDate()).slice(0 - 2);
+      return y + "-" + m + "-" + da;
+    }
+    function bucketOf(entity) {
+      return entity === "asset" ? "assets" :
+        entity === "task" ? "tasks" :
+          entity === "user" ? "users" :
+            entity === "member" ? "members" : "shots";
+    }
+
+    function _normalizeEntity_(entity) {
+      return String(entity || "").toLowerCase().trim();
+    }
+
+    function _normalizeFieldName_(name) {
+      return String(name || "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function _schemaFail_(msg, ctx) {
+      try { console.error("[SchemaResolver] " + msg, ctx || ""); } catch (_) { }
+      try { if (typeof showError === "function") showError(msg); } catch (_) { }
+      try { if (window.__MOTK_DEBUG__ && typeof window.appendDebugLog === "function") window.appendDebugLog("Schema: " + msg); } catch (_) { }
+      return null;
+    }
+
+    function _schemaBuildIndex_() {
+      var ft = window.FIELD_TYPES || {};
+      var entities = Object.keys(ft || {});
+      if (!entities.length) return _schemaFail_("Fields meta missing (FIELD_TYPES empty)");
+
+      var idx = { byEntity: {}, byFid: {} };
+      entities.forEach(function (entRaw) {
+        var ent = _normalizeEntity_(entRaw);
+        if (!idx.byEntity[ent]) idx.byEntity[ent] = { byType: {}, byFieldName: {}, metas: {} };
+        var map = ft[entRaw] || ft[ent] || {};
+        Object.keys(map).forEach(function (fid) {
+          var meta = Object.assign({}, map[fid] || {});
+          meta.fid = String(meta.fid || fid || "");
+          meta.entity = _normalizeEntity_(meta.entity || entRaw || ent);
+          meta.type = String(meta.type || "").toLowerCase().trim();
+          meta.field_name = meta.field_name != null ? String(meta.field_name) : (meta.column_name != null ? String(meta.column_name) : "");
+          var nameKey = _normalizeFieldName_(meta.field_name);
+          idx.byFid[meta.fid] = meta;
+          idx.byEntity[ent].metas[meta.fid] = meta;
+          if (meta.type && !idx.byEntity[ent].byType[meta.type]) {
+            idx.byEntity[ent].byType[meta.type] = meta.fid;
+          }
+          if (nameKey && !idx.byEntity[ent].byFieldName[nameKey]) {
+            idx.byEntity[ent].byFieldName[nameKey] = meta.fid;
+          }
+        });
+      });
+      window.__MOTK_SCHEMA_INDEX__ = idx;
+      return idx;
+    }
+
+    function _schemaIndex_() {
+      return window.__MOTK_SCHEMA_INDEX__ || _schemaBuildIndex_();
+    }
+
+    function _schemaEntity_(entity) {
+      var ent = _normalizeEntity_(entity);
+      var idx = _schemaIndex_();
+      if (!idx || !idx.byEntity || !idx.byEntity[ent]) {
+        return _schemaFail_("Unknown entity for schema: " + String(entity));
+      }
+      return idx.byEntity[ent];
+    }
+
+    function _schemaGetMetaByFid_(fid) {
+      var idx = _schemaIndex_();
+      if (!idx || !idx.byFid) return _schemaFail_("Fields meta missing (no fid map)");
+      var key = String(fid || "").trim();
+      if (!key) return _schemaFail_("Empty fid lookup");
+      var meta = idx.byFid[key];
+      if (!meta) return _schemaFail_("Missing Fields meta for fid=" + key);
+      return meta;
+    }
+
+    function _schemaGetFidByType_(entity, type) {
+      var ent = _schemaEntity_(entity);
+      if (!ent) return null;
+      var t = String(type || "").toLowerCase().trim();
+      var fid = ent.byType[t];
+      if (!fid) return _schemaFail_("Missing fid for type=" + t + " entity=" + entity);
+      return fid;
+    }
+
+    function _schemaGetFidByFieldName_(entity, fieldName) {
+      var ent = _schemaEntity_(entity);
+      if (!ent) return null;
+      var key = _normalizeFieldName_(fieldName);
+      if (!key) return _schemaFail_("Missing field_name for entity=" + entity);
+      var fid = ent.byFieldName[key];
+      if (!fid) return _schemaFail_("Missing fid for field_name=" + fieldName + " entity=" + entity);
+      return fid;
+    }
+
+    function _schemaGetEntityByFid_(fid) {
+      var meta = _schemaGetMetaByFid_(fid);
+      return meta ? _normalizeEntity_(meta.entity || "") : "";
+    }
+
+    function _schemaGetFidsByType_(entity, type) {
+      var ent = _schemaEntity_(entity);
+      if (!ent) return [];
+      var t = String(type || "").toLowerCase().trim();
+      var out = [];
+      Object.keys(ent.metas || {}).forEach(function (fid) {
+        var meta = ent.metas[fid];
+        if (!meta) return;
+        if (String(meta.type || "").toLowerCase().trim() === t) out.push(fid);
+      });
+      if (!out.length) _schemaFail_("Missing fid list for type=" + t + " entity=" + entity);
+      return out;
+    }
+
+    window.SchemaResolver = window.SchemaResolver || {
+      getIdFid: function (entity) { return _schemaGetFidByType_(entity, "id"); },
+      getEntityNameFid: function (entity) { return _schemaGetFidByType_(entity, "entity_name"); },
+      getFidByFieldName: function (entity, fieldName) { return _schemaGetFidByFieldName_(entity, fieldName); },
+      getFieldMetaByFid: function (fid) { return _schemaGetMetaByFid_(fid); },
+      getEntityByFid: function (fid) { return _schemaGetEntityByFid_(fid); },
+      getFidsByType: function (entity, type) { return _schemaGetFidsByType_(entity, type); },
+      hasFid: function (fid) {
+        var idx = _schemaIndex_();
+        if (!idx || !idx.byFid) return false;
+        return !!idx.byFid[String(fid || "").trim()];
+      },
+      normalizeFieldName: _normalizeFieldName_
+    };
+
+    function _inferEntityFromId_(val) {
+      var v = String(val || "").trim();
+      if (/^as[_-]/i.test(v)) return "asset";
+      if (/^(tk|ta)[_-]/i.test(v)) return "task";
+      if (/^us[_-]/i.test(v)) return "user";
+      if (/^pm[_-]/i.test(v)) return "member";
+      if (/^sh[_-]/i.test(v)) return "shot";
+      return "";
+    }
+
+    function _linkEntityFromField_(meta, fallbackId) {
+      var name = _normalizeFieldName_(meta && (meta.field_name || meta.name || meta.label));
+      var target = "";
+      if (name && name.indexOf("link") >= 0) {
+        if (name.indexOf("asset") >= 0) target = "asset";
+        else if (name.indexOf("task") >= 0) target = "task";
+        else if (name.indexOf("member") >= 0) target = "member";
+        else if (name.indexOf("user") >= 0) target = "user";
+        else if (name.indexOf("shot") >= 0) target = "shot";
+      }
+      if (!target) target = _inferEntityFromId_(fallbackId);
+      if (!target) _schemaFail_("Unable to resolve link target for field", meta);
+      return target || "shot";
+    }
+
+    function _recordIdFromRow_(entity, row) {
+      var rid = "";
+      try {
+        var fid = window.SchemaResolver && SchemaResolver.getIdFid ? SchemaResolver.getIdFid(entity) : null;
+        if (fid && row && row[fid] != null) rid = row[fid];
+      } catch (_) { }
+      if (!rid && row) rid = row.id || row.ID || "";
+      return String(rid || "").trim();
+    }
+
+    window.LINK_MAPS = Object.assign({ assets: {}, shots: {}, tasks: {}, users: {}, members: {} }, window.LINK_MAPS || {});
+
+    var SCRIPT_URL = (function () {
+      try { return null; } catch (e) { return null; }
+    })() || (window.__SCRIPT_URL__ || (location.origin + location.pathname));
+
+    var Router = window.__Router__ || {};
+
+    Router.baseUrl = function () { return SCRIPT_URL; };
+
+    Router.pageUrl = function (params) {
+      var url = new URL(SCRIPT_URL);
+      Object.keys(params || {}).forEach(function (k) {
+        if (params[k] != null && params[k] !== "") {
+          url.searchParams.set(k, params[k]);
+        }
+      });
+      return url.toString();
+    };
+
+    Router.entityPageName = function (entity) {
+      /* FIX: page name mapping for all entities */
+      var e = String(entity || "").toLowerCase().trim();
+      if (!e) return "Dashboard";
+      if (e === "shot" || e === "shots") return "Shots";
+      if (e === "asset" || e === "assets") return "Assets";
+      if (e === "task" || e === "tasks") return "Tasks";
+      if (e === "user" || e === "users") return "Users";
+      if (e === "member" || e === "members" || e === "projectmember" || e === "projectmembers") return "ProjectMembers";
+      return "Dashboard";
+    };
+
+    Router.detailPageNameForEntity = function (entity) {
+      /* FIX: route all entities to the correct Detail page */
+      var e = String(entity || "").toLowerCase().trim();
+      if (!e) return "Dashboard";
+      if (e === "shot" || e === "shots") return "DetailShot";
+      if (e === "asset" || e === "assets") return "DetailAsset";
+      if (e === "task" || e === "tasks") return "DetailTask";
+      if (e === "user" || e === "users") return "DetailUser";
+      if (e === "member" || e === "members" || e === "projectmember" || e === "projectmembers") return "DetailMember";
+      
+      // Default fallback.
+      return "DetailShot";
+    };
+
+    // Detail entity URL builder
+    // NOTE: v2 omits ts and uses only page/entity/id.
+    Router.buildEntityUrl = function (entity, id, opts) {
+      if (!entity || !id) return SCRIPT_URL;
+      var params = Object.assign(
+        {
+          page: Router.detailPageNameForEntity(entity),
+          entity: entity,
+          id: id
+        },
+        opts || {}
+      );
+      return Router.pageUrl(params);
+    };
+
+    Router.current = function () {
+      try {
+        var url = new URL(location.href);
+        var q = Object.fromEntries(url.searchParams.entries());
+        return {
+          page: q.page || "",
+          entity: q.entity || "",
+          id: q.id || ""
+        };
+      } catch (e) {
+        return { page: "", entity: "", id: "" };
+      }
+    };
+
+    Router.navTo = function (params) {
+      location.href = Router.pageUrl(params);
+    };
+
+    window.__Router__ = Router;
+
+    async function ensureLinkMaps() {
+      var need = ["assets", "shots", "tasks", "users", "members"].some(function (k) {
+        return !window.LINK_MAPS[k] || !Object.keys(window.LINK_MAPS[k]).length;
+      });
+      if (!need) return window.LINK_MAPS;
+      try {
+        var maps = await tryCall(["sv_getLinkMaps", "getLinkMaps"], null);
+        if (maps && typeof maps === "object") {
+          ["assets", "shots", "tasks", "users", "members"].forEach(function (k) {
+            if (!window.LINK_MAPS[k]) window.LINK_MAPS[k] = {};
+            Object.assign(window.LINK_MAPS[k], maps[k] || {});
+          });
+        }
+      } catch (_) { }
+      return window.LINK_MAPS;
+    }
+
+    function clearSchemaCaches_(reason) {
+      try {
+        if (!window.localStorage) return;
+        var prefixes = [
+          "motk:rows:",
+          "motk:cfg:",
+          "motk:links:",
+          "motk:boot:",
+          "motk:page:lastResolved:"
+        ];
+        var keys = [];
+        for (var i = 0; i < localStorage.length; i++) {
+          keys.push(localStorage.key(i));
+        }
+        keys.forEach(function (k) {
+          if (!k) return;
+          for (var j = 0; j < prefixes.length; j++) {
+            if (k.indexOf(prefixes[j]) === 0) {
+              localStorage.removeItem(k);
+              return;
+            }
+          }
+        });
+        if (reason) console.warn("[FieldsAPI] schema cache cleared:", reason);
+      } catch (_) { }
+    }
+
+    function resolveScriptUrl_() {
+      try {
+        return String(
+          window.__SCRIPT_URL__ ||
+          window.SCRIPT_URL ||
+          window.scriptUrl ||
+          (window.__VIEW_CTX && window.__VIEW_CTX.scriptUrl) ||
+          ""
+        );
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function readLastViewSnapshot_() {
+      try {
+        var raw = localStorage.getItem("motk:lastView");
+        if (!raw) return null;
+        var obj = JSON.parse(raw);
+        return obj && typeof obj === "object" ? obj : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function collectReloadParams_() {
+      var out = {};
+      try {
+        var usp = new URLSearchParams(location.search);
+        ["pid", "e", "entity", "p", "page"].forEach(function (k) {
+          var v = (usp.get(k) || "").trim();
+          if (v) out[k] = v;
+        });
+      } catch (_) { }
+
+      try {
+        var ctx = window.__VIEW_CTX || {};
+        if (!out.e && ctx.entity) out.e = String(ctx.entity).trim();
+        if (!out.p && ctx.page) out.p = String(ctx.page).trim();
+      } catch (_) { }
+
+      var saved = readLastViewSnapshot_();
+      if (saved) {
+        if (!out.pid && saved.pid) out.pid = String(saved.pid).trim();
+        if (!out.e && saved.sheet) out.e = String(saved.sheet).trim();
+      }
+
+      if (!out.e && out.entity) out.e = out.entity;
+      if (!out.p && out.page) out.p = out.page;
+      delete out.entity;
+      delete out.page;
+
+      if (!out.p && out.e) out.p = "table";
+      return out;
+    }
+
+    function buildScriptUrlWithParams_(base, params) {
+      try {
+        var u = new URL(base);
+        Object.keys(params || {}).forEach(function (k) {
+          var v = params[k];
+          if (v !== undefined && v !== null && String(v).length) {
+            u.searchParams.set(k, String(v));
+          }
+        });
+        u.searchParams.delete("createOAuthDialog");
+        return u.toString();
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function reloadToScriptUrl_() {
+      var base = resolveScriptUrl_();
+      if (!base) {
+        try { location.reload(); } catch (_) { }
+        return;
+      }
+      var params = collectReloadParams_();
+      var target = buildScriptUrlWithParams_(base, params);
+      if (!target) {
+        try { location.reload(); } catch (_) { }
+        return;
+      }
+      if (target === location.href) {
+        try { location.reload(); } catch (_) { }
+        return;
+      }
+      try {
+        location.href = target;
+      } catch (_) {
+        try { location.reload(); } catch (__) { }
+      }
+    }
+
+    function handleSchemaSig_(sig) {
+      if (!sig) return;
+      var key = "MOTK_FIELDS_SCHEMA_SIG_V1";
+      var prev = "";
+      try { prev = localStorage.getItem(key) || ""; } catch (_) { prev = ""; }
+      if (prev !== sig) {
+        try { localStorage.setItem(key, sig); } catch (_) { }
+        // Clear schema caches but avoid full reload to prevent whiteout; allow caller to refetch incrementally.
+        clearSchemaCaches_("schemaSig mismatch");
+      }
+    }
+
+    var APPDATA_CACHE_KEY = "MOTK_APPDATA_CACHE_V1";
+    var APPDATA_REFRESH_INFLIGHT = false;
+
+    function readAppDataCache_() {
+      try {
+        var raw = localStorage.getItem(APPDATA_CACHE_KEY);
+        if (!raw) return null;
+        var obj = JSON.parse(raw);
+        if (!obj || typeof obj !== "object") return null;
+        return obj;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function writeAppDataCache_(res) {
+      try {
+        var payload = {
+          updatedAt: Date.now(),
+          schemaSig: res && res.schemaSig ? String(res.schemaSig) : "",
+          fieldTypes: res && res.fieldTypes ? res.fieldTypes : null,
+          linkMaps: res && res.linkMaps ? res.linkMaps : null
+        };
+        localStorage.setItem(APPDATA_CACHE_KEY, JSON.stringify(payload));
+      } catch (_) { }
+    }
+
+    function applyAppData_(res) {
+      try {
+        if (res && res.fieldTypes) window.FIELD_TYPES = res.fieldTypes;
+        if (res && res.fieldTypesDiag) window.__MOTK_FIELD_TYPES_DIAG__ = res.fieldTypesDiag;
+        if (res && res.schemaSig) handleSchemaSig_(String(res.schemaSig));
+        if (res && res.linkMaps) {
+          window.LINK_MAPS = Object.assign({ assets: {}, shots: {}, tasks: {}, users: {}, members: {} }, window.LINK_MAPS || {});
+          ["assets", "shots", "tasks", "users", "members"].forEach(function (k) {
+            if (!window.LINK_MAPS[k]) window.LINK_MAPS[k] = {};
+            Object.assign(window.LINK_MAPS[k], res.linkMaps[k] || {});
+          });
+        }
+      } catch (_) { }
+    }
+
+    function requestAppData_(done) {
+      try {
+        if (!(window.google && google.script && google.script.run && typeof google.script.run.dp_loadAppData === "function")) {
+          done(null);
+          return;
+        }
+        google.script.run
+          .withSuccessHandler(function (res) {
+            try {
+              if (res) {
+                res.source = res.source || "network";
+                window.__MOTK_FIELD_TYPES_SOURCE__ = res.source;
+              }
+            } catch (_) { }
+            try { applyAppData_(res || null); } catch (_) { }
+            try { if (res) writeAppDataCache_(res); } catch (_) { }
+            done(res || null);
+          })
+          .withFailureHandler(function () { done(null); })
+          .dp_loadAppData();
+      } catch (_) {
+        done(null);
+      }
+    }
+
+    function ensureAppDataLoaded(reason) {
+      if (window.__MOTK_APPDATA_PROMISE__) return window.__MOTK_APPDATA_PROMISE__;
+      var hasFieldTypes = window.FIELD_TYPES && Object.keys(window.FIELD_TYPES).length;
+      var hasLinkMaps = window.LINK_MAPS && ["assets", "shots", "tasks", "users", "members"].some(function (k) {
+        return window.LINK_MAPS[k] && Object.keys(window.LINK_MAPS[k]).length;
+      });
+      if (hasFieldTypes && hasLinkMaps) {
+        window.__MOTK_FIELD_TYPES_SOURCE__ = "memory";
+        return Promise.resolve({ ok: true, cached: true, source: "memory" });
+      }
+
+      var cached = readAppDataCache_();
+      if (cached && cached.fieldTypes && cached.linkMaps) {
+        applyAppData_(cached);
+        if (cached.schemaSig) handleSchemaSig_(String(cached.schemaSig));
+        window.__MOTK_FIELD_TYPES_SOURCE__ = "cache";
+        if (!APPDATA_REFRESH_INFLIGHT) {
+          APPDATA_REFRESH_INFLIGHT = true;
+          requestAppData_(function (res) {
+            APPDATA_REFRESH_INFLIGHT = false;
+            if (res) {
+              window.__MOTK_FIELD_TYPES_SOURCE__ = "network";
+            }
+          });
+        }
+        window.__MOTK_APPDATA_PROMISE__ = Promise.resolve({ ok: true, cached: true, source: "cache" });
+        return window.__MOTK_APPDATA_PROMISE__;
+      }
+
+      window.__MOTK_APPDATA_PROMISE__ = new Promise(function (resolve) {
+        requestAppData_(function (res) {
+          if (res && !res.source) res.source = "network";
+          if (res) window.__MOTK_FIELD_TYPES_SOURCE__ = "network";
+          resolve(res || null);
+        });
+      });
+      return window.__MOTK_APPDATA_PROMISE__;
+    }
+
+    /* ========= 2. Originals resolver ========= */
+    async function resolveOriginalsUrl(ctx) {
+      try {
+        var raw = ctx && ctx.val != null ? String(ctx.val).trim() : "";
+        if (raw && /^https?:\/\//i.test(raw)) return raw;
+        var directId = extractDriveId(raw);
+        if (directId) return driveUrlFromId(directId, "folder");
+      } catch (_) { }
+      var apis = [
+        "sv_getOriginalsFolderUrl", "getOriginalsFolderUrl",
+        "sv_getOriginalsUrl", "getOriginalsUrl",
+        "sv_findOriginalsFolder", "findOriginalsFolder",
+        "sv_resolveOriginals", "resolveOriginals"
+      ];
+      for (var i = 0; i < apis.length; i++) {
+        try {
+          var res = await tryCall([apis[i]], { entity: ctx.entity, id: ctx.id, fid: ctx.fid, value: ctx.val, row: ctx.row });
+          if (typeof res === "string" && /^https?:\/\//i.test(res)) return res;
+          if (res && typeof res === "object") {
+            if (res.url) return res.url;
+            var folderId = res.folderId || res.driveId || res.id;
+            var fileId = res.fileId;
+            if (folderId) return driveUrlFromId(folderId, "folder");
+            if (fileId) return driveUrlFromId(fileId, "file");
+          }
+        } catch (_) { }
+      }
+      var id = extractDriveId(ctx.val);
+      return id ? driveUrlFromId(id, "folder") : "";
+    }
+
+    /* ========= 3. renderers ========= */
+    function R_id(o) {
+      var s = el("span", null, o.val == null ? "" : String(o.val));
+      s.setAttribute("data-raw", o.val == null ? "" : String(o.val));
+      return s;
+    }
+    function R_text(o) { return document.createTextNode(o.val == null ? "" : String(o.val)); }
+    function R_text_missing(o) {
+      var s = el("span", "motk-unknown-field", o.val == null ? "" : String(o.val));
+      s.setAttribute("data-unknown-field", "1");
+      s.title = "Unknown field meta";
+      return s;
+    }
+    function R_date(o) { return document.createTextNode(isoDateOnly(o.val)); }
+    function R_checkbox(o) {
+      var input = el("input"); input.type = "checkbox";
+      var v = o.val;
+      var checked = (v === true) || (typeof v === "number" && v !== 0) ||
+        (/^(true|yes|on|1)$/i.test(String(v || "")));
+      input.checked = !!checked;
+      input.disabled = !o.editable;
+      return input;
+    }
+    function R_select(o) {
+      return document.createTextNode(o.val == null ? "" : String(o.val));
+    }
+    function R_json(o) {
+      var pre = el("pre", "json");
+      try { pre.textContent = JSON.stringify(typeof o.val === "string" ? JSON.parse(o.val) : o.val, null, 2); }
+      catch (_) { pre.textContent = String(o.val == null ? "" : o.val); }
+      return pre;
+    }
+    function R_entity_name(o) {
+      var entity = _normalizeEntity_(o.entity || (o.field && o.field.entity) || (window.SchemaResolver && SchemaResolver.getEntityByFid ? SchemaResolver.getEntityByFid(o.fid) : ""));
+      var key = String(o.val || "");
+      if (!entity) return el("span", null, key);
+      var bucket = bucketOf(entity);
+      var name = (window.LINK_MAPS[bucket] || {})[key] || key;
+      return el("span", null, name);
+    }
+    function R_entity_link(o) {
+      var meta = o.field || (window.SchemaResolver && SchemaResolver.getFieldMetaByFid ? SchemaResolver.getFieldMetaByFid(o.fid) : null) || {};
+      var entity = o.linkEntity ? String(o.linkEntity) : _linkEntityFromField_(meta, String(o.val || ""));
+      var ids = parseList(o.val);
+      var box = el("span");
+      if (!ids.length) { box.appendChild(document.createTextNode("")); return box; }
+      var map = window.LINK_MAPS[bucketOf(entity)] || {};
+      ids.forEach(function (id, i) {
+        var label = map[id] || id;
+        box.appendChild(chip(Router.buildEntityUrl(entity, id), label, false));
+        if (i < ids.length - 1) box.appendChild(document.createTextNode(" "));
+      });
+      return box;
+    }
+    function R_originals(o) {
+      window.__MOTK_ORIGINALS_CACHE = window.__MOTK_ORIGINALS_CACHE || {};
+
+      var a = chip("#", "Open", true);
+      var token = (Date.now().toString(36) + ":" + Math.random().toString(36).slice(2));
+      a.setAttribute("data-orig-token", token);
+      var ctx = {
+        entity: o.entity || "shot",
+        id: _recordIdFromRow_(o.entity || "shot", o.row || {}),
+        fid: o.fid, val: o.val, row: o.row || {}
+      };
+
+      a.setAttribute("data-originals-entity", String(ctx.entity || ""));
+      a.setAttribute("data-originals-id", String(ctx.id || ""));
+      a.setAttribute("data-originals-state", "idle"); // idle|loading|resolved|failed
+
+      function isCurrent() {
+        try {
+          if (a.getAttribute("data-orig-token") !== token) return false;
+          if (!document.body || !document.body.contains(a)) return false;
+        } catch (_) { return false; }
+        return true;
+      }
+
+      function cacheKey() {
+        return String(ctx.entity || "") + ":" + String(ctx.id || "");
+      }
+
+      function setState(next, text, href) {
+        if (!isCurrent()) return;
+        try {
+          a.setAttribute("data-originals-state", next);
+          if (typeof text === "string") a.textContent = text;
+          if (href) a.href = href;
+          else a.setAttribute("href", "#");
+        } catch (_) { }
+      }
+
+      a.addEventListener("click", function (e) {
+        try { if (e && e.preventDefault) e.preventDefault(); } catch (_) { }
+        try { if (e && e.stopPropagation) e.stopPropagation(); } catch (_) { }
+
+        if (!isCurrent()) return;
+
+        var state = "";
+        try { state = a.getAttribute("data-originals-state") || ""; } catch (_) { }
+        if (state === "loading") return;
+
+        // Take21: click-first UX (new tab immediately, then resolve and redirect)
+        // Take22: avoid document.write (can trigger "Invalid regular expression flags" in some runtimes)
+        var win = null;
+        try {
+          win = window.open("about:blank", "_blank");
+          if (win) {
+            try { win.document.title = "Resolving Originals…"; } catch (_) { }
+            try {
+              var doc = win.document;
+              var body = doc && doc.body ? doc.body : null;
+              if (body) {
+                body.innerHTML = "<h3>Resolving Originals…</h3><p>Please wait.</p>";
+                try { body.style.fontFamily = "system-ui"; body.style.margin = "24px"; } catch (_) { }
+              }
+            } catch (_) { }
+          }
+        } catch (_) { win = null; }
+
+        var key = cacheKey();
+        var cached = "";
+        try { cached = key && window.__MOTK_ORIGINALS_CACHE[key] ? String(window.__MOTK_ORIGINALS_CACHE[key]) : ""; } catch (_) { cached = ""; }
+        if (cached) {
+          setState("resolved", "Open", cached);
+          try { if (win) win.location.href = cached; } catch (_) { }
+          return;
+        }
+
+        if (!ctx.id) {
+          setState("failed", "Originals not found", "");
+          try { if (typeof showError === "function") showError("Originals not found (missing id)"); } catch (_) { }
+          if (win) {
+            try { win.document.body.innerHTML = "<h3>Originals not found</h3><p>Missing record id.</p>"; } catch (_) { }
+          }
+          return;
+        }
+
+        setState("loading", "Loading Originals...", "");
+
+        resolveOriginalsUrl(ctx).then(function (url) {
+          if (!isCurrent()) return;
+          url = (typeof url === "string") ? url : "";
+          if (url && /^https?:\/\//i.test(url)) {
+            try { window.__MOTK_ORIGINALS_CACHE[key] = url; } catch (_) { }
+            setState("resolved", "Open", url);
+            try { a.target = "_blank"; } catch (_) { }
+            try { a.dataset.url = url; } catch (_) { }
+            try { a.setAttribute("title", url); } catch (_) { }
+            try { if (win) win.location.href = url; } catch (_) { }
+          } else {
+            setState("failed", "Originals not found", "");
+            try { if (typeof showError === "function") showError("Originals not found"); } catch (_) { }
+            if (win) {
+              try { win.document.body.innerHTML = "<h3>Originals not found</h3><p>No URL was returned.</p>"; } catch (_) { }
+            }
+          }
+        }).catch(function (err) {
+          if (!isCurrent()) return;
+          setState("failed", "Originals not found", "");
+          try {
+            if (typeof showError === "function") showError("Originals resolve failed: " + String(err && err.message ? err.message : err));
+          } catch (_) { }
+          if (win) {
+            try { win.document.body.innerHTML = "<h3>Originals resolve failed</h3><pre>" + String(err) + "</pre>"; } catch (_) { }
+          }
+        });
+      }, true);
+      return a;
+    }
+    function R_file_list(o) {
+      var items = [];
+      try {
+        if (typeof o.val === "string" && /^\s*\[/.test(o.val)) items = JSON.parse(o.val) || [];
+        else if (Array.isArray(o.val)) items = o.val;
+        else items = parseList(o.val);
+      } catch (_) { items = parseList(o.val); }
+      var box = el("span");
+      if (!items.length) { box.appendChild(document.createTextNode("")); return box; }
+      items.forEach(function (it, i) {
+        var href = "", label = "", kind = "";
+        if (typeof it === "string") {
+          if (/^https?:\/\//i.test(it)) { href = it; label = it; }
+          else { href = driveUrlFromId(extractDriveId(it), "file"); label = it; }
+        } else if (it && typeof it === "object") {
+          label = it.name || it.url || it.id || "";
+          if (it.url) href = it.url;
+          else if (it.id) href = driveUrlFromId(it.id, it.kind === "folder" ? "folder" : "file");
+          else if (it.fileId) href = driveUrlFromId(it.fileId, "file");
+          else if (it.folderId || it.driveId) href = driveUrlFromId(it.folderId || it.driveId, "folder");
+        }
+        box.appendChild(href ? chip(href, label, true) : el("span", null, label));
+        if (i < items.length - 1) box.appendChild(document.createTextNode(" "));
+      });
+      return box;
+    }
+    function R_thumbnails(o) {
+      var list = parseList(o.val);
+      var box = el("div", "thumbs");
+      list.forEach(function (tok) {
+        var id = extractDriveId(tok);
+        var thumbUrl = /^https?:\/\//i.test(tok) ? tok : ("https://drive.google.com/thumbnail?sz=w256&id=" + id);
+        var mediaUrl = id ? _motk_driveOpenUrl_(id) : thumbUrl;
+        var img = el("img", "thumb"); img.loading = "lazy"; img.decoding = "async"; img.src = thumbUrl;
+        var btn = el("button", "motk-media-trigger-btn");
+        btn.type = "button";
+        btn.setAttribute("data-motk-media-trigger", "1");
+        btn.setAttribute("data-motk-media-src", String(mediaUrl || ""));
+        btn.setAttribute("data-motk-media-title", "");
+        btn.setAttribute("data-motk-media-mime", "");
+        btn.appendChild(img);
+        box.appendChild(btn);
+      });
+      return box;
+    }
+
+    function _previewRecordId_(o) {
+      try {
+        var rid0 = (o && (o.recordId || o.rowId || o.__rowId || o.id)) ? (o.recordId || o.rowId || o.__rowId || o.id) : "";
+        if (rid0) return String(rid0 || "");
+        var row = (o && o.row) ? o.row : null;
+        var rid = row ? _recordIdFromRow_(o.entity || "", row) : "";
+        if (rid) return String(rid || "");
+        if (row && typeof row === "object") {
+          for (var k in row) {
+            if (!Object.prototype.hasOwnProperty.call(row, k)) continue;
+            var v = row[k];
+            if (v == null) continue;
+            var s = String(v).trim();
+            if (!s) continue;
+            if (/^[a-z]{2,4}_[0-9]+/i.test(s)) return s;
+          }
+        }
+      } catch (_) { }
+      return "";
+    }
+
+    function _previewFieldId_(o) {
+      try {
+        var fid = (o && (o.fieldId || o.fid)) ? (o.fieldId || o.fid) : "";
+        return String(fid || "");
+      } catch (_) { }
+      return "";
+    }
+
+    function _proxyEntryFromCache_(recordId, fieldId) {
+      recordId = String(recordId || "").trim();
+      fieldId = String(fieldId || "").trim();
+      if (!recordId) return null;
+      try {
+        var byField = window.PROXY_CACHE_BY_FIELD || null;
+        if (byField && fieldId) {
+          var k = recordId + "|" + fieldId;
+          if (byField[k]) return byField[k];
+        }
+      } catch (_) { }
+      try {
+        var cache = window.PROXY_CACHE || null;
+        if (!cache) return null;
+        return cache[recordId] || null;
+      } catch (_) { }
+      return null;
+    }
+
+    function _proxyUrlFromCache_(recordId, fieldId) {
+      recordId = String(recordId || "");
+      if (!recordId) return "";
+      try {
+        var v = _proxyEntryFromCache_(recordId, fieldId);
+        if (!v) return "";
+        if (typeof v === "string") return v;
+        if (v && typeof v === "object") {
+          if (v.url) return String(v.url);
+          if (v.previewUrl) return String(v.previewUrl);
+          if (v.id) return "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(String(v.id));
+        }
+      } catch (_) { }
+      return "";
+    }
+
+    function _thumbFromProxyUrl_(url) {
+      try {
+        url = String(url || "");
+        var idm = (url.match(/[-\\w]{25,}/) || [])[0] || "";
+        if (idm) return "https://drive.google.com/thumbnail?id=" + encodeURIComponent(idm) + "&sz=w320";
+      } catch (_) { }
+      return String(url || "");
+    }
+
+    function _renderVersionsFallback_(o) {
+      var list = parseList(o.val);
+      var box = el("span");
+      list.forEach(function (v, i) {
+        var t = chip("", String(v), false); t.classList.add("tag");
+        t.removeAttribute("href"); t.removeAttribute("target"); t.removeAttribute("rel");
+        box.appendChild(t);
+        if (i < list.length - 1) box.appendChild(document.createTextNode(" "));
+      });
+      if (!list.length) box.appendChild(document.createTextNode("—"));
+      return box;
+    }
+
+    function _motk_driveIdFromAny_(any){
+      var s = String(any || "");
+
+      // 1) id=... (uc/open links)
+      var m = s.match(/[?&]id=([-\\w]{10,})/);
+      if (m && m[1]) return m[1];
+
+      // 2) /file/d/...
+      m = s.match(/\/file\/d\/([-\w]{10,})/);
+      if (m && m[1]) return m[1];
+
+      // 3) fallback: first long-ish token (Drive file ids are typically 25+)
+      m = s.match(/[-\\w]{25,}/);
+      return (m && m[0]) ? m[0] : "";
+    }
+
+    function _motk_guessExt_(name, url, mime){
+      name = String(name || "");
+      url = String(url || "");
+      mime = String(mime || "").toLowerCase();
+
+      function extFrom_(s){
+        try {
+          var base = String(s || "").split("?")[0].split("#")[0];
+          var i = base.lastIndexOf(".");
+          if (i >= 0 && i < base.length - 1) return base.slice(i + 1).toLowerCase();
+        } catch (_) { }
+        return "";
+      }
+
+      var fromName = extFrom_(name);
+      if (fromName) return fromName;
+
+      var fromUrl = extFrom_(url);
+      if (fromUrl) return fromUrl;
+
+      if (mime.indexOf("image/") === 0) return mime.slice("image/".length);
+      if (mime.indexOf("video/") === 0) return mime.slice("video/".length);
+      return "";
+    }
+
+    function _motk_isImageExt_(ext){
+      var e = String(ext || "").toLowerCase();
+      return (["png","jpg","jpeg","gif","webp","bmp","svg"].indexOf(e) >= 0);
+    }
+
+    function _motk_isVideoExt_(ext){
+      var e = String(ext || "").toLowerCase();
+      return (["mp4","webm","ogg","mov","m4v"].indexOf(e) >= 0);
+    }
+
+    // Drive URL builders
+    function _motk_drivePreviewUrl_(id){
+      return "https://drive.google.com/file/d/" + encodeURIComponent(String(id || "")) + "/preview";
+    }
+    function _motk_driveOpenUrl_(id){
+      return "https://drive.google.com/file/d/" + encodeURIComponent(String(id || "")) + "/view";
+    }
+    function _motk_driveDownloadUrl_(id){
+      return "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(String(id || ""));
+    }
+    function _motk_driveViewUrl_(id){
+      return "https://drive.google.com/uc?export=view&id=" + encodeURIComponent(String(id || ""));
+    }
+
+    function _driveThumbUrl_(id) {
+      if (!id) return "";
+      return "https://drive.google.com/thumbnail?id=" + encodeURIComponent(id) + "&sz=w320";
+    }
+
+    // NOTE: legacy Drive normalization helpers removed (Take34)
+
+    function _motk_getMediaModalState_() {
+      if (!window.__motkMediaModalState__) {
+        window.__motkMediaModalState__ = {
+          isOpen: false,
+          openedAt: 0,
+          ignoreBackdropUntil: 0,
+          lastCloseReason: "",
+          lastOpen: null
+        };
+      }
+      return window.__motkMediaModalState__;
+    }
+
+    function _motk_ensureMediaModalUI_() {
+      var st = _motk_getMediaModalState_();
+
+      var bd = document.getElementById("motk-media-modal-backdrop");
+      var modal = null;
+      if (!bd) {
+        bd = document.createElement("div");
+        bd.id = "motk-media-modal-backdrop";
+        bd.className = "motk-media-backdrop";
+
+        modal = document.createElement("div");
+        modal.className = "motk-media-modal";
+        modal.setAttribute("role", "dialog");
+        modal.setAttribute("aria-modal", "true");
+
+        bd.appendChild(modal);
+
+        // IMPORTANT: append to <html>, not <body>
+        // If any route/render logic ever does `document.body.innerHTML = ...`,
+        // the modal will survive.
+        document.documentElement.appendChild(bd);
+      } else {
+        modal = bd.querySelector(".motk-media-modal");
+        if (!modal) {
+          modal = document.createElement("div");
+          modal.className = "motk-media-modal";
+          modal.setAttribute("role", "dialog");
+          modal.setAttribute("aria-modal", "true");
+          bd.appendChild(modal);
+        }
+      }
+
+      if (!bd.__motkWired) {
+        bd.__motkWired = true;
+
+        // Backdrop click closes, but ignore the immediate click that can be generated
+        // right after opening (pointer-up / click-through).
+        bd.addEventListener("click", function(e) {
+          if (e.target !== bd) return;
+          if (st && st.ignoreBackdropUntil && Date.now() < st.ignoreBackdropUntil) return;
+          window.MOTK_closeMediaModal("backdrop");
+        });
+
+        document.addEventListener("keydown", function(e) {
+          if (e.key !== "Escape") return;
+          var b = document.getElementById("motk-media-modal-backdrop");
+          if (b && b.classList.contains("is-open")) {
+            window.MOTK_closeMediaModal("escape");
+          }
+        });
+      }
+
+      return bd;
+    }
+
+    function MOTK_openMediaModal(input, title) {
+      var payload = (input && typeof input === "object")
+        ? input
+        : { url: input, title: title };
+
+      // Support legacy signature: (url, title, opt)
+      var opt = (arguments.length >= 3 && arguments[2] && typeof arguments[2] === "object") ? arguments[2] : null;
+      if (opt) {
+        try {
+          if (!payload.mime && opt.mime) payload.mime = opt.mime;
+          if (!payload.name && opt.name) payload.name = opt.name;
+          if (!payload.filename && opt.filename) payload.filename = opt.filename;
+          if (!payload.kind && opt.kind) payload.kind = opt.kind;
+        } catch (_) { }
+      }
+
+      var rawUrl = String(payload.url || payload.src || payload.media || "");
+      var displayTitle = String(payload.title || title || rawUrl || "");
+      var name = String(payload.name || payload.filename || payload.fileName || displayTitle || "");
+      var mime = String(payload.mime || "");
+
+      var st = _motk_getMediaModalState_();
+      var bd = _motk_ensureMediaModalUI_();
+      var modal = bd.querySelector(".motk-media-modal");
+      if (!modal) return;
+
+      // Reset + open
+      if (st.isOpen === true) {
+        try { window.MOTK_closeMediaModal("reopen_override"); } catch (_) { }
+      }
+
+      st.isOpen = true;
+      st.openedAt = Date.now();
+      st.ignoreBackdropUntil = st.openedAt + 350;
+      st.lastCloseReason = "";
+      st.lastOpen = { url: rawUrl, title: displayTitle, name: name, mime: mime, at: st.openedAt };
+
+      var driveId = String(payload.driveId || _motk_driveIdFromAny_(rawUrl) || "");
+      var isDrive = !!driveId;
+
+      var ext = _motk_guessExt_(name, rawUrl, mime);
+      var isImg = _motk_isImageExt_(ext);
+      var isVid = _motk_isVideoExt_(ext);
+
+      var kind = String(payload.kind || "");
+      if (kind === "video") { isVid = true; isImg = false; }
+      if (kind === "img" || kind === "image") { isImg = true; isVid = false; }
+
+      var openUrl = isDrive ? _motk_driveOpenUrl_(driveId) : rawUrl;
+      var downloadUrl = isDrive ? _motk_driveDownloadUrl_(driveId) : rawUrl;
+      var previewUrl = isDrive ? _motk_drivePreviewUrl_(driveId) : rawUrl;
+      var viewUrl = isDrive ? _motk_driveViewUrl_(driveId) : rawUrl;
+
+      // Build DOM (no innerHTML injection)
+      modal.textContent = "";
+
+      var header = document.createElement("div");
+      header.className = "motk-media-modal__header";
+
+      var titleEl = document.createElement("div");
+      titleEl.className = "motk-media-modal__title";
+      titleEl.textContent = displayTitle;
+
+      var actions = document.createElement("div");
+      actions.className = "motk-media-modal__actions";
+
+      var closeBtn = document.createElement("button");
+      closeBtn.className = "motk-media-modal__close";
+      closeBtn.type = "button";
+      closeBtn.textContent = "×";
+      closeBtn.addEventListener("click", function (ev) {
+        try { ev.preventDefault(); ev.stopPropagation(); } catch (_) { }
+        window.MOTK_closeMediaModal("closeBtn");
+      });
+
+      actions.appendChild(closeBtn);
+      header.appendChild(titleEl);
+      header.appendChild(actions);
+
+      var body = document.createElement("div");
+      body.className = "motk-media-modal__body";
+
+      var host = document.createElement("div");
+      host.className = "motk-media-modal__host";
+
+      var loading = document.createElement("div");
+      loading.className = "motk-media-modal__loading";
+      loading.textContent = "Loading…";
+      host.appendChild(loading);
+
+      body.appendChild(host);
+
+      var footer = document.createElement("div");
+      footer.className = "motk-media-modal__footer";
+
+      var openA = document.createElement("a");
+      openA.className = "motk-media-modal__link";
+      openA.href = openUrl;
+      openA.target = "_blank";
+      openA.rel = "noopener";
+      openA.textContent = "Open in new tab";
+      footer.appendChild(openA);
+
+      if (isDrive) {
+        var dlA = document.createElement("a");
+        dlA.className = "motk-media-modal__link";
+        dlA.href = downloadUrl;
+        dlA.target = "_blank";
+        dlA.rel = "noopener";
+        dlA.textContent = "Download";
+        footer.appendChild(dlA);
+      }
+
+      modal.appendChild(header);
+      modal.appendChild(body);
+      modal.appendChild(footer);
+
+      function setHost_(el) {
+        host.textContent = "";
+        host.appendChild(el);
+      }
+
+      function showError_(msg) {
+        var box = document.createElement("div");
+        box.className = "motk-media-modal__error";
+        box.textContent = String(msg || "Failed to load media.");
+        host.textContent = "";
+        host.appendChild(box);
+      }
+
+      // Choose embed strategy
+      if (isDrive && isVid) {
+        var iframe = document.createElement("iframe");
+        iframe.className = "motk-media-modal__iframe";
+        iframe.src = previewUrl;
+        iframe.allowFullscreen = true;
+        iframe.setAttribute("allow", "autoplay; fullscreen; picture-in-picture");
+        iframe.referrerPolicy = "no-referrer";
+        setHost_(iframe);
+      } else if (isImg) {
+        var img = document.createElement("img");
+        img.className = "motk-media-modal__img";
+        img.alt = displayTitle;
+        img.referrerPolicy = "no-referrer";
+        img.onerror = function () {
+          if (isDrive) {
+            var ifr2 = document.createElement("iframe");
+            ifr2.className = "motk-media-modal__iframe";
+            ifr2.src = previewUrl;
+            ifr2.allowFullscreen = true;
+            ifr2.setAttribute("allow", "autoplay; fullscreen; picture-in-picture");
+            ifr2.referrerPolicy = "no-referrer";
+            setHost_(ifr2);
+          } else {
+            showError_("Failed to load image.");
+          }
+        };
+        img.src = isDrive ? viewUrl : rawUrl;
+        setHost_(img);
+      } else if (!isDrive && isVid) {
+        var video = document.createElement("video");
+        video.className = "motk-media-modal__video";
+        video.controls = true;
+        video.playsInline = true;
+        video.preload = "metadata";
+        video.onerror = function () { showError_("Failed to load video."); };
+        video.src = rawUrl;
+        setHost_(video);
+      } else if (isDrive) {
+        var ifr3 = document.createElement("iframe");
+        ifr3.className = "motk-media-modal__iframe";
+        ifr3.src = previewUrl;
+        ifr3.allowFullscreen = true;
+        ifr3.setAttribute("allow", "autoplay; fullscreen; picture-in-picture");
+        ifr3.referrerPolicy = "no-referrer";
+        setHost_(ifr3);
+      } else {
+        showError_("Unsupported media type.");
+      }
+
+      bd.classList.add("is-open");
+      try { document.body.classList.add("motk-modal-open"); } catch (_) { }
+    }
+
+    function MOTK_closeMediaModal(reason) {
+      var st = _motk_getMediaModalState_();
+      var bd = document.getElementById("motk-media-modal-backdrop");
+      if (!bd) return;
+
+      try {
+        if (st && st.ignoreBackdropUntil && Date.now() < st.ignoreBackdropUntil) {
+          var r = String(reason || "");
+          if (!r || r === "backdrop" || r === "unknown") return;
+        }
+      } catch (_) { }
+
+      var modal = bd.querySelector(".motk-media-modal");
+      try {
+        var host = modal && modal.querySelector ? modal.querySelector(".motk-media-modal__host") : null;
+        if (host) {
+          var iframe = host.querySelector && host.querySelector("iframe");
+          if (iframe) {
+            try { iframe.src = "about:blank"; } catch (_) { }
+            try { iframe.removeAttribute("src"); } catch (_) { }
+          }
+          var video = host.querySelector && host.querySelector("video");
+          if (video) {
+            try { video.pause(); } catch (_) { }
+            try { video.removeAttribute("src"); } catch (_) { }
+            try { video.load(); } catch (_) { }
+          }
+        }
+      } catch (_) { }
+
+      try { if (modal) modal.textContent = ""; } catch (_) { }
+      try { bd.classList.remove("is-open"); } catch (_) { }
+      try { document.body.classList.remove("motk-modal-open"); } catch (_) { }
+
+      st.isOpen = false;
+      st.lastCloseReason = String(reason || "");
+      try { console.log("[MOTK_MEDIA_MODAL] close reason=" + st.lastCloseReason); } catch (_) { }
+    }
+
+    window.MOTK_openMediaModal = MOTK_openMediaModal;
+    window.MOTK_closeMediaModal = MOTK_closeMediaModal;
+    window.MOTK_getMediaModalState = function() {
+      var st = _motk_getMediaModalState_();
+      try { return JSON.parse(JSON.stringify(st)); } catch (_) { return st; }
+    };
+
+    (function installMotkMediaTriggerCaptureOnce_() {
+      if (window.__MOTK_MEDIA_TRIGGER_CAPTURE_INSTALLED__) return;
+      window.__MOTK_MEDIA_TRIGGER_CAPTURE_INSTALLED__ = true;
+
+      function getClosestTrigger_(t) {
+        try {
+          if (!t || !t.closest) return null;
+          return t.closest('[data-motk-media-trigger="1"]');
+        } catch (_) { }
+        return null;
+      }
+
+      window.addEventListener("click", function (e) {
+        try {
+          var t = e && e.target;
+          var trig = getClosestTrigger_(t);
+          if (!trig) return;
+          if (trig.closest && trig.closest("#motk-media-modal-backdrop")) return;
+
+          var src =
+            trig.getAttribute("data-motk-media-src") ||
+            trig.getAttribute("data-proxy-media") ||
+            trig.getAttribute("href") ||
+            "";
+
+          var title =
+            trig.getAttribute("data-motk-media-title") ||
+            trig.getAttribute("data-proxy-name") ||
+            trig.getAttribute("title") ||
+            "";
+
+          var mime =
+            trig.getAttribute("data-motk-media-mime") ||
+            trig.getAttribute("data-proxy-mime") ||
+            "";
+
+          src = String(src || "");
+          if (!src) return;
+
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          e.stopPropagation();
+
+          try { console.log("[MOTK][MediaModal] trigger click", { url: src, title: title, ts: Date.now() }); } catch (_) { }
+
+          if (typeof window.MOTK_openMediaModal === "function") {
+            window.MOTK_openMediaModal({
+              url: src,
+              title: title,
+              name: title,
+              mime: mime
+            });
+          } else {
+            window.open(src, "_blank", "noopener");
+          }
+        } catch (_) { }
+      }, true);
+    })();
+
+    function _fillPreviewSingle_(host, recordId, fieldId, url) {
+      host.innerHTML = "";
+      try { host.style.display = "block"; host.style.width = "100%"; } catch (_) { }
+
+      var entry = _proxyEntryFromCache_(recordId, fieldId);
+      var driveId =
+        (entry && entry.id) ? String(entry.id) :
+        _motk_driveIdFromAny_(url);
+
+      var name =
+        (entry && (entry.name || entry.fileName || entry.filename)) ? String(entry.name || entry.fileName || entry.filename) : "";
+
+      var mime =
+        (entry && (entry.mimeType || entry.mime)) ? String(entry.mimeType || entry.mime) : "";
+
+      var thumb =
+        (entry && entry.thumb) ? String(entry.thumb) :
+        (driveId ? _driveThumbUrl_(driveId) : _thumbFromProxyUrl_(url));
+
+      var media = "";
+      if (driveId) {
+        media = _motk_driveOpenUrl_(driveId);
+      } else if (entry && (entry.mediaUrl || entry.media || entry.directUrl)) {
+        media = String(entry.mediaUrl || entry.media || entry.directUrl);
+      } else {
+        media = String(url || "");
+      }
+
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "motk-media-trigger-btn proxy-thumb";
+      btn.title = "Open preview";
+      btn.setAttribute("data-motk-media-trigger", "1");
+      btn.setAttribute("data-motk-media-src", String(media || ""));
+      btn.setAttribute("data-motk-media-title", String(name || ""));
+      btn.setAttribute("data-motk-media-mime", String(mime || ""));
+
+      var img = document.createElement("img");
+      img.className = "thumb-img";
+      img.loading = "lazy";
+      img.src = thumb;
+
+      btn.appendChild(img);
+      host.appendChild(btn);
+    }
+
+    function R_preview_single(o) {
+      var rid = _previewRecordId_(o);
+      var fid = _previewFieldId_(o);
+      var url = _proxyUrlFromCache_(rid, fid);
+
+      var box = document.createElement("span");
+      try {
+        box.setAttribute("data-motk-proxy-thumb", "1");
+        box.setAttribute("data-proxy-record-id", String(rid || ""));
+      } catch (_) { }
+
+      if (url) {
+        _fillPreviewSingle_(box, rid, fid, url);
+        return box;
+      }
+
+      // Pending: allow Table/Detail to refresh once PROXY_CACHE is populated.
+      box.setAttribute("data-proxy-pending", "1");
+      box.setAttribute("data-proxy-id", String(rid || ""));
+      box.setAttribute("data-proxy-fid", String(fid || ""));
+      if (String(o.type || "").trim().toLowerCase() === "versions") {
+        box.appendChild(_renderVersionsFallback_(o));
+      } else {
+        box.appendChild(document.createTextNode("—"));
+      }
+      return box;
+    }
+
+    window.__MOTK_PROXY_PREVIEW_REFRESH__ = function () {
+      try {
+        var nodes = document.querySelectorAll('[data-proxy-pending="1"][data-proxy-id]');
+        if (!nodes || !nodes.length) return;
+        for (var i = 0; i < nodes.length; i++) {
+          var host = nodes[i];
+          if (!host || !host.getAttribute) continue;
+          if (!document.body || !document.body.contains(host)) continue;
+          var rid = host.getAttribute("data-proxy-id") || "";
+          var fid = host.getAttribute("data-proxy-fid") || "";
+          var url = _proxyUrlFromCache_(rid, fid);
+          if (!url) continue;
+          _fillPreviewSingle_(host, rid, fid, url);
+          host.removeAttribute("data-proxy-pending");
+        }
+      } catch (_) { }
+    };
+
+    function R_versions(o) {
+      return R_preview_single(o);
+    }
+
+    /* ========= 4. entry ========= */
+    var _missingTypeWarned = {};
+    function renderCellByField(o) {
+      o = o || {};
+      var fid = o.fid != null ? String(o.fid) : "";
+      var t = String(o.type || "").trim().toLowerCase();
+      if (!t) {
+        if (fid && !_missingTypeWarned[fid]) {
+          _missingTypeWarned[fid] = 1;
+          console.warn("[FieldsAPI] Missing Fields meta for fid=" + fid + " (type undefined).", o);
+        }
+        var meta = null;
+        try { if (window.SchemaResolver && SchemaResolver.getFieldMetaByFid) meta = SchemaResolver.getFieldMetaByFid(fid); } catch (_) { meta = null; }
+        if (meta && meta.type) {
+          t = String(meta.type || "").trim().toLowerCase();
+          o.type = t;
+          if (!o.name && meta.name) o.name = meta.name;
+          if (!o.field_name && meta.field_name) o.field_name = meta.field_name;
+          if (!o.label && meta.label) o.label = meta.label;
+          if (!o.field) o.field = meta;
+        } else {
+          t = "text";
+          o.editable = false;
+          o._missingMeta = true;
+        }
+      }
+      var fname = String(o.name || o.field_name || "").toLowerCase();
+
+      // Preview (single thumb) parity: any *view column + any versions column.
+      if (t === "versions" || t === "shotview" || /view$/.test(fname)) {
+        return R_preview_single(o);
+      }
+
+
+      // Normalize *_link types to entity_link for rendering.
+      if (t && t !== "entity_link" && /_link$/i.test(t)) { t = "entity_link"; }
+      switch (t) {
+        case "id": return R_id(o);
+        case "text": return o._missingMeta ? R_text_missing(o) : R_text(o);
+        case "date": return R_date(o);
+        case "checkbox": return R_checkbox(o);
+        case "select": return R_select(o);
+        case "json": return R_json(o);
+        case "entity_name": return R_entity_name(o);
+        case "entity_link": return R_entity_link(o);
+        case "originals": return R_originals(o);
+        case "file_list": return R_file_list(o);
+        case "thumbnails": return R_thumbnails(o);
+        case "versions": return R_versions(o);
+        default: return R_text(o);
+      }
+    }
+
+    /* ========= 4. entry ========= */
+
+    /* ===== 4B.applyData shim (ADD) ===== */
+    // Define a minimal applyData early.
+    // Prevent crashes when listRowsPage calls applyData before Table loads.
+    window.applyData = window.applyData || function (p) {
+      try {
+        if (!window.STATE) window.STATE = {};
+        var STATE = window.STATE;
+
+        if (!p || typeof p !== 'object') return;
+
+        var rawIds = Array.isArray(p.ids) ? p.ids.slice() : [];
+        var rawHeader = Array.isArray(p.header) ? p.header.slice() : [];
+        var rawRows = Array.isArray(p.rows) ? p.rows.slice() : [];
+        var rawTotal = (typeof p.total === 'number') ? p.total : (parseInt(p.total, 10) || 0);
+        var rawColumns = Array.isArray(p.columns) ? p.columns.slice() : null;
+
+        function cleanColumns(ids, header, rows, columns) {
+          var n = Math.max(ids.length, header.length);
+          var keep = new Array(n);
+          for (var i = 0; i < n; i++) {
+            var fid = (i < ids.length) ? ids[i] : null;
+            keep[i] = !!fid && String(fid).trim() !== '';
+          }
+
+          var outIds = [];
+          var outHeader = [];
+          var outCols = columns ? [] : null;
+
+          for (var j = 0; j < n; j++) {
+            if (!keep[j]) continue;
+            outIds.push((j < ids.length) ? ids[j] : null);
+            outHeader.push((j < header.length && header[j] != null) ? header[j] : '');
+            if (outCols) outCols.push((j < columns.length) ? columns[j] : null);
+          }
+
+          var outRows = (rows || []).map(function (r) {
+            var rr = [];
+            for (var k = 0; k < n; k++) {
+              if (!keep[k]) continue;
+              rr.push((r && Array.isArray(r) && k < r.length) ? r[k] : '');
+            }
+            return rr;
+          });
+
+          return { ids: outIds, header: outHeader, rows: outRows, columns: outCols };
+        }
+
+        var sanitized = cleanColumns(rawIds, rawHeader, rawRows, rawColumns);
+
+        STATE.fieldIds = sanitized.ids;
+        STATE.header = sanitized.header;
+        STATE.rows = sanitized.rows;
+        STATE.total = rawTotal;
+
+        // Critical for Table: columns + fieldsMeta must be available.
+        STATE.columns = Array.isArray(sanitized.columns) ? sanitized.columns : (Array.isArray(p.columns) ? p.columns : []);
+        STATE.fieldsMeta = {};
+
+        function parseOptionsAny(val) {
+          if (Array.isArray(val)) return val.slice();
+          if (val == null) return [];
+          var s = String(val);
+          return s.split(/[\n\r|,]+/).map(function (x) { return String(x == null ? "" : x).trim(); }).filter(Boolean);
+        }
+
+        if (Array.isArray(STATE.columns) && STATE.columns.length) {
+          for (var c = 0; c < STATE.columns.length; c++) {
+            var col = STATE.columns[c];
+            if (!col || typeof col !== 'object') continue;
+
+            var fid2 = col.fid || col.field_id || col.fieldId || col.id || sanitized.ids[c];
+            if (!fid2) continue;
+
+            var m = {};
+            try { Object.assign(m, col); } catch (_) { }
+            m.fid = String(fid2);
+            if (m.id == null) m.id = String(fid2);
+            if (m.field_id == null) m.field_id = String(fid2);
+
+            if (m.name == null || m.name === '') {
+              m.name = (sanitized.header[c] != null) ? String(sanitized.header[c]) : String(fid2);
+            }
+            if (m.label == null || m.label === '') m.label = String(m.name);
+            if (m.type == null || String(m.type).trim() === '') m.type = 'text';
+
+            m.editable = (col.editable === true);
+            m.required = (col.required === true);
+
+            if (m.options != null && !Array.isArray(m.options)) m.options = parseOptionsAny(m.options);
+            if (m.options == null) m.options = [];
+
+            STATE.fieldsMeta[fid2] = m;
+          }
+        } else {
+          // Fallback meta (should be rare if server returns columns)
+          for (var x = 0; x < sanitized.ids.length; x++) {
+            var fid3 = sanitized.ids[x];
+            if (!fid3) continue;
+            var meta3 = null;
+            try { if (window.SchemaResolver && SchemaResolver.getFieldMetaByFid) meta3 = SchemaResolver.getFieldMetaByFid(fid3); } catch (_) { meta3 = null; }
+            var isId = meta3 && String(meta3.type || "").toLowerCase() === 'id';
+            STATE.fieldsMeta[fid3] = {
+              fid: String(fid3),
+              name: (sanitized.header[x] != null) ? String(sanitized.header[x]) : String(fid3),
+              type: isId ? 'id' : 'text',
+              editable: !isId
+            };
+          }
+        }
+
+        if (typeof window.updatePagerUI === 'function') window.updatePagerUI();
+        if (typeof window.persistViewerStateSnapshot === 'function') window.persistViewerStateSnapshot();
+      } catch (e) {
+        try { console.warn('[CommonRenderer] applyData shim failed', e); } catch (_) { }
+      }
+    };
+    /* ========= 5. misc ========= */
+    function getLabel(fid) { return (window.PAGE_LABELS && PAGE_LABELS[fid]) || (fid || ""); }
+    function attachCellEditor() { return null; }
+    function hydrateLinks() { /* NOTE: legacy comment removed */ }
+
+    /* ========= 5B. Link Picker Modal ========= */
+    function _ensureLinkPickerUI_() {
+      if (document.getElementById("motkLinkPicker")) return;
+
+      var backdrop = document.createElement("div");
+      backdrop.id = "motkLinkPickerBackdrop";
+      backdrop.className = "motk-modal-backdrop";
+      backdrop.style.display = "none";
+
+      var panel = document.createElement("div");
+      panel.id = "motkLinkPicker";
+      panel.className = "motk-center-modal motk-link-picker";
+      panel.setAttribute("role", "dialog");
+      panel.setAttribute("aria-modal", "true");
+      panel.setAttribute("aria-hidden", "true");
+      panel.style.display = "none";
+      panel.innerHTML = [
+        '<div class="hd">Select Links</div>',
+        '<div class="bd">',
+        '  <input class="q" type="search" placeholder="Search by name or id" />',
+        '  <div class="msg" aria-live="polite"></div>',
+        '  <div class="list" role="listbox" aria-multiselectable="true"></div>',
+        '</div>',
+        '<div class="ft">',
+        '  <button type="button" class="btn cancel">Cancel</button>',
+        '  <button type="button" class="btn apply">Apply</button>',
+        '</div>'
+      ].join("");
+
+      document.body.appendChild(backdrop);
+      document.body.appendChild(panel);
+    }
+
+    function _delimiterFor_(raw) {
+      var s = String(raw == null ? "" : raw);
+      if (s.indexOf("|") >= 0) return "|";
+      if (s.indexOf(",") >= 0) return ",";
+      if (s.indexOf(";") >= 0) return ";";
+      return " ";
+    }
+
+    function _bucketForEntity_(entity) {
+      var e = String(entity || "").toLowerCase().trim();
+      if (e === "asset" || e === "assets") return "assets";
+      if (e === "task" || e === "tasks") return "tasks";
+      if (e === "user" || e === "users") return "users";
+      if (e === "member" || e === "members" || e === "projectmembers" || e === "projectmember") return "members";
+      return "shots";
+    }
+
+    function _targetEntityFromType_(type, fid, currentIds) {
+      var t = String(type || "").toLowerCase().trim();
+      if (t && t !== "entity_link" && /_link$/.test(t)) {
+        var base = t.replace(/_link$/, "");
+        if (base === "shot" || base === "asset" || base === "task" || base === "user" || base === "member") return base;
+      }
+      var first = (currentIds && currentIds.length) ? String(currentIds[0]) : "";
+      return fidToEntity(String(fid || ""), first);
+    }
+
+    function openLinkPicker(opts) {
+      opts = opts || {};
+      var fid = String(opts.fid || "");
+      var type = String(opts.type || "");
+      var raw = String(opts.value == null ? "" : opts.value);
+      var current = parseList(raw);
+      var delimiter = _delimiterFor_(raw);
+
+      return ensureLinkMaps().then(function () {
+        _ensureLinkPickerUI_();
+
+        var panel = document.getElementById("motkLinkPicker");
+        var backdrop = document.getElementById("motkLinkPickerBackdrop");
+        var q = panel.querySelector("input.q");
+        var list = panel.querySelector(".list");
+        var btnCancel = panel.querySelector("button.cancel");
+        var btnApply = panel.querySelector("button.apply");
+
+        var targetEntity = _targetEntityFromType_(type, fid, current);
+        var bucket = _bucketForEntity_(targetEntity);
+        var map = (window.LINK_MAPS && window.LINK_MAPS[bucket]) ? window.LINK_MAPS[bucket] : {};
+
+        function _isValidRecordIdForEntity(entity, id) {
+          id = String(id || "");
+          var e = String(entity || "");
+
+          // entity-specific prefixes (do NOT allow header labels)
+          if (e === "shot")   return /^sh_[0-9]{4,}$/.test(id);
+          if (e === "asset")  return /^as_[0-9]{4,}$/.test(id);
+          if (e === "task")   return /^tk_[0-9]{4,}$/.test(id);
+          if (e === "user")   return /^us_[0-9]{4,}$/.test(id);
+          if (e === "page")   return /^pg_[0-9]{4,}$/.test(id);
+
+          // member has legacy alias mb_ but normalized to pm_ elsewhere
+          if (e === "member") return /^(pm|mb)_[0-9]{4,}$/.test(id);
+
+          // fallback (still exclude field IDs)
+          try { if (window.SchemaResolver && SchemaResolver.hasFid && SchemaResolver.hasFid(id)) return false; } catch (_) { }
+          return /^[a-z]{2}_[0-9]{4,}$/.test(id);
+        }
+
+        var ids = Object.keys(map || {}).filter(function (id) {
+          return _isValidRecordIdForEntity(targetEntity, id);
+        });
+
+        var items = ids.map(function (id) {
+          return { id: String(id), name: String(map[id] == null ? id : map[id]) };
+        });
+        items.sort(function (a, b) { return a.name.localeCompare(b.name); });
+
+        var selected = {};
+        current.forEach(function (id) { selected[String(id)] = 1; });
+
+        function render(query) {
+          query = String(query || "").trim().toLowerCase();
+          list.innerHTML = "";
+          var max = 500;
+          var n = 0;
+          for (var i = 0; i < items.length; i++) {
+            var it = items[i];
+            if (query) {
+              if (it.id.toLowerCase().indexOf(query) === -1 && it.name.toLowerCase().indexOf(query) === -1) continue;
+            }
+            var row = document.createElement("label");
+            row.className = "row";
+
+            var cb = document.createElement("input");
+            cb.type = "checkbox";
+            cb.checked = !!selected[it.id];
+            cb.addEventListener("change", function (id) {
+              return function (e) {
+                if (e.target.checked) selected[id] = 1;
+                else delete selected[id];
+              };
+            }(it.id));
+
+            var text = document.createElement("span");
+            text.className = "txt";
+            text.textContent = it.name + " (" + it.id + ")";
+
+            row.appendChild(cb);
+            row.appendChild(text);
+            list.appendChild(row);
+
+            n++;
+            if (n >= max) break;
+          }
+        }
+
+        function close() {
+          document.body.classList.remove("motk-modal-open");
+          panel.setAttribute("aria-hidden", "true");
+          panel.style.display = "none";
+          backdrop.style.display = "none";
+        }
+
+        function open() {
+          document.body.classList.add("motk-modal-open");
+          panel.setAttribute("aria-hidden", "false");
+          panel.style.display = "block";
+          backdrop.style.display = "block";
+          q.value = "";
+          render("");
+          try { q.focus(); } catch (_) { }
+        }
+
+        return new Promise(function (resolve) {
+          var msg = panel.querySelector(".msg");
+          if (msg) msg.textContent = "";
+
+          function setBusy(isBusy, message) {
+            try {
+              btnCancel.disabled = !!isBusy;
+              btnApply.disabled = !!isBusy;
+              if (msg) msg.textContent = message ? String(message) : "";
+            } catch (_) { }
+          }
+
+          setBusy(false, "");
+
+          function onCancel() {
+            setBusy(false, "");
+            cleanup();
+            close();
+            resolve({ cancelled: true, ids: current.slice(), value: raw });
+          }
+          function onApply() {
+            var ids = Object.keys(selected);
+            ids.sort();
+            var val = ids.join(delimiter);
+            var out = { cancelled: false, ids: ids, value: val, delimiter: delimiter, targetEntity: targetEntity };
+
+            if (typeof opts.commit === "function") {
+              setBusy(true, "Saving...");
+              Promise.resolve()
+                .then(function () { return opts.commit(out); })
+                .then(function () {
+                  cleanup();
+                  close();
+                  resolve(out);
+                })
+                .catch(function (err) {
+                  var msgText = (err && err.message) ? err.message : String(err);
+                  setBusy(false, "Save failed: " + msgText);
+                });
+              return;
+            }
+
+            cleanup();
+            close();
+            resolve(out);
+          }
+          function onBackdrop(e) {
+            if (e.target === backdrop) onCancel();
+          }
+          function onKey(e) {
+            if (e.key === "Escape") onCancel();
+          }
+          function cleanup() {
+            setBusy(false, "");
+            backdrop.removeEventListener("click", onBackdrop);
+            document.removeEventListener("keydown", onKey);
+            btnCancel.removeEventListener("click", onCancel);
+            btnApply.removeEventListener("click", onApply);
+            q.removeEventListener("input", onInput);
+          }
+          function onInput() { render(q.value); }
+
+          backdrop.addEventListener("click", onBackdrop);
+          document.addEventListener("keydown", onKey);
+          btnCancel.addEventListener("click", onCancel);
+          btnApply.addEventListener("click", onApply);
+          q.addEventListener("input", onInput);
+
+          open();
+        });
+      });
+    }
+
+    /* ========= 6. export ========= */
+    function getFieldOptions(fid, meta) {
+      try {
+        if (meta && meta.options != null) return Array.isArray(meta.options) ? meta.options.slice() : String(meta.options || '').split(/[\n\r|,]+/).map(function (x) { return String(x == null ? "" : x).trim(); }).filter(Boolean);
+      } catch (_) { }
+      try {
+        var m = (window.STATE && STATE.fieldsMeta && STATE.fieldsMeta[fid]) ? STATE.fieldsMeta[fid] : null;
+        if (m && m.options != null) return Array.isArray(m.options) ? m.options.slice() : String(m.options || '').split(/[\n\r|,]+/).map(function (x) { return String(x == null ? "" : x).trim(); }).filter(Boolean);
+      } catch (_) { }
+      return [];
+    }
+
+    function normalizeDateValue(value) {
+      try {
+        if (value == null || value === '') return '';
+        var s = isoDateOnly(value);
+        return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
+      } catch (_) { }
+      return '';
+    }
+
+    function __motkParseProxyFilename__(name) {
+      try {
+        name = String(name || "");
+        if (!name) return null;
+        if (name.indexOf("_ver_proxy") >= 0) return null;
+
+        var m1 = name.match(/^([A-Za-z]{2,4}_[0-9]{4})_(\d{8}-\d{6})_([A-Za-z0-9_]+)_proxy\.([A-Za-z0-9]+)$/);
+        if (m1) return { kind: "versions", recordId: m1[1], ts: m1[2], fieldId: m1[3], ext: m1[4] };
+
+        var m2 = name.match(/^([A-Za-z]{2,4}_[0-9]{4})_(\d{8}-\d{6})_proxy\.([A-Za-z0-9]+)$/);
+        if (m2) return { kind: "nonversions", recordId: m2[1], ts: m2[2], fieldId: "", ext: m2[3] };
+
+        var m3 = name.match(/^([A-Za-z]{2,4}_[0-9]{4})_proxy\.([A-Za-z0-9]+)$/);
+        if (m3) return { kind: "nonversions", recordId: m3[1], ts: "", fieldId: "", ext: m3[2] };
+      } catch (_) { }
+      return null;
+    }
+
+    function __motkPickLatestProxy__(prev, next) {
+      try {
+        if (!prev) return next;
+        if (!next) return prev;
+        var a = prev.__motk && prev.__motk.ts ? String(prev.__motk.ts) : "";
+        var b = next.__motk && next.__motk.ts ? String(next.__motk.ts) : "";
+        if (!a && b) return next;
+        if (a && !b) return prev;
+        if (b > a) return next;
+        return prev;
+      } catch (_) { }
+      return prev || next || null;
+    }
+
+    function __motkBuildProxyIndex__(items) {
+      var byRecord = {};
+      var byRecordField = {};
+      try {
+        if (!Array.isArray(items)) return { byRecord: byRecord, byRecordField: byRecordField };
+        for (var i = 0; i < items.length; i++) {
+          var f = items[i];
+          if (!f) continue;
+          var name = (f.name || f.fileName || f.filename) ? String(f.name || f.fileName || f.filename) : "";
+          var p = __motkParseProxyFilename__(name);
+          if (!p) continue;
+
+          var fo = (f && typeof f === "object") ? Object.assign({}, f) : { url: String(f) };
+          fo.__motk = p;
+          try { if (!fo.url && fo.id) fo.url = "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(String(fo.id)); } catch (_) { }
+
+          if (p.kind === "versions") {
+            var k1 = p.recordId + "|" + p.fieldId;
+            byRecordField[k1] = __motkPickLatestProxy__(byRecordField[k1], fo);
+          } else {
+            var k2 = p.recordId;
+            byRecord[k2] = __motkPickLatestProxy__(byRecord[k2], fo);
+          }
+        }
+      } catch (_) { }
+      return { byRecord: byRecord, byRecordField: byRecordField };
+    }
+
+    if (typeof window.__MOTK_BUILD_PROXY_INDEX__ !== "function") {
+      window.__MOTK_BUILD_PROXY_INDEX__ = __motkBuildProxyIndex__;
+    }
+
+    window.FieldsAPI = { renderCellByField, getLabel, getFieldOptions, normalizeDateValue, attachCellEditor, hydrateLinks, ensureLinkMaps, ensureAppDataLoaded, openLinkPicker };
+
+    window.CommonRenderer = window.CommonRenderer || {};
+    if (typeof window.CommonRenderer.renderCellByField !== "function") {
+      window.CommonRenderer.renderCellByField = function (entity, fieldId, value, meta) {
+        meta = meta || {};
+        var rowId = meta.__rowId || meta.rowId || meta.recordId || meta.id || "";
+        var recordId = meta.recordId || meta.rowId || meta.id || rowId || "";
+        var row = meta.__row || (rowId ? (function () {
+          var obj = { id: rowId, ID: rowId };
+          try {
+            if (window.SchemaResolver && SchemaResolver.getIdFid) {
+              var fid = SchemaResolver.getIdFid(entity || (meta && meta.entity) || "");
+              if (fid) obj[fid] = rowId;
+            }
+          } catch (_) { }
+          return obj;
+        })() : (window.STATE && STATE.row ? STATE.row : null));
+        return window.FieldsAPI.renderCellByField({
+          fid: String(fieldId || ""),
+          fieldId: String(fieldId || ""),
+          type: meta.type,
+          val: value,
+          editable: !!meta.editable,
+          entity: entity,
+          rowId: rowId,
+          recordId: recordId,
+          id: recordId,
+          row: row || {},
+          field: meta || null,
+          label: meta.label,
+          name: meta.name
+        });
+      };
+    }
+    if (typeof window.CommonRenderer.refreshPendingPreviews !== "function") {
+      window.CommonRenderer.refreshPendingPreviews = function (_root) {
+        try { if (typeof window.__MOTK_PROXY_PREVIEW_REFRESH__ === "function") window.__MOTK_PROXY_PREVIEW_REFRESH__(); } catch (_) { }
+      };
+    }
+
+    ensureLinkMaps().catch(function () { });
+  })();
+
+
+
+
+</script>

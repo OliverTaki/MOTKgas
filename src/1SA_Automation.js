@@ -348,3 +348,93 @@ function getColumnIndexByFieldName(sheet, fieldName) {
     .getValues()[0];
   return fidHeader.indexOf(targetFid) + 1;
 }
+
+/* ===== TAKE81: Manual backfill jobs (Originals URLs / Proxy index) ===== */
+function job_backfillOriginalsUrls_v1(entity, maxUpdates) {
+  var ent = String(entity || "shot").toLowerCase();
+  var sheetName = (typeof resolveEntitySheetName_ === "function")
+    ? resolveEntitySheetName_(ent)
+    : ({ shot: "Shots", asset: "Assets", task: "Tasks", member: "ProjectMembers", user: "Users" }[ent] || ent);
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(sheetName);
+  if (!sh) return { ok: false, reason: "missing-sheet", sheetName: sheetName };
+
+  var lastRow = sh.getLastRow();
+  var lastCol = sh.getLastColumn();
+  if (lastRow < 3 || lastCol < 1) return { ok: true, reason: "empty-sheet", updated: 0, scanned: 0 };
+
+  var header = sh.getRange(1, 1, 1, lastCol).getValues()[0] || [];
+  var idFid = schemaGetIdFid(ent);
+  var idCol = schemaGetColIndexByFid(header, idFid);
+  if (idCol < 0) {
+    for (var i = 0; i < header.length; i++) {
+      var h = String(header[i] || "").toLowerCase();
+      if (h === "id" || /\\bid\\b/.test(h)) { idCol = i; break; }
+    }
+  }
+  if (idCol < 0) return { ok: false, reason: "missing-id-col", sheetName: sheetName };
+
+  var origCols = [];
+  var origFid = schemaGetFidByFieldName(ent, "Originals URL");
+  var origIdx = schemaGetColIndexByFid(header, origFid);
+  if (origIdx >= 0) origCols.push(origIdx);
+  if (!origCols.length) {
+    for (var j = 0; j < header.length; j++) {
+      var label = String(header[j] || "").toLowerCase();
+      if (label.indexOf("originals") >= 0) origCols.push(j);
+    }
+  }
+  if (!origCols.length) return { ok: false, reason: "missing-originals-col", sheetName: sheetName };
+
+  var rowCount = lastRow - 2;
+  var ids = sh.getRange(3, idCol + 1, rowCount, 1).getValues();
+  var targetCol = origCols[0];
+  var originals = sh.getRange(3, targetCol + 1, rowCount, 1).getValues();
+
+  var limit = (typeof maxUpdates === "number" && maxUpdates > 0) ? Math.floor(maxUpdates) : 0;
+  var updated = 0;
+  var scanned = 0;
+  var notFound = 0;
+
+  for (var r = 0; r < rowCount; r++) {
+    var rid = String(ids[r][0] || "").trim();
+    if (!rid) continue;
+    var cur = String(originals[r][0] || "").trim();
+    if (cur) continue;
+    scanned++;
+    if (limit && updated >= limit) break;
+    try {
+      var folderId = lookupOriginalsFolderId(ent, rid);
+      if (folderId) {
+        originals[r][0] = "https://drive.google.com/drive/folders/" + folderId;
+        updated++;
+      } else {
+        notFound++;
+      }
+    } catch (_) {
+      notFound++;
+    }
+  }
+
+  if (updated > 0) {
+    sh.getRange(3, targetCol + 1, rowCount, 1).setValues(originals);
+  }
+
+  var summary = {
+    ok: true,
+    sheetName: sheetName,
+    updated: updated,
+    scanned: scanned,
+    notFound: notFound,
+    limit: limit || null
+  };
+  try { Logger.log("[MOTK][Originals][Backfill] %s", JSON.stringify(summary)); } catch (_) { }
+  return summary;
+}
+
+function job_refreshProxyIndexCache_v1(entity) {
+  var res = sv_refreshProxyIndexCache_v1({ entity: entity });
+  try { Logger.log("[MOTK][ProxyIndex][Refresh] %s", JSON.stringify(res && res.diag ? res.diag : res)); } catch (_) { }
+  return res;
+}

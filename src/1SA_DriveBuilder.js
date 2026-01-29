@@ -154,7 +154,23 @@ function getProjectMeta(){
   var ss = getHostSpreadsheet_();
   var sh = ss.getSheetByName('project_meta');
   if (!sh) throw new Error('project_meta sheet not found');
-  var data = sh.getRange(1, 1, 2, sh.getLastColumn()).getValues();
+  var a1 = String(sh.getRange(1, 1).getValue() || '').trim().toLowerCase();
+  var b1 = String(sh.getRange(1, 2).getValue() || '').trim().toLowerCase();
+  var lastRow = sh.getLastRow();
+  var lastCol = sh.getLastColumn();
+  if (a1 === 'meta_key' && b1 === 'meta_value') {
+    var meta = {};
+    if (lastRow < 2) return meta;
+    var rows = sh.getRange(2, 1, lastRow - 1, 2).getValues();
+    rows.forEach(function (row) {
+      var k = String(row[0] || '').trim();
+      if (!k) return;
+      meta[k] = row[1];
+    });
+    return meta;
+  }
+  if (lastRow < 2 || lastCol < 1) return {};
+  var data = sh.getRange(1, 1, 2, lastCol).getValues();
   return Object.fromEntries(data[0].map(function (k, i){
     return [k, data[1][i]];
   }));
@@ -220,3 +236,50 @@ function syncAllEntitiesSafe(limitPerEntity) {
   results.push(syncEntityFoldersSafe('task',  limitPerEntity));
   return results;
 }
+
+function TEST_DriveBuilder_ensureEntityFolder() {
+  const entities = ['shot', 'asset', 'task', undefined, '', 'shots', 'Shot'];
+  entities.forEach(e => {
+    try {
+      const out = DriveBuilder.ensureEntityFolder(e);
+      Logger.log(`[OK] entity=${String(e)} -> ${JSON.stringify(out)}`);
+    } catch (err) {
+      Logger.log(`[NG] entity=${String(e)} -> ${err}`);
+    }
+  });
+}
+
+function TEST_ensure_shot_one(){
+  var meta = getProjectMeta();
+  var id = 'sh_0001'; // 実在IDに置き換え
+  var code = 'AAA';   // 任意
+  var f = ensureEntityFolder(meta, 'shot', id, code);
+  Logger.log('OK folder=' + f.getName() + ' id=' + f.getId());
+}
+
+function TEST_ensure_shot_one_nullmeta(){
+  var id = 'sh_0001'; // 実在IDに置き換え
+  var code = 'AAA';   // 任意
+  var f = ensureEntityFolder(null, 'shot', id, code);
+  Logger.log('OK folder=' + f.getName() + ' id=' + f.getId());
+}
+
+function TEST_meta_dump(){
+  Logger.log(JSON.stringify(getProjectMeta(), null, 2));
+}
+
+function TEST_drive_read(){
+  var meta = getProjectMeta();
+  var roots = getOrCreateProjectRoots(meta);
+  Logger.log('originalsId=' + roots.originalsId);
+}
+
+function TEST_drive_write_min(){
+  var meta = getProjectMeta();
+  var root = DriveApp.getFolderById(extractId_(meta.originals_root_url));
+  var tmp = getOrCreateSub_(root, '__DriveBuilderWriteTest');
+  Logger.log('created/exists: ' + tmp.getId());
+  tmp.setTrashed(true);
+  Logger.log('trashed');
+}
+

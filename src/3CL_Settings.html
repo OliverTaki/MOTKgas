@@ -1,0 +1,708 @@
+<!doctype html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MOTK Settings</title>
+  <?!= include('3CL_CommonStyles'); ?>
+  <style>
+    html, body { height: 100%; }
+    body {
+      background: var(--bg-primary);
+      color: var(--fg-primary);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      margin: 0;
+    }
+    #page {
+      height: 100vh;
+      overflow: auto;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    h1 { margin: 0 0 12px; font-size: 20px; }
+    h2 { margin: 0 0 10px; font-size: 16px; }
+    .row { display:flex; gap:12px; align-items:center; flex-wrap: wrap; }
+    .card {
+      border:1px solid var(--border-color);
+      border-radius:10px;
+      padding:12px;
+      margin:12px 0;
+      background: var(--bg-secondary);
+    }
+    .muted { color: #9aa0a6; font-size: 12px; }
+    button {
+      padding:8px 10px;
+      border:1px solid var(--border-color);
+      background: var(--bg-primary);
+      color: var(--fg-primary);
+      border-radius:8px;
+      cursor:pointer;
+    }
+    button.primary { border-color: #6b8cff; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    input[type="text"], select, textarea {
+      padding:7px 8px;
+      border:1px solid var(--border-color);
+      border-radius:8px;
+      background: var(--bg-primary);
+      color: var(--fg-primary);
+      min-width: 180px;
+    }
+    textarea {
+      width: 100%;
+      min-height: 140px;
+      box-sizing: border-box;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+    }
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: #6b8cff;
+    }
+    .checkbox-readonly {
+      pointer-events: none;
+    }
+    table { width:100%; border-collapse: collapse; }
+    th, td { border-bottom:1px solid var(--border-color); padding:8px; text-align:left; vertical-align: top; }
+    th { font-size:12px; color:#aeb4bd; }
+    td.actions { width: 140px; }
+    .cell-text { padding: 7px 8px; display: block; }
+    .pill { display:inline-block; padding:2px 8px; border:1px solid var(--border-color); border-radius:999px; font-size:12px; }
+    .log { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas; font-size:12px; background:#11151b; border:1px solid var(--border-color); padding:10px; border-radius:10px; }
+    .err { color: #ff8a8a; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div id="page">
+    <h1>Settings</h1>
+    <div class="muted" id="status">loading...</div>
+    <div class="err" id="error"></div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div class="row">
+          <div class="pill" id="fmtPill">project_meta</div>
+          <div class="muted">Fields are saved per-row. updated_at is read-only.</div>
+        </div>
+        <div class="row">
+          <button class="primary" id="btnReload">Reload</button>
+        </div>
+      </div>
+
+      <div style="margin-top:10px;">
+        <table>
+          <thead>
+            <tr>
+              <th>meta_key</th>
+              <th>meta_value</th>
+              <th>meta_type</th>
+              <th>note</th>
+              <th>updated_at</th>
+              <th class="actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="metaTbody"></tbody>
+        </table>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <input id="newKey" type="text" placeholder="meta_key" />
+        <span id="newValWrap"></span>
+        <select id="newType">
+          <option value="text">text</option>
+          <option value="number">number</option>
+          <option value="checkbox">checkbox</option>
+        </select>
+        <input id="newNote" type="text" placeholder="note" />
+        <button id="btnAdd" class="primary">Add</button>
+      </div>
+      <div class="muted" style="margin-top:6px;">
+        All fields except updated_at are required for new rows.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>PNAVI Config</h2>
+      <div class="muted">Stored at project_meta key: pnavi.config.json</div>
+      <div style="margin-top:10px;">
+        <textarea id="pnaviConfig" spellcheck="false"></textarea>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button id="btnPnaviSave" class="primary">Save PNAVI Config</button>
+        <button id="btnPnaviReset">Reset Default</button>
+        <span class="muted" id="pnaviMetaHint"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Hydrate Originals URLs</h2>
+      <div class="row">
+        <select id="hydrateEntity">
+          <option value="">all</option>
+          <option value="shot">shot</option>
+          <option value="asset">asset</option>
+          <option value="task">task</option>
+        </select>
+        <button id="btnHydrate" class="primary">Run Hydrate</button>
+      </div>
+      <div class="muted" style="margin-top:6px;">Uses SA_hydrateOriginalsUrls().</div>
+    </div>
+
+    <div class="card">
+      <h2>Drive Folders (Diff / Fix)</h2>
+      <div class="row">
+        <select id="driveEntity">
+          <option value="shot">shot</option>
+          <option value="asset">asset</option>
+          <option value="task">task</option>
+        </select>
+        <button id="btnDriveDiff">Diff</button>
+        <input id="driveLimit" type="text" placeholder="limit (e.g. 20)" style="min-width:160px;" />
+        <button id="btnDriveFix" class="primary">Fix Missing</button>
+      </div>
+      <div class="muted" style="margin-top:6px;">
+        Requires DriveBuilder.gs functions diffEntityFolders / fixMissingEntityFolders.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Log</h2>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const logEl = $('log');
+  const statusEl = $('status');
+  const errorEl = $('error');
+  const pnaviTextEl = $('pnaviConfig');
+  const pnaviHintEl = $('pnaviMetaHint');
+
+  let rowsState = [];    // array of row objects
+  let draftState = {};   // rowId -> draft
+  let editRowId = null;
+  const allowedTypes = ['text', 'number', 'checkbox'];
+  const newRowState = { meta_key: '', meta_value: '', meta_type: 'text', note: '' };
+  const PNAVI_META_KEY = 'pnavi.config.json';
+  const PNAVI_NOTE_DEFAULT = 'pnavi config';
+  const PNAVI_DEFAULT = {
+    items: [
+      { id: 'shots', label: 'Shots', href: '?p=table&e=shots', page: 'Shots', entity: 'shot', enabled: true },
+      { id: 'assets', label: 'Assets', href: '?p=table&e=assets', page: 'Assets', entity: 'asset', enabled: true },
+      { id: 'tasks', label: 'Tasks', href: '?p=table&e=tasks', page: 'Tasks', entity: 'task', enabled: true },
+      { id: 'members', label: 'Members', href: '?p=table&e=members', page: 'ProjectMembers', entity: 'member', enabled: true },
+      { id: 'users', label: 'Users', href: '?p=table&e=users', page: 'Users', entity: 'user', enabled: true },
+      { id: 'schedule', label: 'Schedule', href: '?p=schedule', page: 'Schedule', enabled: true }
+    ]
+  };
+
+  function log(line) {
+    const ts = new Date().toISOString();
+    logEl.textContent = `[${ts}] ${line}\n` + logEl.textContent;
+  }
+
+  function setStatus(s) { statusEl.textContent = s; }
+  function setError(s) { errorEl.textContent = s || ''; }
+
+  function callGas(fn, args=[]) {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)[fn].apply(null, args);
+    });
+  }
+
+  function esc(s) {
+    return String(s ?? '');
+  }
+
+  function setDraftFromRows() {
+    draftState = {};
+    editRowId = null;
+  }
+
+  function getPnaviRow_() {
+    return rowsState.find((r) => String(r.meta_key || '').trim() === PNAVI_META_KEY);
+  }
+
+  function pnaviDefaultText_() {
+    return JSON.stringify(PNAVI_DEFAULT, null, 2);
+  }
+
+  function refreshPnaviEditor_() {
+    if (!pnaviTextEl) return;
+    const row = getPnaviRow_();
+    if (row) {
+      const raw = row.meta_value != null ? row.meta_value : '';
+      pnaviTextEl.value = String(raw);
+      if (pnaviHintEl) pnaviHintEl.textContent = `source: row ${row.row}`;
+    } else {
+      pnaviTextEl.value = pnaviDefaultText_();
+      if (pnaviHintEl) pnaviHintEl.textContent = 'not set in project_meta';
+    }
+  }
+
+  function getRowById(rowId) {
+    const id = Number(rowId);
+    return rowsState.find((r) => Number(r.row) === id);
+  }
+
+  function buildDraftFromRow(row) {
+    const rawType = String(row.meta_type ?? '').trim();
+    const typeKey = normalizeMetaType(rawType);
+    return {
+      meta_key: esc(row.meta_key),
+      meta_value: coerceDraftValue(typeKey, row.meta_value),
+      meta_type: rawType || 'text',
+      note: esc(row.note)
+    };
+  }
+
+  function normalizeMetaType(raw) {
+    const t = String(raw ?? '').trim().toLowerCase();
+    if (!t) return 'text';
+    if (t === 'bool' || t === 'boolean' || t === 'checkbox' || t === 'check') return 'checkbox';
+    if (t === 'number' || t === 'num' || t === 'numeric' || t === 'int' || t === 'float') return 'number';
+    if (allowedTypes.indexOf(t) >= 0) return t;
+    return 'text';
+  }
+
+  function coerceDraftValue(typeKey, value) {
+    if (typeKey === 'checkbox') {
+      return parseCheckboxValue(value);
+    }
+    if (typeKey === 'number') {
+      if (value === '' || value === null || value === undefined) return '';
+      const n = Number(value);
+      return Number.isFinite(n) ? String(n) : '';
+    }
+    return esc(value);
+  }
+
+  function parseCheckboxValue(value) {
+    if (value === true || value === false) return value;
+    const s = String(value ?? '').trim().toLowerCase();
+    return s === 'true' || s === '1' || s === 'yes' || s === 'on';
+  }
+
+  function buildPayloadForSave(draft) {
+    const meta_key = String(draft.meta_key ?? '').trim();
+    const meta_type_raw = String(draft.meta_type ?? '').trim();
+    const note = String(draft.note ?? '').trim();
+    if (!meta_key) throw new Error('meta_key is required');
+    if (!meta_type_raw) throw new Error('meta_type is required');
+    if (!note) throw new Error('note is required');
+    const typeKey = normalizeMetaType(meta_type_raw);
+    let meta_value;
+    if (typeKey === 'checkbox') {
+      meta_value = !!draft.meta_value;
+    } else if (typeKey === 'number') {
+      if (draft.meta_value === '' || draft.meta_value === null || draft.meta_value === undefined) {
+        throw new Error('meta_value must be a number');
+      }
+      const num = Number(draft.meta_value);
+      if (!Number.isFinite(num)) throw new Error('meta_value must be a number');
+      meta_value = num;
+    } else {
+      meta_value = String(draft.meta_value ?? '').trim();
+      if (!meta_value) throw new Error('meta_value is required');
+    }
+    return {
+      meta_key: meta_key,
+      meta_value: meta_value,
+      meta_type: meta_type_raw,
+      note: note
+    };
+  }
+
+  function beginEdit(rowId) {
+    if (editRowId && editRowId !== rowId) return;
+    const row = getRowById(rowId);
+    if (!row) return;
+    editRowId = rowId;
+    if (!draftState[rowId]) draftState[rowId] = buildDraftFromRow(row);
+    renderMetaTable();
+  }
+
+  function cancelEdit(rowId) {
+    const row = getRowById(rowId);
+    if (row) draftState[rowId] = buildDraftFromRow(row);
+    editRowId = null;
+    renderMetaTable();
+  }
+
+  function renderValueView(row) {
+    const typeKey = normalizeMetaType(row.meta_type);
+    if (typeKey === 'checkbox') {
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.className = 'checkbox-readonly';
+      input.setAttribute('aria-readonly', 'true');
+      input.tabIndex = -1;
+      input.checked = parseCheckboxValue(row.meta_value);
+      return input;
+    }
+    const span = document.createElement('span');
+    span.className = 'cell-text';
+    span.textContent = esc(row.meta_value);
+    return span;
+  }
+
+  function renderValueEditor(row, draft) {
+    const typeKey = normalizeMetaType(draft.meta_type);
+    if (typeKey === 'checkbox') {
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !!draft.meta_value;
+      input.addEventListener('change', () => {
+        if (!draftState[row.row]) draftState[row.row] = buildDraftFromRow(row);
+        draftState[row.row].meta_value = input.checked;
+      });
+      return input;
+    }
+    const input = document.createElement('input');
+    input.type = typeKey === 'number' ? 'number' : 'text';
+    input.value = typeKey === 'number' ? String(draft.meta_value ?? '') : esc(draft.meta_value);
+    input.style.width = '100%';
+    input.addEventListener('input', () => {
+      if (!draftState[row.row]) draftState[row.row] = buildDraftFromRow(row);
+      draftState[row.row].meta_value = input.value;
+    });
+    return input;
+  }
+
+  function renderMetaTypeEditor(row, draft) {
+    const select = document.createElement('select');
+    const raw = String(draft.meta_type ?? '').trim();
+    const options = allowedTypes.slice();
+    if (raw && options.indexOf(raw) < 0) options.unshift(raw);
+    options.forEach((opt) => {
+      const o = document.createElement('option');
+      o.value = opt;
+      o.textContent = opt;
+      select.appendChild(o);
+    });
+    select.value = raw || normalizeMetaType(raw);
+    select.addEventListener('change', () => {
+      if (!draftState[row.row]) draftState[row.row] = buildDraftFromRow(row);
+      draftState[row.row].meta_type = select.value;
+      draftState[row.row].meta_value = coerceDraftValue(normalizeMetaType(select.value), draftState[row.row].meta_value);
+      renderMetaTable();
+    });
+    return select;
+  }
+
+  function renderNewValueInput() {
+    const wrap = $('newValWrap');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const typeKey = normalizeMetaType(newRowState.meta_type);
+    if (typeKey === 'checkbox') {
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = !!newRowState.meta_value;
+      input.addEventListener('change', () => {
+        newRowState.meta_value = input.checked;
+      });
+      wrap.appendChild(input);
+      return;
+    }
+    const input = document.createElement('input');
+    input.type = typeKey === 'number' ? 'number' : 'text';
+    input.value = typeKey === 'number' ? String(newRowState.meta_value ?? '') : esc(newRowState.meta_value);
+    input.placeholder = 'meta_value';
+    input.addEventListener('input', () => {
+      newRowState.meta_value = input.value;
+    });
+    wrap.appendChild(input);
+  }
+
+  function renderMetaTable() {
+    const tbody = $('metaTbody');
+    tbody.innerHTML = '';
+
+    rowsState.forEach((r) => {
+      const isEditing = Number(editRowId) === Number(r.row);
+      const tr = document.createElement('tr');
+
+      const tdKey = document.createElement('td');
+      if (isEditing) {
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.value = esc(draftState[r.row] ? draftState[r.row].meta_key : r.meta_key);
+        inp.style.width = '100%';
+        inp.addEventListener('input', () => {
+          if (!draftState[r.row]) draftState[r.row] = buildDraftFromRow(r);
+          draftState[r.row].meta_key = inp.value;
+        });
+        tdKey.appendChild(inp);
+      } else {
+        const span = document.createElement('span');
+        span.className = 'cell-text';
+        span.textContent = esc(r.meta_key);
+        tdKey.appendChild(span);
+      }
+      tr.appendChild(tdKey);
+
+      const tdValue = document.createElement('td');
+      if (isEditing) {
+        const draft = draftState[r.row] || buildDraftFromRow(r);
+        tdValue.appendChild(renderValueEditor(r, draft));
+      } else {
+        tdValue.appendChild(renderValueView(r));
+      }
+      tr.appendChild(tdValue);
+
+      const tdType = document.createElement('td');
+      if (isEditing) {
+        const draft = draftState[r.row] || buildDraftFromRow(r);
+        tdType.appendChild(renderMetaTypeEditor(r, draft));
+      } else {
+        const span = document.createElement('span');
+        span.className = 'cell-text';
+        span.textContent = esc(r.meta_type);
+        tdType.appendChild(span);
+      }
+      tr.appendChild(tdType);
+
+      const tdNote = document.createElement('td');
+      if (isEditing) {
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.value = esc(draftState[r.row] ? draftState[r.row].note : r.note);
+        inp.style.width = '100%';
+        inp.addEventListener('input', () => {
+          if (!draftState[r.row]) draftState[r.row] = buildDraftFromRow(r);
+          draftState[r.row].note = inp.value;
+        });
+        tdNote.appendChild(inp);
+      } else {
+        const span = document.createElement('span');
+        span.className = 'cell-text';
+        span.textContent = esc(r.note);
+        tdNote.appendChild(span);
+      }
+      tr.appendChild(tdNote);
+
+      const tdUpdated = document.createElement('td');
+      tdUpdated.textContent = esc(r.updated_at);
+      tr.appendChild(tdUpdated);
+
+      const tdA = document.createElement('td');
+      tdA.className = 'actions';
+
+      if (isEditing) {
+        const btnSave = document.createElement('button');
+        btnSave.textContent = 'Save';
+        btnSave.className = 'primary';
+        btnSave.addEventListener('click', async () => {
+          btnSave.disabled = true;
+          try {
+            setStatus('saving...');
+            setError('');
+            const payload = buildPayloadForSave(draftState[r.row] || buildDraftFromRow(r));
+            await callGas('SA_settings_updateMetaRow', [r.row, payload]);
+            editRowId = null;
+            await reloadAll();
+            setStatus('saved');
+            log(`saved row=${r.row}`);
+          } catch (e) {
+            setStatus('error');
+            setError(String(e));
+            log(`ERROR save row=${r.row}: ${e}`);
+          } finally {
+            btnSave.disabled = false;
+          }
+        });
+
+        const btnCancel = document.createElement('button');
+        btnCancel.textContent = 'Cancel';
+        btnCancel.addEventListener('click', () => {
+          cancelEdit(r.row);
+        });
+
+        tdA.appendChild(btnSave);
+        tdA.appendChild(document.createTextNode(' '));
+        tdA.appendChild(btnCancel);
+      } else {
+        const btnEdit = document.createElement('button');
+        btnEdit.textContent = 'Edit';
+        btnEdit.className = 'primary';
+        btnEdit.disabled = !!editRowId && Number(editRowId) !== Number(r.row);
+        btnEdit.addEventListener('click', () => beginEdit(r.row));
+        tdA.appendChild(btnEdit);
+      }
+      tr.appendChild(tdA);
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function reloadAll() {
+    setStatus('loading...');
+    setError('');
+    try {
+      const out = await callGas('SA_settings_getAll');
+      if (!out || !out.ok) throw new Error('bad response');
+      rowsState = out.rows || [];
+      setDraftFromRows();
+      renderMetaTable();
+      refreshPnaviEditor_();
+      setStatus('ready');
+      log('loaded settings');
+    } catch (e) {
+      setStatus('error');
+      setError(String(e));
+      log(`ERROR load: ${e}`);
+    }
+  }
+
+  $('btnReload').addEventListener('click', reloadAll);
+
+  $('btnAdd').addEventListener('click', async () => {
+    const k = $('newKey').value.trim();
+    const t = $('newType').value.trim();
+    const n = $('newNote').value.trim();
+    newRowState.meta_key = k;
+    newRowState.meta_type = t;
+    newRowState.note = n;
+    try {
+      setStatus('adding...');
+      setError('');
+      const payload = buildPayloadForSave(newRowState);
+      await callGas('SA_settings_createMetaRow', [payload]);
+      $('newKey').value = '';
+      $('newType').value = 'text';
+      $('newNote').value = '';
+      newRowState.meta_key = '';
+      newRowState.meta_value = '';
+      newRowState.meta_type = 'text';
+      newRowState.note = '';
+      renderNewValueInput();
+      editRowId = null;
+      await reloadAll();
+      setStatus('added');
+      log(`added key=${k}`);
+    } catch (e) {
+      setStatus('error');
+      setError(String(e));
+      log(`ERROR add: ${e}`);
+    }
+  });
+
+  $('btnPnaviSave').addEventListener('click', async () => {
+    const raw = pnaviTextEl ? pnaviTextEl.value.trim() : '';
+    if (!raw) {
+      setError('pnavi config is empty');
+      return;
+    }
+    try {
+      JSON.parse(raw);
+    } catch (e) {
+      setError('pnavi config must be valid JSON');
+      return;
+    }
+    try {
+      setStatus('saving pnavi...');
+      setError('');
+      const row = getPnaviRow_();
+      if (row) {
+        const payload = {
+          meta_key: PNAVI_META_KEY,
+          meta_value: raw,
+          meta_type: String(row.meta_type || 'text').trim() || 'text',
+          note: String(row.note || PNAVI_NOTE_DEFAULT)
+        };
+        await callGas('SA_settings_updateMetaRow', [row.row, payload]);
+      } else {
+        const payload = {
+          meta_key: PNAVI_META_KEY,
+          meta_value: raw,
+          meta_type: 'text',
+          note: PNAVI_NOTE_DEFAULT
+        };
+        await callGas('SA_settings_createMetaRow', [payload]);
+      }
+      await reloadAll();
+      setStatus('pnavi saved');
+      log('pnavi config saved');
+    } catch (e) {
+      setStatus('error');
+      setError(String(e));
+      log(`ERROR pnavi save: ${e}`);
+    }
+  });
+
+  $('btnPnaviReset').addEventListener('click', () => {
+    if (!pnaviTextEl) return;
+    pnaviTextEl.value = pnaviDefaultText_();
+    setStatus('pnavi default loaded');
+    setError('');
+  });
+
+  $('btnHydrate').addEventListener('click', async () => {
+    const entity = $('hydrateEntity').value;
+    $('btnHydrate').disabled = true;
+    try {
+      setStatus('hydrate running...');
+      const out = await callGas('SA_settings_runHydrate', [entity]);
+      setStatus('hydrate done');
+      log(`hydrate done: ${JSON.stringify(out)}`);
+    } catch (e) {
+      setStatus('error');
+      setError(String(e));
+      log(`ERROR hydrate: ${e}`);
+    } finally {
+      $('btnHydrate').disabled = false;
+    }
+  });
+
+  $('btnDriveDiff').addEventListener('click', async () => {
+    const entity = $('driveEntity').value;
+    $('btnDriveDiff').disabled = true;
+    try {
+      setStatus('drive diff...');
+      const out = await callGas('SA_settings_driveDiff', [entity]);
+      setStatus('drive diff done');
+      log(`drive diff: ${JSON.stringify(out.diff)}`);
+    } catch (e) {
+      setStatus('error');
+      setError(String(e));
+      log(`ERROR drive diff: ${e}`);
+    } finally {
+      $('btnDriveDiff').disabled = false;
+    }
+  });
+
+  $('btnDriveFix').addEventListener('click', async () => {
+    const entity = $('driveEntity').value;
+    const limStr = $('driveLimit').value.trim();
+    const lim = limStr ? Number(limStr) : '';
+    $('btnDriveFix').disabled = true;
+    try {
+      setStatus('drive fix...');
+      const out = await callGas('SA_settings_driveFixMissing', [entity, lim]);
+      setStatus('drive fix done');
+      log(`drive fix result: ${JSON.stringify(out.result)}`);
+    } catch (e) {
+      setStatus('error');
+      setError(String(e));
+      log(`ERROR drive fix: ${e}`);
+    } finally {
+      $('btnDriveFix').disabled = false;
+    }
+  });
+
+  $('newType').addEventListener('change', () => {
+    newRowState.meta_type = $('newType').value;
+    newRowState.meta_value = normalizeMetaType(newRowState.meta_type) === 'checkbox' ? false : '';
+    renderNewValueInput();
+  });
+
+  reloadAll();
+  renderNewValueInput();
+</script>
+</body>
+</html>

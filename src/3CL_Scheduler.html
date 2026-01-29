@@ -1,0 +1,1268 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MOTK Scheduler (v179 Origin Fixed)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* --- Theme --- */
+    :root {
+      --bg-app: #0e0e10; --bg-panel: #18181b; --bg-header: #121214;
+      --border-color: #2a2a2e; --grid-line: #222225; --grid-line-strong: #3f3f46;
+      --accent-blue: #2563eb; --select-gold: #fbbf24; --text-main: #e4e4e7; --text-dim: #71717a;
+      --header-h: 36px; --axis-w: 60px; --lane-w: 140px;
+    }
+    body { background: var(--bg-app); color: var(--text-main); font-family: sans-serif; height: 100vh; overflow: hidden; margin:0; user-select:none; }
+    #app-root { display: flex; flex-direction: column; height: 100%; }
+
+    /* Toolbar */
+    #toolbar { height: 48px; background: var(--bg-header); border-bottom: 1px solid var(--border-color); display: flex; align-items: center; padding: 0 12px; gap: 10px; flex-shrink: 0; }
+    .brand a { font-weight: 900; font-size: 13px; color: #fff; text-decoration: none; margin-right: 12px; }
+    .brand span { color: var(--accent-blue); }
+    .info-tag { font-size: 10px; color: #666; border: 1px solid #333; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+    .btn { background: #27272a; border: 1px solid #3f3f46; color: #eee; padding: 4px 10px; font-size: 11px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+    .btn:hover { background: #3f3f46; }
+    .inp-dark { background: #000; border: 1px solid #333; color: #fff; font-size: 11px; padding: 3px 6px; border-radius: 4px; }
+
+    /* Layout */
+    #main { flex: 1; display: flex; overflow: hidden; position: relative; }
+    #grid-wrap { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+    /* Headers */
+    #lane-header-scroll { height: var(--header-h); display: flex; overflow: hidden; background: var(--bg-panel); border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
+    #year-corner { width: var(--axis-w); flex-shrink: 0; border-right: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: var(--accent-blue); background: var(--bg-header); z-index: 20; }
+    #lane-headers { display: flex; }
+    .lane-header-cell { width: var(--lane-w); flex-shrink: 0; border-right: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #a1a1aa; overflow: hidden; white-space: nowrap; }
+
+    /* Grid Body */
+    #grid-scroll { flex: 1; overflow: auto; display: flex; position: relative; }
+    #date-axis { width: var(--axis-w); flex-shrink: 0; background: var(--bg-header); border-right: 1px solid var(--border-color); position: sticky; left: 0; z-index: 10; min-height: 100%; }
+    .date-cell { border-bottom: 1px solid var(--grid-line-strong); display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: #71717a; box-sizing: border-box; position: relative; }
+    .date-cell.today { background: rgba(37,99,235,0.08); color: #fff; }
+    .d-main { font-size: 13px; font-weight: 700; color: #e4e4e7; line-height: 1.1; }
+    .d-sub { font-size: 10px; color: #a1a1aa; line-height: 1.1; }
+    .date-cell.compact .d-sub { display: none; }
+    .date-cell.compact .d-main { font-size: 11px; }
+    .year-marker { position: absolute; top: 0; left: 0; right: 0; background: var(--accent-blue); color: #fff; font-size: 9px; font-weight: bold; text-align: center; padding: 1px 0; z-index: 10; }
+
+    /* Canvas */
+    #grid-canvas { position: relative; display: flex; min-height: 100%; }
+    .lane-col-bg { width: var(--lane-w); flex-shrink: 0; border-right: 1px solid var(--border-color); height: 100%; box-sizing: border-box; }
+    .week-sep { position: absolute; left: 0; right: 0; height: 2px; background: #52525b; z-index: 2; pointer-events: none; }
+
+    /* Cards */
+    .card { position: absolute; width: calc(var(--lane-w) - 6px); background: #2563eb; border-radius: 3px; font-size: 10px; color: #fff; padding: 2px 4px; overflow: hidden; cursor: grab; z-index: 5; box-shadow: 0 1px 3px rgba(0,0,0,0.5); display: flex; flex-direction: column; justify-content: center; }
+    .card.selected { border: 1px solid #fbbf24; z-index: 20; }
+    .card.unsaved { border: 1px dashed #f59e0b; }
+    .card:hover { z-index: 15; background: #3b82f6; }
+    .card-close { position:absolute; top:0; right:2px; color:#ccc; font-weight:bold; cursor:pointer; display:none; }
+    .card:hover .card-close { display:block; }
+    .card-resizer { position:absolute; bottom:0; left:0; right:0; height:6px; cursor:ns-resize; }
+    .card .c-id { position: absolute; top: 2px; left: 4px; font-size: 10px; opacity: 0.85; }
+    .card .c-main { text-align: center; font-weight: 700; font-size: 12px; }
+    .card .c-sub { text-align: center; font-size: 9px; opacity: 0.8; margin-top: 2px; }
+
+    /* Inspector */
+    #inspector { width: 280px; background: var(--bg-panel); border-left: 1px solid var(--border-color); display: flex; flex-direction: column; transition: margin-right 0.2s; flex-shrink: 0; }
+    #inspector.closed { margin-right: -280px; }
+    .ins-tabs { display: flex; border-bottom: 1px solid var(--border-color); background: var(--bg-header); height: 32px; }
+    .ins-tab { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent; }
+    .ins-tab.active { color: #fff; border-bottom-color: var(--accent-blue); background: var(--bg-panel); }
+    .ins-panel { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .hidden { display: none !important; }
+    .inp-group { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: #a1a1aa; }
+    .inp { background: #000; border: 1px solid #333; color: #eee; padding: 6px 8px; border-radius: 4px; width: 100%; box-sizing: border-box; }
+
+    /* Overlays */
+    #lane-menu-popup { position: absolute; top: 40px; left: 200px; background: #18181b; border: 1px solid #333; padding: 5px; display: none; z-index: 100; max-height: 300px; overflow: auto; width: 220px; }
+    #lane-menu-popup.show { display: block; }
+    .lane-row { display: flex; gap: 6px; padding: 4px; border-bottom: 1px solid #222; font-size: 11px; align-items: center; }
+
+    #saveStatus { font-size: 10px; font-weight: bold; margin-right: 10px; opacity: 0; transition: opacity 0.5s; }
+    #saveStatus.saving { color: #fbbf24; opacity: 1; }
+    #saveStatus.saved { color: #4ade80; opacity: 1; }
+    #saveStatus.error { color: #ef4444; opacity: 1; }
+
+    #loadingSpinner { position:fixed; inset:0; background:rgba(0,0,0,0.8); display:none; z-index:100; align-items:center; justify-content:center; flex-direction:column; }
+    .spinner { width:24px; height:24px; border:3px solid #555; border-top-color:#fff; border-radius:50%; animation:spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<div id="app-root">
+  <div id="toolbar">
+    <div class="brand">
+      <a id="brand-link" href="./exec" target="_blank">MOTK <span>SCHED</span></a>
+      <span id="sched-name-display" style="color:#a1a1aa; margin-left:8px; cursor:pointer; font-size:12px;">Schedule</span>
+      <select id="sched-switch" class="inp-dark" style="margin-left:8px; min-width:140px;"></select>
+    </div>
+
+    <div id="config-info" style="display:flex; gap:4px;"></div>
+
+    <div class="control-group" style="margin-left:10px;">
+       <select id="sel-preset" class="inp-dark" style="width:90px;">
+          <option value="today">Today</option>
+          <option value="yesterday">Yesterday</option>
+          <option value="tomorrow">Tomorrow</option>
+          <option value="monday">This Mon</option>
+       </select>
+       <select id="sel-range" class="inp-dark" style="width:90px;">
+          <option value="14">2 Weeks</option>
+          <option value="30">1 Month</option>
+          <option value="90">3 Months</option>
+          <option value="180">6 Months</option>
+          <option value="365">1 Year</option>
+          <option value="730">2 Years</option>
+       </select>
+    </div>
+
+    <div class="control-group" style="display:flex; align-items:center; gap:4px; background:#222; padding:2px 6px; border-radius:4px; margin-left:8px;">
+      <label style="font-size:9px; color:#888;">ZOOM</label>
+      <input id="inp-zoom" type="range" min="1" max="200" value="60" style="width:90px">
+      <input id="inp-zoom-val" type="number" value="60" class="inp-dark" style="width:50px; text-align:center;">
+    </div>
+
+    <label style="font-size:10px; color:#aaa; display:flex; gap:4px; align-items:center; margin-left:10px;">
+       <input type="checkbox" id="chk-push"> Auto-Push
+    </label>
+
+    <button id="btn-lanes" class="btn" style="margin-left:10px;">Lanes ▾</button>
+    <div id="lane-menu-popup"></div>
+
+    <div style="flex:1"></div>
+    <div id="saveStatus"></div>
+    <button id="btn-reload" class="btn">Reload</button>
+    <button id="btn-insp" class="btn">Insp</button>
+  </div>
+
+  <div id="main">
+    <div id="grid-wrap">
+      <div id="lane-header-scroll">
+        <div id="year-corner">----</div>
+        <div id="lane-headers"></div>
+      </div>
+      <div id="grid-scroll">
+        <div id="date-axis"></div>
+        <div id="grid-canvas"></div>
+      </div>
+    </div>
+
+    <div id="inspector">
+       <div class="ins-tabs">
+          <div id="tab-edit" class="ins-tab active">EDIT</div>
+          <div id="tab-list" class="ins-tab">CARD LIST</div>
+          <div id="btn-close-insp" style="width:30px; display:flex; align-items:center; justify-content:center; cursor:pointer;">✕</div>
+       </div>
+
+       <div id="panel-edit" class="ins-panel">
+          <div id="insp-content" style="display:flex; flex-direction:column; gap:8px;"></div>
+       </div>
+
+       <div id="panel-list" class="ins-panel hidden">
+          <button id="btn-auto" class="btn" style="width:100%; margin-bottom:8px;">Auto Create Cards</button>
+          <input id="inp-filter" type="text" class="inp" placeholder="Search..." style="margin-bottom:8px;">
+          <div id="card-list-container"></div>
+          <button id="btn-new" class="btn" style="width:100%; margin-top:8px;">+ New Card</button>
+       </div>
+    </div>
+  </div>
+</div>
+
+<div id="loadingSpinner">
+  <div class="spinner"></div>
+  <div style="color:#fff; font-size:11px; margin-top:10px;">Loading...</div>
+</div>
+
+<script>
+window.app = (function() {
+  const config = {
+    slotMin: 30,
+    workHours: 8,
+    originDate: null,
+    originAnchor: null,
+    workStartH: 0
+  };
+
+  const state = {
+    tasks: [], members: [], cards: {}, lanes: [],
+    startDate: new Date(), dayCount: 14, slotPx: 20,
+    workDayMap: [], selection: null, autoPush: true, suppressClick: false,
+    schedId: 'sched_0001', schedName: 'Schedule', scriptUrl: '', viewMeta: {}, allScheds: []
+  };
+
+  const els = {
+    gridScroll: document.getElementById('grid-scroll'),
+    headerScroll: document.getElementById('lane-header-scroll'),
+    laneHeaders: document.getElementById('lane-headers'),
+    dateAxis: document.getElementById('date-axis'),
+    canvas: document.getElementById('grid-canvas'),
+    yearCorner: document.getElementById('year-corner'),
+    inspContent: document.getElementById('insp-content'),
+    cardList: document.getElementById('card-list-container'),
+    configInfo: document.getElementById('config-info')
+  };
+
+  if (els.gridScroll) {
+    els.gridScroll.addEventListener('scroll', () => {
+      if (els.headerScroll) els.headerScroll.scrollLeft = els.gridScroll.scrollLeft;
+      const pxPerDay = getPxPerDay_();
+      const dayIdx = Math.floor(els.gridScroll.scrollTop / pxPerDay);
+      if (state.workDayMap[dayIdx] && els.yearCorner) {
+        els.yearCorner.textContent = state.workDayMap[dayIdx].getFullYear();
+      }
+    });
+  }
+
+  const utils = {
+    dateToSlot: (d) => {
+      const anchor = config.originAnchor || config.originDate;
+      if (!d || !anchor) return 0;
+      return Math.floor((d.getTime() - anchor.getTime()) / (config.slotMin * 60000));
+    },
+    slotToDate: (s) => {
+      const anchor = config.originAnchor || config.originDate;
+      if (!anchor) return new Date();
+      return new Date(anchor.getTime() + (s * config.slotMin * 60000));
+    },
+    getSnapProps: (pxPer30) => {
+      if (pxPer30 >= 30) return { min: 30, label: '30m' };
+      if (pxPer30 >= 15) return { min: 60, label: '1h' };
+      if (pxPer30 >= 6) return { min: 120, label: '2h' };
+      if (pxPer30 >= 3) return { min: 240, label: '4h' };
+      return { min: 1440, label: '1d' };
+    },
+    fmtDate: (d) => `${d.getMonth()+1}/${d.getDate()}`,
+    fmtDateAxis: (d) => {
+      const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      return {
+        main: `${d.getMonth()+1}/${d.getDate()}`,
+        sub: `(${days[d.getDay()]})`
+      };
+    },
+    fmtYmdInput: (d) => {
+      if (!d || isNaN(d)) return '';
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    },
+    fmtSlotDisplay: (slot) => {
+      if (slot === null || slot === undefined) return 'Slot -';
+      const d = utils.slotToDate(slot);
+      if (!d || isNaN(d)) return `Slot ${slot}`;
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const minsInDay = (d.getHours() * 60) + d.getMinutes();
+      const daySlot = Math.floor(minsInDay / config.slotMin);
+      return `${y}/${m}/${day} Slot ${daySlot}`;
+    },
+    slotToDateVal: (slot) => {
+      const abs = utils.slotToDate(slot);
+      const anchor = config.originAnchor || config.originDate;
+      if (!abs || isNaN(abs) || !anchor) {
+        const fallback = new Date();
+        fallback.setHours(12,0,0,0);
+        return { date: fallback, slot: 0, absStart: 0 };
+      }
+      const d = new Date(abs.getFullYear(), abs.getMonth(), abs.getDate(), 12, 0, 0, 0);
+      const anchorDay = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate(), 0, 0, 0, 0);
+      const dayDiff = Math.round((d.getTime() - anchorDay.getTime()) / 86400000);
+      const slotsPerDay = 1440 / config.slotMin;
+      const startSlot = dayDiff * slotsPerDay;
+      const rel = slot - startSlot;
+      const bounded = isFinite(rel) ? Math.max(0, Math.min(rel, slotsPerDay)) : 0;
+      return { date: d, slot: bounded, absStart: startSlot };
+    },
+    dateValToSlot: (dateStr, relSlot) => {
+      const anchor = config.originAnchor || config.originDate;
+      if (!dateStr || !anchor) return 0;
+      const d = utils.parseDateTime(dateStr);
+      if (!d || isNaN(d)) return 0;
+      d.setHours(0,0,0,0);
+      const anchorDay = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate(), 0, 0, 0, 0);
+      const dayDiff = Math.round((d.getTime() - anchorDay.getTime()) / 86400000);
+      const slotsPerDay = 1440 / config.slotMin;
+      const rel = Math.max(0, Number(relSlot) || 0);
+      return (dayDiff * slotsPerDay) + rel;
+    },
+    parseCardTitle: (title) => {
+      if (!title) return { main: 'Card', sub: '' };
+      const s = String(title);
+      if (s.includes('_')) {
+        const parts = s.split('_');
+        return { main: parts[0], sub: parts.slice(1).join('_') };
+      }
+      return { main: s, sub: '' };
+    },
+    getDisplayId: (id) => {
+      const raw = String(id || '');
+      const suffix = raw.includes('_') ? raw.split('_').pop() : raw;
+      if (/^\d+$/.test(suffix)) return suffix.padStart(3, '0');
+      return suffix || raw;
+    },
+    parseDateTime: (v) => {
+      if (!v) return null;
+      if (v instanceof Date) {
+        const d = new Date(v.getTime());
+        d.setHours(12,0,0,0);
+        return d;
+      }
+      if (typeof v === 'number') {
+        const dNum = new Date(v);
+        if (isNaN(dNum)) return null;
+        dNum.setHours(12,0,0,0);
+        return dNum;
+      }
+      const s = String(v).trim();
+      if (!s) return null;
+      if (/^\d{10,}$/.test(s)) {
+        const n = Number(s);
+        if (isFinite(n)) {
+          const dNum = new Date(n);
+          if (!isNaN(dNum)) {
+            dNum.setHours(12,0,0,0);
+            return dNum;
+          }
+        }
+      }
+      if (/[Tt].*(Z|[+-]\d{2}:?\d{2})/.test(s)) {
+        const dIso = new Date(s);
+        if (!isNaN(dIso)) {
+          dIso.setHours(12,0,0,0);
+          return dIso;
+        }
+      }
+      const m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/);
+      if (m) {
+        const hasTime = m[4] !== undefined && m[5] !== undefined;
+        const hour = hasTime ? Number(m[4]) : 12;
+        const min = hasTime ? Number(m[5]) : 0;
+        const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), hour, min, 0, 0);
+        if (!hasTime) d.setHours(12,0,0,0);
+        return d;
+      }
+      const d = new Date(s);
+      if (!isNaN(d)) {
+        d.setHours(12,0,0,0);
+        return d;
+      }
+      return null;
+    },
+    saveStatus: (st, msg) => {
+      const el = document.getElementById('saveStatus');
+      if (!el) return;
+      el.className = st; el.textContent = msg;
+      if (st === 'saved') setTimeout(() => { el.className=''; }, 2000);
+    },
+    calcSlotPx: (val) => {
+      const n = Number(val);
+      return Math.max(1, Math.min(200, n));
+    }
+  };
+
+  function getSlotsPerDay_() {
+    return Math.round((config.workHours * 60) / config.slotMin);
+  }
+
+  function getPxPerDay_() {
+    return state.slotPx * getSlotsPerDay_();
+  }
+
+  function getSnapState_() {
+    const pxPer30 = state.slotPx * (30 / config.slotMin);
+    return utils.getSnapProps(pxPer30);
+  }
+
+  function snapMinutes_(yInDay, pxPerDay) {
+    const snap = getSnapState_();
+    const dayMinutes = config.workHours * 60;
+    const mins = Math.max(0, Math.min(dayMinutes, (yInDay / pxPerDay) * dayMinutes));
+    let snapped = Math.round(mins / snap.min) * snap.min;
+    snapped = Math.max(0, Math.min(dayMinutes, snapped));
+    return { minutes: snapped, snap: snap };
+  }
+
+  function formatYmd_(d) {
+    if (!d || isNaN(d)) return '----';
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  const store = {
+    init: (data) => {
+      const cfg = data.config || {};
+      const origin = cfg.originDate || cfg.origin || '';
+      const slotMin = Number(cfg.slotMin || config.slotMin);
+      const workHours = Number(cfg.workHours || config.workHours);
+
+      config.slotMin = (isFinite(slotMin) && slotMin > 0) ? slotMin : config.slotMin;
+      config.workHours = (isFinite(workHours) && workHours > 0) ? workHours : config.workHours;
+
+      let parsedOrigin = null;
+      if (origin !== undefined && origin !== null && String(origin).trim() !== '') {
+        parsedOrigin = utils.parseDateTime(origin);
+      }
+      if (parsedOrigin && !isNaN(parsedOrigin)) {
+        parsedOrigin.setHours(12,0,0,0);
+        config.originDate = parsedOrigin;
+      } else if (!config.originDate) {
+        config.originDate = new Date();
+        config.originDate.setHours(12,0,0,0);
+      }
+      if (config.originDate) {
+        config.originAnchor = new Date(
+          config.originDate.getFullYear(),
+          config.originDate.getMonth(),
+          config.originDate.getDate(),
+          0, 0, 0, 0
+        );
+      }
+
+      state.schedId = (data.schedConfig && data.schedConfig.activeSchedId) ? String(data.schedConfig.activeSchedId) : state.schedId;
+      state.viewMeta = (data.schedConfig && data.schedConfig.view_meta) ? data.schedConfig.view_meta : {};
+      state.schedName = (data.schedConfig && data.schedConfig.schedName) ? String(data.schedConfig.schedName) : state.schedName;
+      state.allScheds = (data.schedConfig && Array.isArray(data.schedConfig.allScheds)) ? data.schedConfig.allScheds : [];
+
+      var hasViewDate = false;
+      if (state.viewMeta && typeof state.viewMeta === 'object') {
+        if (state.viewMeta.zoom !== undefined && state.viewMeta.zoom !== null) {
+          state.slotPx = utils.calcSlotPx(state.viewMeta.zoom);
+        }
+        if (state.viewMeta.dayCount) {
+          state.dayCount = Number(state.viewMeta.dayCount) || state.dayCount;
+        }
+        if (state.viewMeta.startDate) {
+          var vmDate = new Date(state.viewMeta.startDate);
+          if (!isNaN(vmDate)) {
+            vmDate.setHours(0,0,0,0);
+            state.startDate = vmDate;
+            hasViewDate = true;
+          }
+        }
+      }
+
+      if (els.configInfo) {
+        els.configInfo.innerHTML = `
+          <span class="info-tag">Origin: ${formatYmd_(config.originDate)}</span>
+          <span class="info-tag">Slot: ${config.slotMin}m</span>
+          <span class="info-tag">Work: ${config.workHours}h</span>
+        `;
+      }
+      if (data.scriptUrl) {
+        var brandLink = document.getElementById('brand-link');
+        if (brandLink) brandLink.href = data.scriptUrl;
+        state.scriptUrl = data.scriptUrl;
+      }
+      var schedNameEl = document.getElementById('sched-name-display');
+      if (schedNameEl) schedNameEl.textContent = state.schedName;
+      var schedSel = document.getElementById('sched-switch');
+      if (schedSel) {
+        schedSel.innerHTML = '';
+        var list = (state.allScheds && state.allScheds.length) ? state.allScheds : [{ id: state.schedId, name: state.schedName }];
+        list.forEach(function(s) {
+          if (!s || !s.id) return;
+          var opt = document.createElement('option');
+          opt.value = s.id;
+          opt.textContent = s.name || s.id;
+          if (String(s.id) === String(state.schedId)) opt.selected = true;
+          schedSel.appendChild(opt);
+        });
+      }
+
+      const rawTasks = data.tasks || [];
+      state.tasks = rawTasks.map((t) => ({
+        id: String(t.taskId || t.id || t['Task ID'] || t['Task Id'] || '').trim(),
+        name: t.taskName || t.name || t['Task Name'] || '',
+        status: t.status || t['Status'] || '',
+        assignee: t.assignee || t['Assignee'] || '',
+        planStart: t.planStart || t['Plan Start'] || '',
+        planEnd: t.planEnd || t['Plan End'] || ''
+      })).filter(t => t.id);
+
+      state.members = data.members || [];
+
+      var viewLaneVis = (state.viewMeta && state.viewMeta.laneVisibility) ? state.viewMeta.laneVisibility : null;
+      const laneMap = new Map();
+      laneMap.set('unassigned', { id:'unassigned', label:'Unassigned', order:-1, visible: viewLaneVis && viewLaneVis.hasOwnProperty('unassigned') ? !!viewLaneVis.unassigned : true });
+      state.members.forEach((m,i) => {
+        const id = String(m.memberId || m.id || m['Member ID'] || '').trim();
+        const name = m.role || m.name || m['Role'] || id;
+        if (id) laneMap.set(id, { id, label: name, order: i, visible: viewLaneVis && viewLaneVis.hasOwnProperty(id) ? !!viewLaneVis[id] : true });
+      });
+      state.lanes = Array.from(laneMap.values()).sort((a,b) => a.order - b.order);
+
+      state.cards = {};
+      const tMap = {};
+      state.tasks.forEach(t => { tMap[t.id] = t; });
+
+      (data.cards||[]).forEach((c, i) => {
+        const rawId = c.cardId || c.cardNo || c['card number'] || c['card no'] || c['Card No'] || c['Card Number'] || `c_${i}`;
+        const id = String(rawId).trim() || `c_${i}`;
+        const tid = String(c.taskId || c.taskLink || c['Task Link'] || c['Task ID'] || c.taskid || '').trim();
+        const t = tMap[tid] || {};
+
+        let start = Number(c.start || c.startSlot || c.startslot || c['Start Slot']);
+        if (isNaN(start)) {
+          if (t.planStart) start = utils.dateToSlot(utils.parseDateTime(t.planStart));
+          else start = 0;
+        }
+
+        let len = Number(c.len || c.lengthMin || c.lengthmin || c['Length']);
+        if (isNaN(len) || len < config.slotMin) len = Math.max(config.slotMin, 60);
+        const dur = Math.ceil(len / config.slotMin);
+
+        let lane = c.laneId || c.laneVal || c.lane || c['Lane'] || c['Assignee'] || c.laneval || '';
+        if (!lane) lane = t.assignee || 'unassigned';
+        lane = String(lane || 'unassigned');
+
+        if (lane !== 'unassigned' && !laneMap.has(lane)) {
+          var laneVisible = viewLaneVis && viewLaneVis.hasOwnProperty(lane) ? !!viewLaneVis[lane] : true;
+          state.lanes.push({ id: lane, label: lane, order: 999, visible: laneVisible });
+          laneMap.set(lane, { id: lane, label: lane, order: 999, visible: laneVisible });
+        }
+
+        var displayId = null;
+        if (id) {
+          var num = Number(id);
+          if (isFinite(num)) displayId = num;
+          else {
+            var match = String(id).match(/\\d+/);
+            displayId = match ? Number(match[0]) : id;
+          }
+        }
+
+        state.cards[id] = {
+          id: id,
+          displayId: displayId,
+          taskId: tid,
+          title: t.name || 'Card',
+          laneId: lane,
+          start: start,
+          end: start + dur,
+          memo: c.memo || c.cardMemo || c['Memo'] || '',
+          status: t.status || '',
+          cardMeta: c.cardMeta || {}
+        };
+      });
+
+      if (!hasViewDate) {
+        store.fitViewToCards();
+      }
+      store.calcDays();
+
+      var zoomInput = document.getElementById('inp-zoom');
+      if (zoomInput) zoomInput.value = state.slotPx;
+      var zoomVal = document.getElementById('inp-zoom-val');
+      if (zoomVal) zoomVal.value = state.slotPx;
+      var pushChk = document.getElementById('chk-push');
+      state.autoPush = true;
+      if (pushChk) {
+        pushChk.checked = true;
+        pushChk.disabled = true;
+      }
+      var rangeSel = document.getElementById('sel-range');
+      if (rangeSel) rangeSel.value = String(state.dayCount);
+
+      render.all();
+    },
+
+    fitViewToCards: () => {
+      let minS = Infinity;
+      let hasCards = false;
+      Object.values(state.cards).forEach(c => {
+        if (c.start && c.start < minS && c.start > 0) { minS = c.start; hasCards = true; }
+      });
+      if (hasCards && minS !== Infinity) {
+        const d = utils.slotToDate(minS);
+        d.setHours(0,0,0,0);
+        state.startDate = d;
+      } else if (config.originDate) {
+        state.startDate = new Date(config.originDate.getTime());
+        state.startDate.setHours(0,0,0,0);
+      } else {
+        state.startDate = new Date();
+        state.startDate.setHours(0,0,0,0);
+      }
+
+      const input = document.getElementById('start-date');
+      if (input) input.value = formatYmd_(state.startDate);
+    },
+
+    calcDays: () => {
+      state.workDayMap = [];
+      let d = new Date(state.startDate); d.setHours(0,0,0,0);
+      for (let i = 0; i < state.dayCount; i++) {
+        const day = d.getDay();
+        if (day !== 0 && day !== 6) state.workDayMap.push(new Date(d));
+        d.setDate(d.getDate()+1);
+      }
+    },
+
+    getLanes: () => state.lanes,
+    saveLanes: () => {
+      store.saveViewMeta();
+    },
+    saveViewMeta: () => {
+      var visMap = {};
+      state.lanes.forEach(function(l) { visMap[l.id] = l.visible; });
+      var meta = {
+        zoom: state.slotPx,
+        autoPush: state.autoPush,
+        dayCount: state.dayCount,
+        startDate: state.startDate ? state.startDate.getTime() : null,
+        laneVisibility: visMap
+      };
+      var payload = JSON.stringify({ schedId: state.schedId, type: 'view_meta', value: meta });
+      google.script.run.sv_scheduler_save_meta_v2(payload);
+    }
+  };
+
+  const actions = {
+    renameSched: () => {
+      const newName = prompt('Rename Schedule:', state.schedName);
+      if (!newName || newName === state.schedName) return;
+      state.schedName = newName;
+      const h = document.getElementById('sched-name-display');
+      if (h) h.textContent = state.schedName;
+      google.script.run.sv_scheduler_rename_sched(JSON.stringify({
+        schedId: state.schedId,
+        name: newName
+      }));
+    },
+    switchSched: (id) => {
+      if (!id || String(id) === String(state.schedId)) return;
+      google.script.run
+        .withSuccessHandler(() => { actions.load(); })
+        .sv_scheduler_switch_active(id);
+    },
+    load: () => {
+      utils.saveStatus('saving', 'Loading...');
+      const sp = document.getElementById('loadingSpinner');
+      if (sp) sp.style.display='flex';
+
+      google.script.run
+        .withSuccessHandler(str => {
+          if (sp) sp.style.display='none';
+          let res;
+          try { res = JSON.parse(str); } catch(e){ console.error(e); }
+          if (res && res.ok) {
+            utils.saveStatus('saved', 'Loaded');
+            store.init(res);
+          } else {
+            utils.saveStatus('error', (res && res.error) ? res.error.message : 'Load Failed');
+          }
+        })
+        .withFailureHandler(e => {
+          if (sp) sp.style.display='none';
+          utils.saveStatus('error', e.message);
+        })
+        .sv_scheduler_load_v2();
+    },
+
+    commit: (id, type) => {
+      utils.saveStatus('saving', 'Saving...');
+      const c = state.cards[id];
+      if (!c && type !== 'delete') return;
+      const payload = {
+        action: type,
+        card: {
+          id: id,
+          taskId: c ? c.taskId : '',
+          lane: c ? c.laneId : '',
+          start: c ? c.start : 0,
+          end: c ? c.end : 0,
+          len: c ? (c.end - c.start) * config.slotMin : 0,
+          memo: c ? c.memo : ''
+        }
+      };
+      google.script.run
+        .withSuccessHandler(str => {
+          const res = JSON.parse(str);
+          if (res.ok) utils.saveStatus('saved', 'Saved');
+          else utils.saveStatus('error', 'Error');
+        })
+        .withFailureHandler(err => {
+          console.error(err);
+          utils.saveStatus('error', 'Net Error');
+        })
+        .sv_scheduler_commit_v2(JSON.stringify(payload));
+    },
+
+    selectCard: (id) => {
+      const key = String(id);
+      if (!state.cards[key]) return;
+      state.selection = key;
+      render.grid();
+      ui.renderInspector();
+      ui.switchTab('edit');
+    },
+
+    setZoomFromSlider: (v) => {
+      state.slotPx = utils.calcSlotPx(v);
+      const inp = document.getElementById('inp-zoom-val');
+      if (inp) inp.value = state.slotPx;
+      render.grid();
+      store.saveViewMeta();
+    },
+
+    setZoomFromInput: (v) => {
+      state.slotPx = utils.calcSlotPx(v);
+      const slider = document.getElementById('inp-zoom');
+      if (slider) slider.value = state.slotPx;
+      render.grid();
+      store.saveViewMeta();
+    },
+
+    setPreset: (mode) => {
+      const d = new Date(); d.setHours(0,0,0,0);
+      if (mode === 'yesterday') d.setDate(d.getDate() - 1);
+      if (mode === 'tomorrow') d.setDate(d.getDate() + 1);
+      if (mode === 'monday') {
+        const day = d.getDay() || 7;
+        d.setDate(d.getDate() - (day - 1));
+      }
+      state.startDate = d; store.calcDays(); render.grid();
+      const input = document.getElementById('start-date');
+      if (input) input.value = formatYmd_(d);
+      store.saveViewMeta();
+    },
+
+    setDuration: (mode) => {
+      state.dayCount = parseInt(mode, 10);
+      store.calcDays();
+      render.grid();
+      store.saveViewMeta();
+    },
+
+    resolveCollisions: (movedCard) => {
+      if (!state.autoPush) return;
+      const sorted = Object.values(state.cards)
+        .filter(c => c.laneId === movedCard.laneId && c.id !== movedCard.id && c.start >= movedCard.start)
+        .sort((a, b) => a.start - b.start);
+      let pushEdge = movedCard.end;
+      sorted.forEach(c => {
+        if (c.start < pushEdge) {
+          const len = c.end - c.start;
+          c.start = pushEdge;
+          c.end = c.start + len;
+          pushEdge = c.end;
+          actions.commit(c.id, 'update');
+        } else {
+          pushEdge = c.end;
+        }
+      });
+    },
+
+    moveCard: (id, newStart, newLane) => {
+      const c = state.cards[id];
+      if (!c) return;
+      const dur = c.end - c.start;
+      c.start = newStart;
+      c.end = newStart + dur;
+      c.laneId = newLane;
+      actions.resolveCollisions(c);
+      render.grid();
+      actions.commit(id, 'update');
+      ui.renderInspector();
+    },
+
+    toggleLane: (id) => {
+      const l = state.lanes.find(x => x.id === id);
+      if (l) { l.visible = !l.visible; store.saveLanes(); render.all(); }
+    },
+
+    deleteCard: (id) => {
+      if (!confirm('Delete permanently?')) return;
+      delete state.cards[id];
+      state.selection = null;
+      render.grid();
+      ui.renderInspector();
+      actions.commit(id, 'delete');
+    },
+
+    autoCreate: () => {
+      const used = new Set(Object.values(state.cards).map(c => c.taskId));
+      const orphans = state.tasks.filter(t => t.id && !used.has(t.id));
+      if (!orphans.length) { alert('No orphans.'); return; }
+      if (!confirm(`Create ${orphans.length} cards?`)) return;
+      orphans.forEach((t, i) => {
+        const id = 'c_auto_' + Date.now() + '_' + i;
+        state.cards[id] = { id, taskId: t.id, title: t.name, laneId: 'unassigned', start: 0, end: 1, memo: '', status: t.status };
+        actions.commit(id, 'create');
+      });
+      ui.renderCardList();
+      actions.load();
+    },
+
+    newCard: () => {
+      let maxNum = 0;
+      Object.values(state.cards).forEach(c => {
+        const raw = String(c.id || '');
+        const digits = raw.replace(/\D/g, '');
+        const n = parseInt(digits || raw, 10);
+        if (!isNaN(n) && n > maxNum) maxNum = n;
+      });
+      const nextNum = String(maxNum + 1).padStart(3, '0');
+      const id = nextNum;
+      state.cards[id] = { id, taskId: '', title: 'New_Task', laneId: 'unassigned', start: 0, end: 10, memo: '' };
+      actions.commit(id, 'create');
+      ui.renderCardList();
+      render.grid();
+    }
+  };
+
+  const render = {
+    all: () => { render.headers(); render.grid(); ui.renderMenu(); ui.renderCardList(); },
+
+    headers: () => {
+      els.laneHeaders.innerHTML = '';
+      state.lanes.filter(l => l.visible).forEach(l => {
+        const d = document.createElement('div');
+        d.className = 'lane-header-cell'; d.textContent = l.label;
+        els.laneHeaders.appendChild(d);
+      });
+    },
+
+    grid: () => {
+      els.dateAxis.innerHTML = ''; els.canvas.innerHTML = '';
+      const lanes = state.lanes.filter(l => l.visible);
+      const pxPerDay = getPxPerDay_();
+      const h = state.workDayMap.length * pxPerDay;
+      const w = lanes.length * 140;
+
+      els.canvas.style.height = h + 'px';
+      els.canvas.style.width = w + 'px';
+
+      const snap = getSnapState_();
+      if (els.configInfo) {
+        els.configInfo.innerHTML = `
+          <span class="info-tag">Origin: ${formatYmd_(config.originDate)}</span>
+          <span class="info-tag">Slot: ${config.slotMin}m</span>
+          <span class="info-tag">Work: ${config.workHours}h</span>
+          <span class="info-tag">Res: ${snap.label}</span>
+        `;
+      }
+      const dayMinutes = config.workHours * 60;
+      let bgImage = 'linear-gradient(to bottom, var(--grid-line-strong) 1px, transparent 1px)';
+      let bgSize = `100% ${pxPerDay}px`;
+
+      if (snap.min < dayMinutes) {
+        const subH = pxPerDay * (snap.min / dayMinutes);
+        bgImage = 'linear-gradient(to bottom, var(--grid-line-strong) 1px, transparent 1px), linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px)';
+        bgSize = `100% ${pxPerDay}px, 100% ${subH}px`;
+      }
+      els.canvas.style.backgroundImage = bgImage;
+      els.canvas.style.backgroundSize = bgSize;
+
+      let lastYear = null;
+      state.workDayMap.forEach((d) => {
+        const cell = document.createElement('div');
+        const compact = pxPerDay < 40;
+        cell.className = `date-cell${compact ? ' compact' : ''}`;
+        cell.style.height = pxPerDay + 'px';
+        const year = d.getFullYear();
+        const showYear = year !== lastYear;
+        if (showYear) lastYear = year;
+
+        const fmt = utils.fmtDateAxis(d);
+        let html = `<div class="d-main">${fmt.main}</div><div class="d-sub">${fmt.sub}</div>`;
+        if (showYear) html = `<div class="year-marker">${year}</div>` + html;
+        cell.innerHTML = html;
+        els.dateAxis.appendChild(cell);
+      });
+
+      lanes.forEach(l => {
+        const col = document.createElement('div');
+        col.className = 'lane-col-bg'; col.dataset.laneId = l.id;
+        els.canvas.appendChild(col);
+      });
+
+      state.workDayMap.forEach((d, idx) => {
+        if (idx === 0) return;
+        if (d.getDay() !== 1) return;
+        const sep = document.createElement('div');
+        sep.className = 'week-sep';
+        sep.style.top = (idx * pxPerDay) + 'px';
+        els.canvas.appendChild(sep);
+      });
+
+      Object.values(state.cards).forEach(c => {
+        if (c.start === null) return;
+        const d = utils.slotToDate(c.start);
+        const dayStr = d.toDateString();
+        const dayIdx = state.workDayMap.findIndex(wd => wd.toDateString() === dayStr);
+        if(dayIdx === -1) return;
+        const laneIdx = lanes.findIndex(l => l.id === c.laneId);
+        if(laneIdx === -1) return;
+
+        const minsFromStart = (d.getHours() * 60 + d.getMinutes()) - (config.workStartH * 60);
+        const dayMinutes = config.workHours * 60;
+
+        const topRatio = Math.max(0, Math.min(1, minsFromStart / dayMinutes));
+        const top = (dayIdx * pxPerDay) + (topRatio * pxPerDay);
+
+        const durMins = (c.end - c.start) * config.slotMin;
+        const hRatio = durMins / dayMinutes;
+        const h = Math.max(14, hRatio * pxPerDay);
+        const left = (laneIdx * 140) + 2;
+
+        const div = document.createElement('div');
+        div.className = `card ${state.selection === c.id ? 'selected' : ''}`;
+        div.style.top = top + 'px'; div.style.left = left + 'px';
+        div.style.height = (h - 1) + 'px';
+
+        const titleInfo = utils.parseCardTitle(c.title);
+        const displayId = utils.getDisplayId(c.id);
+        div.innerHTML = `<div class="c-id">${displayId}</div><div class="c-main">${titleInfo.main}</div>`;
+        if (h > 35 && titleInfo.sub) div.innerHTML += `<div class="c-sub">${titleInfo.sub}</div>`;
+
+        const xBtn = document.createElement('div'); xBtn.className='card-close'; xBtn.textContent='×';
+        xBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          c.start = null; render.all(); actions.commit(c.id, 'update');
+        });
+        div.appendChild(xBtn);
+
+        const rsz = document.createElement('div'); rsz.className='card-resizer';
+        div.appendChild(rsz);
+
+        div.addEventListener('mousedown', (e) => dragStart(e, c, div));
+        els.canvas.appendChild(div);
+      });
+    }
+  };
+
+  const ui = {
+    renderMenu: () => {
+      const m = document.getElementById('lane-menu-popup');
+      if (!m) return;
+      m.innerHTML = '';
+      state.lanes.forEach(l => {
+        const row = document.createElement('div'); row.className = 'lane-row';
+        const chk = document.createElement('input'); chk.type = 'checkbox'; chk.checked = l.visible;
+        chk.addEventListener('change', () => { actions.toggleLane(l.id); });
+        row.appendChild(chk);
+        row.appendChild(document.createTextNode(l.label));
+        m.appendChild(row);
+      });
+    },
+    renderCardList: () => {
+      const c = document.getElementById('card-list-container');
+      if (!c) return;
+      c.innerHTML = '';
+      const q = document.getElementById('inp-filter').value.toLowerCase();
+      Object.values(state.cards).forEach(card => {
+        if (q && !card.title.toLowerCase().includes(q)) return;
+        const d = document.createElement('div');
+        d.className = `list-item ${card.start===null?'':'placed'}`;
+        const titleInfo = utils.parseCardTitle(card.title);
+        const displayId = utils.getDisplayId(card.id);
+        d.innerHTML = `
+          <span style="font-size:9px;color:#666;width:22px;display:inline-block;">${displayId}</span>
+          <span style="font-weight:bold;margin-right:6px;">${titleInfo.main}</span>
+          <span style="font-size:10px;color:#888">${titleInfo.sub}</span>
+        `;
+        d.draggable = true;
+        d.addEventListener('dragstart', (e) => {
+          e.dataTransfer.setData('text/plain', String(card.id));
+          e.dataTransfer.effectAllowed = 'copyMove';
+        });
+        d.addEventListener('click', () => {
+          actions.selectCard(card.id);
+        });
+        c.appendChild(d);
+      });
+    },
+    switchTab: (t) => {
+      document.querySelectorAll('.ins-tab').forEach(e => e.classList.remove('active'));
+      document.querySelectorAll('.ins-panel').forEach(e => e.classList.add('hidden'));
+      document.getElementById('tab-'+t).classList.add('active');
+      document.getElementById('panel-'+t).classList.remove('hidden');
+    },
+    renderInspector: () => {
+      const c = state.cards[state.selection];
+      const p = els.inspContent;
+      if (!p) return;
+      if (!c) { p.innerHTML = 'Select a card'; return; }
+      document.getElementById('inspector').classList.remove('closed');
+      p.innerHTML = '';
+
+      const title = document.createElement('div');
+      title.style.cssText = 'background:#222; padding:6px; font-weight:bold; border-radius:4px;';
+      title.textContent = c.title;
+      p.appendChild(title);
+
+      const addField = (label, el) => {
+        const g = document.createElement('div'); g.className='inp-group';
+        const l = document.createElement('label'); l.textContent=label;
+        g.appendChild(l); g.appendChild(el); p.appendChild(g);
+      };
+
+      const linkWrap = document.createElement('div');
+      linkWrap.style.cssText = 'display:flex; align-items:center; gap:4px;';
+      const dlId = 'task-datalist';
+      let dl = document.getElementById(dlId);
+      if (!dl) {
+        dl = document.createElement('datalist');
+        dl.id = dlId;
+        document.body.appendChild(dl);
+      }
+      dl.innerHTML = '';
+      state.tasks.forEach(t => {
+        if (!t || !t.id) return;
+        const op = document.createElement('option');
+        op.value = t.id;
+        op.label = t.name || t.id;
+        dl.appendChild(op);
+      });
+      const inpTask = document.createElement('input');
+      inpTask.className = 'inp';
+      inpTask.setAttribute('list', dlId);
+      inpTask.value = c.taskId || '';
+      inpTask.addEventListener('change', (e) => {
+        c.taskId = String(e.target.value || '');
+        const t = state.tasks.find(x => x.id === c.taskId);
+        if (t && t.name) c.title = t.name;
+        actions.commit(c.id, 'update');
+        ui.renderInspector();
+        render.grid();
+      });
+      const btnLink = document.createElement('a');
+      btnLink.innerHTML = '&#8599;';
+      btnLink.className = 'btn';
+      btnLink.style.cssText = 'padding:4px 8px; text-decoration:none;';
+      if (state.scriptUrl && c.taskId) {
+        btnLink.href = `${state.scriptUrl}?page=detail&taskId=${encodeURIComponent(c.taskId)}`;
+        btnLink.target = '_blank';
+      } else {
+        btnLink.href = '#';
+      }
+      linkWrap.appendChild(inpTask);
+      linkWrap.appendChild(btnLink);
+      addField('Task Link', linkWrap);
+
+      const sVal = utils.slotToDateVal(c.start || 0);
+      const gStart = document.createElement('div');
+      gStart.style.cssText = 'display:flex; gap:4px;';
+      const inpSD = document.createElement('input');
+      inpSD.type = 'date'; inpSD.className = 'inp';
+      inpSD.value = utils.fmtYmdInput(sVal.date);
+      const inpSS = document.createElement('input');
+      inpSS.type = 'number'; inpSS.className = 'inp';
+      inpSS.style.width = '60px';
+      inpSS.value = sVal.slot;
+      const updateStart = () => {
+        const newStart = utils.dateValToSlot(inpSD.value, inpSS.value);
+        const len = c.end - c.start;
+        c.start = newStart;
+        c.end = newStart + len;
+        actions.resolveCollisions(c);
+        render.grid(); actions.commit(c.id, 'update'); ui.renderInspector();
+      };
+      inpSD.addEventListener('change', updateStart);
+      inpSS.addEventListener('change', updateStart);
+      gStart.appendChild(inpSD);
+      gStart.appendChild(inpSS);
+      addField('Start (Date/Slot)', gStart);
+
+      const eVal = utils.slotToDateVal(c.end || 0);
+      const gEnd = document.createElement('div');
+      gEnd.style.cssText = 'display:flex; gap:4px;';
+      const inpED = document.createElement('input');
+      inpED.type = 'date'; inpED.className = 'inp';
+      inpED.value = utils.fmtYmdInput(eVal.date);
+      const inpES = document.createElement('input');
+      inpES.type = 'number'; inpES.className = 'inp';
+      inpES.style.width = '60px';
+      inpES.value = eVal.slot;
+      const updateEnd = () => {
+        const newEnd = utils.dateValToSlot(inpED.value, inpES.value);
+        c.end = newEnd;
+        render.grid(); actions.commit(c.id, 'update'); ui.renderInspector();
+      };
+      inpED.addEventListener('change', updateEnd);
+      inpES.addEventListener('change', updateEnd);
+      gEnd.appendChild(inpED);
+      gEnd.appendChild(inpES);
+      addField('End (Date/Slot)', gEnd);
+
+      const selLane = document.createElement('select'); selLane.className='inp';
+      store.getLanes().forEach(l => {
+        const o = document.createElement('option'); o.value = l.id; o.textContent = l.label;
+        if (l.id === c.laneId) o.selected = true;
+        selLane.appendChild(o);
+      });
+      selLane.addEventListener('change', (e) => {
+        c.laneId = e.target.value;
+        render.grid(); actions.commit(c.id, 'update'); ui.renderInspector();
+      });
+      addField('Lane', selLane);
+
+      const txtMemo = document.createElement('textarea'); txtMemo.className='inp';
+      txtMemo.value = c.memo || '';
+      txtMemo.addEventListener('change', (e) => { c.memo = e.target.value; actions.commit(c.id, 'update'); });
+      addField('Memo', txtMemo);
+    }
+  };
+
+  let drag = null;
+  function dragStart(e, card, el) {
+    if (e.target.classList.contains('card-close')) return;
+    e.stopPropagation(); e.preventDefault();
+    const isResizing = e.target.classList.contains('card-resizer');
+    drag = {
+      card,
+      el,
+      startY: e.clientY,
+      startX: e.clientX,
+      startTop: parseFloat(el.style.top),
+      startHeight: parseFloat(el.style.height),
+      isResizing,
+      didMove: false
+    };
+    document.addEventListener('mousemove', dragMove);
+    document.addEventListener('mouseup', dragEnd);
+  }
+  function dragMove(e) {
+    if (!drag) return;
+    const dy = e.clientY - drag.startY;
+    const dx = e.clientX - drag.startX;
+    if (!drag.didMove && (Math.abs(dy) > 3 || Math.abs(dx) > 3)) drag.didMove = true;
+    if (!drag.didMove) return;
+    if (drag.isResizing) drag.el.style.height = (drag.startHeight + dy) + 'px';
+    else drag.el.style.top = (drag.startTop + dy) + 'px';
+  }
+  function dragEnd(e) {
+    document.removeEventListener('mousemove', dragMove); document.removeEventListener('mouseup', dragEnd);
+    if (drag) {
+      if (!drag.didMove) {
+        actions.selectCard(drag.card.id);
+        drag = null;
+        return;
+      }
+      const top = parseFloat(drag.el.style.top);
+      const h = parseFloat(drag.el.style.height);
+      const pxPerDay = getPxPerDay_();
+
+      const dayIdx = Math.floor(top / pxPerDay);
+      const yInDay = top % pxPerDay;
+
+      if (state.workDayMap[dayIdx]) {
+        const snapState = snapMinutes_(yInDay, pxPerDay);
+        const snappedMins = snapState.minutes;
+        const snap = snapState.snap;
+
+        const d = new Date(state.workDayMap[dayIdx]);
+        d.setHours(config.workStartH, 0, 0, 0);
+        d.setMinutes(snappedMins);
+
+        const newStart = utils.dateToSlot(d);
+
+        const rect = els.canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const colIdx = Math.floor(x / 140);
+        const lanes = state.lanes.filter(l => l.visible);
+        const newLane = (colIdx>=0 && colIdx<lanes.length) ? lanes[colIdx].id : drag.card.laneId;
+
+        state.selection = drag.card.id;
+        if (drag.isResizing) {
+          const hRatio = h / pxPerDay;
+          const durMins = hRatio * (config.workHours * 60);
+          let snappedDur = Math.round(durMins / snap.min) * snap.min;
+          if (snappedDur < snap.min) snappedDur = snap.min;
+          const slots = Math.max(1, Math.round(snappedDur / config.slotMin));
+          drag.card.end = drag.card.start + slots;
+        } else {
+          const len = drag.card.end - drag.card.start;
+          drag.card.start = newStart;
+          drag.card.end = newStart + len;
+          drag.card.laneId = newLane;
+        }
+        actions.moveCard(drag.card.id, drag.card.start, drag.card.laneId);
+      } else {
+         render.grid();
+      }
+    }
+    drag = null;
+  }
+
+  function handleCanvasDrop_(e) {
+    e.preventDefault();
+    const cardId = e.dataTransfer.getData('text/plain');
+    const key = String(cardId || '');
+    if (!key || !state.cards[key]) return;
+
+    const c = state.cards[key];
+    const pxPerDay = getPxPerDay_();
+    const rect = els.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    const dayIdx = Math.floor(y / pxPerDay);
+    if (!state.workDayMap[dayIdx]) return;
+
+    const yInDay = y % pxPerDay;
+    const snapState = snapMinutes_(yInDay, pxPerDay);
+    const snappedMins = snapState.minutes;
+
+    const d = new Date(state.workDayMap[dayIdx]);
+    d.setHours(config.workStartH, 0, 0, 0);
+    d.setMinutes(snappedMins);
+    const newStart = utils.dateToSlot(d);
+
+    const lanes = state.lanes.filter(l => l.visible);
+    const laneIdx = Math.floor(x / 140);
+    const newLane = (laneIdx >= 0 && laneIdx < lanes.length) ? lanes[laneIdx].id : c.laneId;
+
+    var dur = (c.start !== null && c.end !== null && isFinite(c.end - c.start) && (c.end - c.start) > 0) ? (c.end - c.start) : Math.max(1, Math.round(snapState.snap.min / config.slotMin));
+    c.start = newStart;
+    c.end = newStart + dur;
+    c.laneId = newLane;
+    state.selection = c.id;
+    actions.moveCard(c.id, c.start, c.laneId);
+  }
+
+  function bindEvents() {
+    const safeAdd = (id, evt, fn) => { const e = document.getElementById(id); if (e) e.addEventListener(evt, fn); };
+    safeAdd('sel-preset', 'change', (e) => actions.setPreset(e.target.value));
+    safeAdd('sel-range', 'change', (e) => actions.setDuration(e.target.value));
+    safeAdd('inp-zoom', 'input', (e) => actions.setZoomFromSlider(e.target.value));
+    safeAdd('inp-zoom-val', 'change', (e) => actions.setZoomFromInput(e.target.value));
+    safeAdd('chk-push', 'change', (e) => {
+      state.autoPush = true;
+      if (e && e.target) e.target.checked = true;
+      store.saveViewMeta();
+    });
+    safeAdd('btn-reload', 'click', actions.load);
+    safeAdd('btn-insp', 'click', () => document.getElementById('inspector').classList.toggle('closed'));
+    safeAdd('btn-close-insp', 'click', () => document.getElementById('inspector').classList.add('closed'));
+    safeAdd('tab-edit', 'click', () => ui.switchTab('edit'));
+    safeAdd('tab-list', 'click', () => ui.switchTab('list'));
+    safeAdd('btn-auto', 'click', actions.autoCreate);
+    safeAdd('btn-new', 'click', actions.newCard);
+    safeAdd('inp-filter', 'input', ui.renderCardList);
+    safeAdd('sched-switch', 'change', (e) => actions.switchSched(e.target.value));
+    safeAdd('btn-lanes', 'click', (e) => {
+      const m = document.getElementById('lane-menu-popup');
+      if (!m) return;
+      const rect = e.target.getBoundingClientRect();
+      m.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+      m.style.left = (rect.left + window.scrollX) + 'px';
+      m.classList.toggle('show');
+    });
+    safeAdd('sched-name-display', 'click', actions.renameSched);
+    safeAdd('grid-canvas', 'dragover', (e) => { e.preventDefault(); });
+    safeAdd('grid-canvas', 'drop', handleCanvasDrop_);
+  }
+
+  return { actions, ui, state, render, bindEvents };
+})();
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.app && window.app.bindEvents) {
+    window.app.bindEvents();
+    window.app.actions.load();
+  }
+});
+</script>
+</body>
+</html>
