@@ -1,0 +1,844 @@
+<script>
+  /* ===== 1–5.core (Router, utils, nav, entity-link, init) ===== */
+  (function () {
+    "use strict";
+
+    /* --- 1.Router --- */
+    /* --- 1.Router --- */
+    /* --- 1.Router --- */
+    (function (global) {
+      'use strict';
+
+      /**
+       * Resolve base URL for all MOTK links.
+       * Priority:
+       *   1) __VIEW_CTX__.scriptUrl (server-provided exec URL)
+       *   2) window.__SCRIPT_URL__
+       *   3) window.SCRIPT_URL
+       *   4) window.scriptUrl
+       *   5) location.origin + location.pathname (last fallback)
+       */
+      function resolveBaseUrl() {
+        try {
+          if (global.__VIEW_CTX__ && global.__VIEW_CTX__.scriptUrl) {
+            return global.__VIEW_CTX__.scriptUrl;
+          }
+        } catch (e) { }
+
+        try {
+          if (global.__SCRIPT_URL__) {
+            return global.__SCRIPT_URL__;
+          }
+        } catch (e) { }
+
+        try {
+          if (global.SCRIPT_URL) {
+            return global.SCRIPT_URL;
+          }
+        } catch (e) { }
+
+        try {
+          if (global.scriptUrl) {
+            return global.scriptUrl;
+          }
+        } catch (e) { }
+
+        try {
+          return location.origin + location.pathname;
+        } catch (e) {
+          console.error('[MOTK][Router] resolveBaseUrl failed', e);
+          return '';
+        }
+      }
+
+      var Router = global.Router || {};
+
+      Router.baseUrl = function () {
+        var base = resolveBaseUrl();
+        if (!base) {
+          console.warn('[MOTK][Router] baseUrl is empty; check viewCtx.scriptUrl / __SCRIPT_URL__');
+        }
+        return base;
+      };
+
+      Router.listRowsPage = function () {
+        // main list page key
+        return 'table';
+      };
+
+      Router.entityPageName = function (entity) {
+        // shot 系は DetailShot に集約
+        if (entity === 'shot' || entity === 'shots') return 'DetailShot';
+        return 'Detail';
+      };
+
+      Router.buildEntityUrl = function (entity, id) {
+        var base = Router.baseUrl();
+        var url = new URL(base);
+        url.searchParams.set('page', Router.entityPageName(entity));
+        url.searchParams.set('entity', entity);
+        if (id) {
+          url.searchParams.set('id', id);
+        }
+        return url.toString();
+      };
+
+      Router.buildListUrl = function (entity) {
+        var base = Router.baseUrl();
+        var url = new URL(base);
+        url.searchParams.set('p', Router.listRowsPage());
+        if (entity) {
+          url.searchParams.set('e', entity);
+        }
+        return url.toString();
+      };
+
+      global.Router = Router;
+    })(window);
+
+    /* --- 1.5 boot context/diag --- */
+    (function (global) {
+      function ensureBootStore_() {
+        var boot = global.__MOTK_BOOT__ || {};
+        if (!boot.context || typeof boot.context !== 'object') boot.context = {};
+        if (!boot.diag || typeof boot.diag !== 'object') boot.diag = {};
+        if (!boot.diag.timing || typeof boot.diag.timing !== 'object') boot.diag.timing = {};
+        if (!boot.diag.cache || typeof boot.diag.cache !== 'object') boot.diag.cache = {};
+        if (!boot.diag.fallback || typeof boot.diag.fallback !== 'object') {
+          boot.diag.fallback = { attempted: false, used: false, blocked: false, reason: '' };
+        }
+        global.__MOTK_BOOT__ = boot;
+        return boot;
+      }
+
+      function readQueryParams_() {
+        try {
+          var usp = new URLSearchParams(location.search || '');
+          return {
+            p: (usp.get('p') || '').trim(),
+            page: (usp.get('page') || '').trim(),
+            e: (usp.get('e') || '').trim(),
+            entity: (usp.get('entity') || '').trim(),
+            pid: (usp.get('pid') || '').trim(),
+            id: (usp.get('id') || '').trim(),
+            createOAuthDialog: (usp.get('createOAuthDialog') || '').trim()
+          };
+        } catch (_) {
+          return {
+            p: '',
+            page: '',
+            e: '',
+            entity: '',
+            pid: '',
+            id: '',
+            createOAuthDialog: ''
+          };
+        }
+      }
+
+      function hasBootRouteHint_(params) {
+        try {
+          if (params && (params.p || params.page || params.e || params.entity || params.pid || params.id)) return true;
+        } catch (_) { }
+        try {
+          var ctx = global.__VIEW_CTX || {};
+          if (ctx && (ctx.entity || ctx.sheetName || ctx.page || ctx.pageId || ctx.pid || ctx.id)) return true;
+        } catch (_) { }
+        try {
+          var ds = (document.body && document.body.dataset) ? document.body.dataset : {};
+          if (ds.navEntity || ds.motkEntity || ds.entity || ds.navPage || ds.motkPage || ds.page || ds.pageId || ds.pid || ds.motkPageId) return true;
+        } catch (_) { }
+        return false;
+      }
+
+      function hasStoredViewerState_() {
+        try {
+          var raw = localStorage.getItem('MOTK.viewer.state') || localStorage.getItem('motk:viewerStateSnapshot');
+          if (!raw) return false;
+          var snap = JSON.parse(raw);
+          if (snap && (snap.pageId || snap.sheetName || snap.entityParam || snap.origin)) return true;
+        } catch (_) { }
+        return false;
+      }
+
+      function stripCreateOAuthDialogParam_() {
+        try {
+          var usp = new URLSearchParams(location.search || '');
+          if (!usp.has('createOAuthDialog')) return false;
+          usp.delete('createOAuthDialog');
+          var qs = usp.toString();
+          history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+          return true;
+        } catch (_) { return false; }
+      }
+
+      function sanitizeReturnUrl_(u) {
+        try {
+          var url = new URL(String(u));
+          url.searchParams.delete('createOAuthDialog');
+          url.searchParams.delete('code');
+          url.searchParams.delete('state');
+          url.searchParams.delete('scope');
+          url.searchParams.delete('authuser');
+          url.searchParams.delete('prompt');
+          return url.toString();
+        } catch (_) {
+          return String(u || '');
+        }
+      }
+
+      function getStoredReturnUrl_() {
+        try {
+          var boot = global.__MOTK_BOOT__ || {};
+          var ctx = boot.context || {};
+          if (ctx && ctx.origin) return String(ctx.origin);
+        } catch (_) { }
+        try {
+          var raw = localStorage.getItem('MOTK.viewer.state') || localStorage.getItem('motk:viewerStateSnapshot');
+          if (raw) {
+            var snap = JSON.parse(raw);
+            if (snap && snap.origin) return String(snap.origin);
+          }
+        } catch (_) { }
+        return '';
+      }
+
+      function persistBootSnapshot_(boot) {
+        try {
+          if (!window || !window.sessionStorage) return;
+          var snap = {
+            context: boot && boot.context ? boot.context : {},
+            diag: boot && boot.diag ? boot.diag : {},
+            ts: Date.now()
+          };
+          sessionStorage.setItem('MOTK_BOOT_V1', JSON.stringify(snap));
+        } catch (_) { }
+      }
+
+      function updateBootContext_(patch) {
+        var boot = ensureBootStore_();
+        var ctx = boot.context || {};
+        Object.keys(patch || {}).forEach(function (k) {
+          if (patch[k] != null) ctx[k] = patch[k];
+        });
+        ctx.updatedAt = Date.now();
+        boot.context = ctx;
+        persistBootSnapshot_(boot);
+        return boot;
+      }
+
+      function updateBootDiag_(patch) {
+        var boot = ensureBootStore_();
+        var diag = boot.diag || {};
+        if (patch && typeof patch === 'object') {
+          if (patch.timing && typeof patch.timing === 'object') {
+            Object.keys(patch.timing).forEach(function (k) {
+              var v = patch.timing[k];
+              if (v == null) return;
+              diag.timing[k] = v;
+            });
+          }
+          if (patch.cache && typeof patch.cache === 'object') {
+            Object.keys(patch.cache).forEach(function (k2) {
+              var v2 = patch.cache[k2];
+              if (v2 == null) return;
+              diag.cache[k2] = v2;
+            });
+          }
+          if (patch.fallback && typeof patch.fallback === 'object') {
+            Object.keys(patch.fallback).forEach(function (k3) {
+              var v3 = patch.fallback[k3];
+              if (v3 == null) return;
+              diag.fallback[k3] = v3;
+            });
+          }
+          if (patch.schema && typeof patch.schema === 'object') {
+            diag.schema = diag.schema || {};
+            Object.keys(patch.schema).forEach(function (k4) {
+              var v4 = patch.schema[k4];
+              if (v4 == null) return;
+              diag.schema[k4] = v4;
+            });
+          }
+        }
+        diag.updatedAt = Date.now();
+        boot.diag = diag;
+        persistBootSnapshot_(boot);
+        return boot;
+      }
+
+      function updateBootTiming_(key, ms) {
+        if (!key) return;
+        var boot = ensureBootStore_();
+        var timing = boot.diag && boot.diag.timing ? boot.diag.timing : (boot.diag.timing = {});
+        if (timing[key] == null) timing[key] = Math.round(ms);
+        boot.diag.timing = timing;
+        persistBootSnapshot_(boot);
+      }
+
+      function updateBootCache_(patch) {
+        updateBootDiag_({ cache: patch || {} });
+      }
+
+      function setBootFallback_(patch) {
+        updateBootDiag_({ fallback: patch || {} });
+      }
+
+      function renderOAuthContextNotice_() {
+        try {
+          if (document.getElementById('motk-oauth-context-note')) return;
+          var note = document.createElement('div');
+          note.id = 'motk-oauth-context-note';
+          note.textContent = 'OAuth dialog context detected. This is not the main MOTK app page.';
+          note.style.cssText = [
+            'margin:8px 12px',
+            'padding:8px 10px',
+            'border:1px solid #e3c98c',
+            'background:#fff7e6',
+            'color:#6a4a00',
+            'border-radius:6px',
+            'font-size:12px',
+            'line-height:1.4'
+          ].join(';');
+          var host = document.getElementById('main-content') || document.body;
+          var resumeUrl = sanitizeReturnUrl_(getStoredReturnUrl_());
+          if (resumeUrl) {
+            var wrap = document.createElement('div');
+            wrap.style.cssText = 'margin-top:6px;';
+            var link = document.createElement('a');
+            link.href = resumeUrl;
+            link.textContent = 'Return to MOTK';
+            link.style.cssText = [
+              'display:inline-block',
+              'padding:6px 8px',
+              'border:1px solid #e3c98c',
+              'border-radius:6px',
+              'text-decoration:none',
+              'color:#6a4a00',
+              'background:#fff3cc',
+              'font-size:12px'
+            ].join(';');
+            wrap.appendChild(link);
+            note.appendChild(wrap);
+            setTimeout(function () {
+              try { window.location.href = resumeUrl; } catch (_) { }
+            }, 250);
+          }
+          if (host && host.firstChild) host.insertBefore(note, host.firstChild);
+          else if (host) host.appendChild(note);
+        } catch (_) { }
+      }
+
+      var boot = ensureBootStore_();
+      var params = readQueryParams_();
+      var createOAuth = String(params.createOAuthDialog || '').toLowerCase();
+      var isOAuth = (createOAuth === 'true' || createOAuth === '1') && !hasBootRouteHint_(params) && !hasStoredViewerState_();
+      if (!isOAuth && (createOAuth === 'true' || createOAuth === '1')) {
+        stripCreateOAuthDialogParam_();
+        params.createOAuthDialog = '';
+      }
+      updateBootContext_({
+        href: (location && location.href) ? location.href : '',
+        query: params,
+        isOAuthDialogContext: isOAuth,
+        scriptUrlBridge: global.__SCRIPT_URL__ || global.SCRIPT_URL || global.scriptUrl || '',
+        pageHint: (document.body && document.body.dataset && (document.body.dataset.navPage || document.body.dataset.page)) || '',
+        entityHint: (document.body && document.body.dataset && (document.body.dataset.navEntity || document.body.dataset.entity)) || ''
+      });
+
+      boot.updateContext = updateBootContext_;
+      boot.updateDiag = updateBootDiag_;
+      boot.updateTiming = updateBootTiming_;
+      boot.updateCache = updateBootCache_;
+      boot.setFallback = setBootFallback_;
+      boot.persist = function () { persistBootSnapshot_(boot); };
+      global.__MOTK_BOOT__ = boot;
+
+      if (isOAuth) {
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', renderOAuthContextNotice_, { once: true });
+        } else {
+          renderOAuthContextNotice_();
+        }
+      }
+    })(window);
+
+    /* --- 2.runtime utils --- */
+    window.raf = window.raf || function (fn) { return (window.requestAnimationFrame || setTimeout)(fn, 16); };
+    window.pumpOnce = window.pumpOnce || function (fn) {
+      if (typeof fn === 'function') return setTimeout(fn, 0);
+      return setTimeout(function () { }, 0); // HTMLDocument 等が渡っても無害化
+    };
+
+    /* --- 3.nav (#pNav をSPA遷移に統一) --- */
+    (function () {
+      function getParamPid(href) {
+        try { var u = new URL(href, location.origin); return (u.searchParams.get('page') || '').trim(); }
+        catch (_) { return ''; }
+      }
+      function currentPid() {
+        try { return (new URLSearchParams(location.search).get('page') || '').trim(); }
+        catch (_) { return ''; }
+      }
+      function setActiveNav() {
+        // [FIX] Entity-based highlighting
+        var usp = new URLSearchParams(location.search);
+        var curE = (usp.get('e') || usp.get('entity') || '').trim().toLowerCase();
+
+        // Fallback to body dataset if URL is empty (e.g. initial load or server context)
+        if (!curE && document.body && document.body.dataset) {
+          curE = (document.body.dataset.navEntity || '').trim().toLowerCase();
+        }
+
+        // Also check page param for detail pages (pg_xxx)
+        var curP = (usp.get('page') || usp.get('p') || '').trim();
+
+        var nav = document.getElementById('pNav'); if (!nav) return;
+        var as = nav.querySelectorAll('a[href]');
+
+        for (var i = 0; i < as.length; i++) {
+          var a = as[i];
+          a.classList.remove('active');
+
+          // Check entity match first
+          var linkE = (a.dataset.entity || '').trim().toLowerCase();
+          if (!linkE) {
+            // Try to extract from href if data-entity missing
+            var href = a.getAttribute('href');
+            var u = new URL(href, location.origin);
+            linkE = (u.searchParams.get('e') || u.searchParams.get('entity') || '').trim().toLowerCase();
+          }
+
+          if (curE && linkE && curE === linkE) {
+            a.classList.add('active');
+            continue;
+          }
+
+          // Fallback to page match (for non-entity pages)
+          var linkP = a.dataset.page || getParamPid(a.getAttribute('href')) || '';
+          if (curP && linkP && curP === linkP) {
+            a.classList.add('active');
+          }
+        }
+      }
+      // [FIX] Disabled SPA navigation. Links are now standard HTML anchors.
+      // function navigateTo(pid, entHint){ ... } 
+
+      window.enableSpaNav = function enableSpaNav() {
+        var nav = document.getElementById('pNav'); if (!nav) return;
+        var as = nav.querySelectorAll('a[href]');
+        for (var i = 0; i < as.length; i++) {
+          var a = as[i];
+          // Just ensure data attributes are set for styling/logic if needed, but NO click interception
+          var pid = a.dataset.page || getParamPid(a.getAttribute('href')) || '';
+          if (!pid) continue;
+          a.dataset.page = pid;
+          if (!a.dataset.entity) {
+            a.dataset.entity = a.getAttribute('data-entity') || pageToEntity(pid);
+          }
+        }
+        setActiveNav();
+        // [FIX] No popstate listener needed for full reload
+      };
+      function autoEnableNav() {
+        try { window.enableSpaNav && window.enableSpaNav(); } catch (_) { }
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', autoEnableNav, { once: true });
+      } else {
+        autoEnableNav();
+      }
+    })();
+
+
+
+    /* --- 5.Init --- */
+    document.addEventListener("DOMContentLoaded", function () {
+      pumpOnce(function () { }); // レガシー互換のダミー1tick
+    }, { once: true });
+
+  })();
+
+</script>
+
+
+<!-- ===== 12.detail-popover-dom ===== -->
+<script>
+  (function () {
+    "use strict";
+
+    // 共通レンダラ呼び出し
+    function renderFieldInto(node, field, row) {
+      if (!node) return;
+      var ctx = { el: node, field: field, row: row };
+      if (typeof window.renderFieldCell === 'function') {
+        try { window.renderFieldCell(ctx); return; } catch (_) { }
+      }
+      // フォールバック
+      node.textContent = row && field && (row[field.field_name] || row[field.name] || '') || '';
+    }
+
+    // detailカード生成時に shotview を含む全フィールドで共通レンダラを適用
+    window.renderDetailCard = function (cardEl, fieldDef, rowData) {
+      if (!cardEl) return;
+      var target = cardEl.querySelector('[data-slot="value"]') || cardEl;
+      renderFieldInto(target, fieldDef, rowData);
+    };
+  })();
+</script>
+<!-- ===== 12. End ===== -->
+
+
+
+<!-- ===== 13.detail-edit-init ===== -->
+<script>
+  (function () {
+    var log = {
+      info: function () {
+        console.log.apply(console, ["[detail-edit-init]"].concat([].slice.call(arguments)));
+      },
+      warn: function () {
+        console.warn.apply(console, ["[detail-edit-init]"].concat([].slice.call(arguments)));
+      }
+    };
+
+    // Legacy detail 判定：旧 #detailBar / #detail-root / main[data-detail-root] があり、
+    // かつ body.detail-page (v2) ではないページのみを対象にする
+    function isLegacyDetailPage() {
+      var hasLegacyRoot = !!document.querySelector(
+        "#detailBar, #detail-root, main[data-detail-root]"
+      );
+      var isV2 = !!(document.body && document.body.classList.contains("detail-page"));
+      return hasLegacyRoot && !isV2;
+    }
+
+    function applyTopOffset() {
+      var detailBar = document.querySelector("#detailBar");
+      if (detailBar) {
+        var rect = detailBar.getBoundingClientRect();
+        var root =
+          document.querySelector("#detail-root") ||
+          document.querySelector("main[data-detail-root]");
+        if (root) {
+          root.style.paddingTop = rect.height + "px";
+        }
+      }
+    }
+
+    function bindToolbar() {
+      var toggle = document.querySelector("#toggleLayout");
+      if (!toggle) {
+        log.warn("toggleLayout button not found; skip binding");
+        return;
+      }
+      toggle.addEventListener("click", function () {
+        var body = document.body;
+        var editing = body.classList.toggle("layout-edit");
+        toggle.textContent = editing ? "EDIT MODE" : "VIEW MODE";
+        log.info("layout-edit:", editing);
+      });
+    }
+
+    function ensureGridstack() {
+      var gridstackWrap = document.querySelector("#gridstackWrap");
+      var GS = window.GridStack;
+      if (!gridstackWrap) {
+        log.warn("#gridstackWrap not found; skip GridStack init");
+        return;
+      }
+      if (!GS) {
+        log.info("GridStack not found on window; maybe not loaded on this page; skip");
+        return;
+      }
+      if (gridstackWrap.dataset.gsReady === "1") {
+        log.info("GridStack already initialized; skip");
+        return;
+      }
+      GS.init({}, gridstackWrap);
+      gridstackWrap.dataset.gsReady = "1";
+      log.info("GridStack initialized");
+    }
+
+    function start() {
+      // v2 Detail (body.detail-page) の場合は完全にスキップする
+      if (document.body && document.body.classList.contains("detail-page")) {
+        log.info(".detail-page detected; skip legacy detail-edit-init");
+        return;
+      }
+
+      if (!isLegacyDetailPage()) {
+        // そもそも legacy detail でなければ何もしない
+        return;
+      }
+
+      applyTopOffset();
+      bindToolbar();
+      ensureGridstack();
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", start);
+    } else {
+      start();
+    }
+  })();
+</script>
+<!-- ===== 13.detail-edit-init End ===== -->
+
+
+
+<!-- ===== 14.modal-center-init ===== -->
+<script>
+  /* Modal: cards を確実に表示。外側クリックで閉じる。Cancel類も閉じる。 */
+  (function () {
+    "use strict";
+
+    var BD_ID = 'motk-modal-backdrop';
+
+    function $(s, r) { return (r || document).querySelector(s); }
+    function $all(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
+    function isDetail() { return !!document.querySelector('#detailBar, .detail-page, #detail-root, main[data-detail-root]'); }
+
+    function ensureStyle() {
+      if (document.getElementById('motk-modal-style')) return;
+      var st = document.createElement('style'); st.id = 'motk-modal-style';
+      st.textContent = [
+        '.motk-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10001;display:none;pointer-events:none;}',
+        'body.motk-modal-open .motk-modal-backdrop{display:block;pointer-events:auto;}',
+        '.motk-center-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10003;max-width:90vw;max-height:85vh;overflow:auto;}',
+        'body.motk-modal-open{overflow:hidden;}'
+      ].join('');
+      document.head.appendChild(st);
+    }
+    function ensureBackdrop() {
+      var bd = document.getElementById(BD_ID);
+      if (!bd) { bd = document.createElement('div'); bd.id = BD_ID; bd.className = 'motk-modal-backdrop'; document.body.appendChild(bd); }
+      return bd;
+    }
+    function guardInsideClick(m) {
+      if (!m || m.__motk_guarded) return;
+      m.__motk_guarded = true;
+      m.addEventListener('click', function (e) { e.stopPropagation(); }, true);
+    }
+    function hoistToBody(m) {
+      if (!m) return m;
+      if (m.parentElement !== document.body) {
+        var ph = document.createComment('hoisted:' + (m.id || m.getAttribute('data-modal') || 'modal'));
+        m.__motk_placeholder = ph;
+        m.parentElement && m.parentElement.insertBefore(ph, m);
+        document.body.appendChild(m);
+      }
+      return m;
+    }
+    function center(m) {
+      if (!m) return;
+      m.classList.add('motk-center-modal');
+      // 最低限の視認サイズ（ゼロ寸対策）
+      if (!m.style.minWidth) m.style.minWidth = '320px';
+      if (!m.style.minHeight) m.style.minHeight = '160px';
+      // 面積0なら一時的に内容包む
+      var r = m.getBoundingClientRect();
+      if ((r.width < 2 || r.height < 2) && !m.__motk_wrap) {
+        var wrap = document.createElement('div'); wrap.style.padding = '16px';
+        while (m.firstChild) wrap.appendChild(m.firstChild);
+        m.appendChild(wrap); m.__motk_wrap = wrap;
+      }
+    }
+    function show(m) {
+      if (!m) return false;
+      ensureStyle(); ensureBackdrop(); hoistToBody(m); center(m); guardInsideClick(m);
+      m.setAttribute('aria-hidden', 'false'); m.style.display = '';
+      document.body.classList.add('motk-modal-open');
+      return true;
+    }
+    function hide(m) {
+      if (m) { m.setAttribute('aria-hidden', 'true'); m.style.display = 'none'; }
+      if (!$('.motk-center-modal[aria-hidden="false"]')) document.body.classList.remove('motk-modal-open');
+    }
+
+    // Cards候補を網羅的に探索
+    function resolveCards() {
+      var cands = [
+        '[data-modal="cards"]', '#cardsModal', '.cards-modal',
+        '.modal#cards', '.modal.cards',
+        '.modal[aria-label*="cards" i]', '.modal [data-role="cards-modal"]'
+      ];
+      for (var i = 0; i < cands.length; i++) { var n = $(cands[i]); if (n) return n; }
+      // 最後の保険: ボタンの data-target / aria-controls 参照
+      var b = $('#cardsBtn'); if (b) {
+        var sel = b.getAttribute('data-modal-target') || b.getAttribute('data-target') || b.getAttribute('aria-controls');
+        if (sel) { var n = $(sel); if (n) return n; }
+      }
+      return null;
+    }
+
+    function wire() {
+      if (!isDetail()) return;
+
+      var bd = ensureBackdrop();
+      bd.onclick = function () {
+        var m = $('.motk-center-modal[aria-hidden="false"], .modal[aria-hidden="false"]');
+        hide(m);
+      };
+
+      // Cards
+      var btnCards = $('#cardsBtn');
+      if (btnCards) {
+        btnCards.addEventListener('click', function (e) {
+          e.preventDefault();
+          var m = resolveCards();
+          if (!m) { document.body.classList.remove('motk-modal-open'); return; }
+          var hidden = (m.getAttribute('aria-hidden') !== 'false') && (getComputedStyle(m).display === 'none');
+          if (hidden) show(m); else hide(m);
+        }, { passive: false });
+      }
+
+      // Save/その他: [data-modal-target="#sel"]
+      document.addEventListener('click', function (e) {
+        var t = e.target.closest('[data-modal-target]');
+        if (!t) return;
+        e.preventDefault();
+        var sel = t.getAttribute('data-modal-target'); if (!sel) return;
+        var m = $(sel); if (!m) { document.body.classList.remove('motk-modal-open'); return; }
+        var hidden = (m.getAttribute('aria-hidden') !== 'false') && (getComputedStyle(m).display === 'none');
+        if (hidden) show(m); else hide(m);
+      }, false);
+
+      // Cancel/Close: 代表的シグナルをすべて閉じるに割当
+      document.addEventListener('click', function (e) {
+        var t = e.target.closest('[data-modal-close], [data-dismiss="modal"], .modal .close, .btn-cancel, .js-cancel, button[name="cancel"]');
+        if (!t) return;
+        e.preventDefault();
+        var m = t.closest('.motk-center-modal, .modal');
+        hide(m);
+      }, false);
+
+      // 内側クリックで閉じる古いハンドラに勝つ
+      $all('.modal,.motk-center-modal').forEach(guardInsideClick);
+
+      // リサイズで再センター
+      window.addEventListener('resize', function () {
+        var m = $('.motk-center-modal[aria-hidden="false"]'); if (m) center(m);
+      }, { passive: true });
+    }
+
+    if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', wire, { once: true }); }
+    else { wire(); }
+  })();
+</script>
+<!-- ===== 14. End ===== -->
+
+
+
+
+<!-- ===== 14b.backdrop-safety ===== -->
+<script>
+  (function () {
+    "use strict";
+    // detail遷移直後や戻り時に残る全画面オーバーレイを定期的に無効化
+    var T = null;
+    function sweep() {
+      try {
+        var maxZ = -1, culprit = null;
+        document.querySelectorAll('body > *').forEach(function (n) {
+          var cs = getComputedStyle(n);
+          if (!cs) return;
+          var z = parseInt(cs.zIndex || '0', 10);
+          var full = cs.position === 'fixed' && cs.left === '0px' && cs.top === '0px' && cs.right === '0px' && cs.bottom === '0px';
+          var opaque = parseFloat(cs.opacity || '1') > 0.01 && (cs.display !== 'none' && cs.visibility !== 'hidden');
+          if (full && opaque && z > maxZ) {
+            maxZ = z; culprit = n;
+          }
+        });
+        // 既知のモーダル以外で、全画面を覆っていたら無効化
+        if (culprit && !culprit.classList.contains('motk-center-modal') && !culprit.classList.contains('motk-modal-backdrop')) {
+          culprit.style.pointerEvents = 'none';
+          // 透過だけして視覚崩れを避ける
+          culprit.style.opacity = '0';
+        }
+      } catch (_) { }
+    }
+    function start() {
+      if (T) return;
+      T = setInterval(sweep, 500);
+    }
+    function stop() {
+      if (!T) return;
+      clearInterval(T); T = null;
+    }
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') start(); else stop();
+    });
+    // 初回
+    start();
+  })();
+</script>
+<!-- ===== 14b. End ===== -->
+
+<!-- ===== 41.detail-dom-normalize ===== -->
+<script>
+  (function () {
+    "use strict";
+
+    function isDetail() {
+      return !!document.querySelector("#detailBar,[data-detail-root],.detail-page,main[data-detail-root]");
+    }
+
+    function killSpacers() {
+      document.querySelectorAll(".spacer-top").forEach(function (n) {
+        try {
+          if (n.parentNode) n.parentNode.removeChild(n);
+        } catch (_) { }
+      });
+    }
+
+    // スクロール帯やオーバーレイがクリックを食わないようにする
+    function relaxTopBands() {
+      ["#hScroll", ".top-band", ".grid-top-gap", ".grid-overlay"].forEach(function (sel) {
+        var el = document.querySelector(sel);
+        if (!el) return;
+
+        // 画面上部にかぶさる帯だけを対象にする
+        var r = el.getBoundingClientRect();
+        var fullWidth = (r.width >= (window.innerWidth * 0.9));
+        var nearTop = (r.top <= 4);
+
+        if (fullWidth && nearTop) {
+          // 完全に消すとレイアウトが崩れるリスクがあるので、
+          // まずクリックだけ殺す。視覚的に邪魔なら display:none に変更。
+          el.style.pointerEvents = "none";
+          el.style.backgroundColor = "transparent";
+        }
+      });
+    }
+
+    function liftGrid() {
+      var grid = document.querySelector("#gridstackWrap") ||
+        document.querySelector("#grid") ||
+        document.querySelector(".grid-stack");
+      if (grid) {
+        grid.style.marginTop = "0";
+        grid.style.top = "0";
+      }
+    }
+
+    function init() {
+      if (!isDetail()) return;
+      killSpacers();
+      relaxTopBands();
+      liftGrid();
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", init, { once: true });
+    } else {
+      init();
+    }
+
+    window.addEventListener("resize", function () {
+      if (isDetail()) liftGrid();
+    }, { passive: true });
+
+  })();
+  /* ===== 41. End ===== */
+</script>
