@@ -11,7 +11,9 @@
       --bg-app: #0e0e10; --bg-panel: #18181b; --bg-header: #121214;
       --border-color: #2a2a2e; --grid-line: #222225; --grid-line-strong: #3f3f46;
       --accent-blue: #2563eb; --select-gold: #fbbf24; --text-main: #e4e4e7; --text-dim: #71717a;
-      --header-h: 36px; --axis-w: 60px; --lane-w: 140px;
+      --header-h: 36px; --axis-w: 60px; --lane-w: 65px;
+      --asset-col-w: 65px;
+      --sched-inspector-w: 320px;
     }
     body { background: var(--bg-app); color: var(--text-main); font-family: sans-serif; height: 100vh; overflow: hidden; margin:0; user-select:none; }
     #app-root { display: flex; flex-direction: column; height: 100%; }
@@ -24,21 +26,46 @@
     .btn { background: #27272a; border: 1px solid #3f3f46; color: #eee; padding: 4px 10px; font-size: 11px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
     .btn:hover { background: #3f3f46; }
     .inp-dark { background: #000; border: 1px solid #333; color: #fff; font-size: 11px; padding: 3px 6px; border-radius: 4px; }
-
+    .toolbar-group { position: relative; display: inline-flex; align-items: center; }
+    .toolbar-pop {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      min-width: 260px;
+      max-width: min(360px, calc(100vw - 24px));
+      max-height: min(70vh, calc(100vh - 76px));
+      background: #111214;
+      border: 1px solid #2f3136;
+      border-radius: 8px;
+      box-shadow: 0 10px 24px rgba(0,0,0,0.45);
+      padding: 8px;
+      z-index: 140;
+      overflow: auto;
+      display: none;
+    }
+    .toolbar-pop.open { display: block; }
+    .toolbar-pop .pop-title { font-size: 10px; color: #8b8f98; margin: 0 0 6px; letter-spacing: 0.02em; }
+    .toolbar-pop .pop-grid { display: grid; gap: 8px; }
+    .toolbar-pop .pop-row { display: flex; align-items: center; gap: 8px; }
+    .toolbar-pop .pop-row label { font-size: 10px; color: #a4a8b0; min-width: 64px; }
+    #lane-menu-list { display: grid; gap: 4px; }
+    .lane-row-controls { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+    .lane-row-btn { width: 22px; height: 20px; padding: 0; line-height: 1; font-size: 10px; }
     /* Layout */
     #main { flex: 1; display: flex; overflow: hidden; position: relative; }
     #grid-wrap { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
     /* Headers */
     #lane-header-scroll { height: var(--header-h); display: flex; overflow: hidden; background: var(--bg-panel); border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
-    #year-corner { width: var(--axis-w); flex-shrink: 0; border-right: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: var(--accent-blue); background: var(--bg-header); z-index: 20; }
+    #year-corner { width: var(--axis-w); flex-shrink: 0; border-right: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: var(--accent-blue); background: var(--bg-header); z-index: 40; position: sticky; left: 0; }
     #lane-headers { display: flex; }
     .lane-header-cell { width: var(--lane-w); flex-shrink: 0; border-right: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #a1a1aa; overflow: hidden; white-space: nowrap; }
+    .lane-header-cell.assets-col { width: var(--asset-col-w); color: #d1d5db; background: #15151a; justify-content: flex-start; padding-left: 8px; }
 
     /* Grid Body */
     #grid-scroll { flex: 1; overflow: auto; display: flex; position: relative; }
-    #date-axis { width: var(--axis-w); flex-shrink: 0; background: var(--bg-header); border-right: 1px solid var(--border-color); position: sticky; left: 0; z-index: 10; min-height: 100%; }
-    .date-cell { border-bottom: 1px solid var(--grid-line-strong); display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: #71717a; box-sizing: border-box; position: relative; }
+    #date-axis { width: var(--axis-w); flex-shrink: 0; background: var(--bg-header); border-right: 1px solid var(--border-color); position: sticky; left: 0; z-index: 30; min-height: 100%; }
+    .date-cell { border-bottom: 1px solid var(--grid-line-strong); display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: #71717a; box-sizing: border-box; position: relative; background: var(--bg-header); }
     .date-cell.today { background: rgba(37,99,235,0.08); color: #fff; }
     .d-main { font-size: 13px; font-weight: 700; color: #e4e4e7; line-height: 1.1; }
     .d-sub { font-size: 10px; color: #a1a1aa; line-height: 1.1; }
@@ -49,10 +76,38 @@
     /* Canvas */
     #grid-canvas { position: relative; display: flex; min-height: 100%; }
     .lane-col-bg { width: var(--lane-w); flex-shrink: 0; border-right: 1px solid var(--border-color); height: 100%; box-sizing: border-box; }
+    .asset-col-bg { width: var(--asset-col-w); flex-shrink: 0; border-right: 1px solid var(--border-color); height: 100%; box-sizing: border-box; background: rgba(16, 16, 20, 0.95); }
+    .asset-cell {
+      position: absolute;
+      left: 0;
+      box-sizing: border-box;
+      border-bottom: 1px solid #2a2a2e;
+      border-left: 1px solid #2a2a2e;
+      border-right: 1px solid #2a2a2e;
+      overflow: hidden;
+      background: rgba(20, 20, 26, 0.9);
+      pointer-events: auto;
+      cursor: pointer;
+      color: transparent;
+      font-size: 0;
+      line-height: 0;
+    }
+    .asset-cell * { display: none !important; }
+    .asset-cell.has-assets {
+      background: rgba(37, 99, 235, 0.2);
+    }
+    .asset-cell.over {
+      background: rgba(127, 29, 29, 0.42);
+      border-color: #7f1d1d;
+    }
+    .asset-cell.selected {
+      outline: 2px solid #fbbf24;
+      outline-offset: -2px;
+    }
     .week-sep { position: absolute; left: 0; right: 0; height: 2px; background: #52525b; z-index: 2; pointer-events: none; }
 
     /* Cards */
-    .card { position: absolute; width: calc(var(--lane-w) - 6px); background: #2563eb; border-radius: 3px; font-size: 10px; color: #fff; padding: 2px 4px; overflow: hidden; cursor: grab; z-index: 5; box-shadow: 0 1px 3px rgba(0,0,0,0.5); display: flex; flex-direction: column; justify-content: center; }
+    .card { position: absolute; width: calc(var(--lane-w) - 10px); background: #2563eb; border-radius: 3px; font-size: 10px; color: #fff; padding: 2px 4px; overflow: hidden; cursor: grab; z-index: 5; box-shadow: 0 1px 3px rgba(0,0,0,0.5); display: flex; flex-direction: column; justify-content: center; }
     .card.selected { border: 1px solid #fbbf24; z-index: 20; }
     .card.unsaved { border: 1px dashed #f59e0b; }
     .card:hover { z-index: 15; background: #3b82f6; }
@@ -62,10 +117,34 @@
     .card .c-id { position: absolute; top: 2px; left: 4px; font-size: 10px; opacity: 0.85; }
     .card .c-main { text-align: center; font-weight: 700; font-size: 12px; }
     .card .c-sub { text-align: center; font-size: 9px; opacity: 0.8; margin-top: 2px; }
+    .card.asset-conflict { background: #b91c1c; border: 1px solid #fca5a5; }
+    .card.asset-conflict:hover { background: #dc2626; }
+    .gap-marker {
+      position: absolute;
+      width: calc(var(--lane-w) - 10px);
+      border: 1px dashed #f59e0b;
+      background: rgba(245, 158, 11, 0.14);
+      border-radius: 3px;
+      z-index: 4;
+      pointer-events: none;
+    }
+    .lane-boundary-line {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: #616b7a;
+      pointer-events: none;
+      z-index: 3;
+      opacity: 0.7;
+    }
 
     /* Inspector */
-    #inspector { width: 280px; background: var(--bg-panel); border-left: 1px solid var(--border-color); display: flex; flex-direction: column; transition: margin-right 0.2s; flex-shrink: 0; }
-    #inspector.closed { margin-right: -280px; }
+    #inspector { width: var(--sched-inspector-w); flex: 0 0 var(--sched-inspector-w); background: var(--bg-panel); border-left: 1px solid var(--border-color); display: flex; flex-direction: column; overflow: auto; min-width: 260px; max-width: 720px; transition: width 0.2s, flex-basis 0.2s; user-select: text; -webkit-user-select: text; }
+    #inspector.closed { width: 0 !important; flex-basis: 0 !important; min-width: 0 !important; padding: 0 !important; border: 0 !important; overflow: hidden !important; }
+    #inspector-resizer { width: 6px; cursor: ew-resize; flex: 0 0 6px; background: transparent; }
+    #inspector-resizer:hover { background: rgba(255,255,255,0.06); }
+    #main.inspector-closed #inspector-resizer { display: none; }
     .ins-tabs { display: flex; border-bottom: 1px solid var(--border-color); background: var(--bg-header); height: 32px; }
     .ins-tab { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent; }
     .ins-tab.active { color: #fff; border-bottom-color: var(--accent-blue); background: var(--bg-panel); }
@@ -73,11 +152,73 @@
     .hidden { display: none !important; }
     .inp-group { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: #a1a1aa; }
     .inp { background: #000; border: 1px solid #333; color: #eee; padding: 6px 8px; border-radius: 4px; width: 100%; box-sizing: border-box; }
+    .date-wrap { position: relative; width: 100%; }
+    .date-wrap .inp { padding-right: 28px; }
+    .date-picker-overlay { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; border: none; background: transparent; color: transparent; padding: 0; margin: 0; }
+    .date-picker-overlay::-webkit-datetime-edit { color: transparent; }
+    .date-picker-overlay::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.9; }
+    .date-picker-overlay { color-scheme: light; }
 
     /* Overlays */
-    #lane-menu-popup { position: absolute; top: 40px; left: 200px; background: #18181b; border: 1px solid #333; padding: 5px; display: none; z-index: 100; max-height: 300px; overflow: auto; width: 220px; }
-    #lane-menu-popup.show { display: block; }
+    .settings-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 120; display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .settings-modal.hidden { display: none; }
+    .settings-panel { width: min(960px, 96vw); max-height: 92vh; overflow: auto; background: #17171a; border: 1px solid #333; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.45); }
+    .settings-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid #2c2c30; background: #121214; position: sticky; top: 0; z-index: 1; }
+    .settings-title { font-size: 13px; font-weight: 700; color: #fff; }
+    .settings-body { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; }
+    .settings-section { border: 1px solid #2d2d31; border-radius: 8px; padding: 10px; background: #1c1c20; display: flex; flex-direction: column; gap: 8px; }
+    .settings-section h4 { margin: 0; font-size: 12px; color: #ddd; letter-spacing: 0.03em; }
+    .settings-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .settings-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .settings-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 12px 12px; }
     .lane-row { display: flex; gap: 6px; padding: 4px; border-bottom: 1px solid #222; font-size: 11px; align-items: center; }
+    .list-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-bottom: 1px solid #222; cursor: pointer; font-size: 11px; line-height: 1.2; flex-wrap: nowrap; }
+    .list-item.unassigned .li-title { color: #ef4444; }
+    .list-item.attention .li-title { color: #ef4444; }
+    .li-left { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; flex-wrap: nowrap; }
+    .li-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 auto; }
+    .li-sub { font-size: 10px; color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
+    .li-lane { font-size: 10px; padding: 2px 6px; border: 1px solid #333; border-radius: 4px; color: #aaa; white-space: nowrap; max-width: 40%; overflow: hidden; text-overflow: ellipsis; flex: 0 0 auto; text-align: right; margin-left: auto; }
+    .list-item.unassigned .li-lane { color: #ef4444; border-color: #ef4444; }
+    .list-item.attention .li-lane { color: #ef4444; border-color: #ef4444; }
+    .task-suggest-box {
+      position: absolute;
+      left: 0;
+      right: 34px;
+      top: calc(100% + 2px);
+      z-index: 25;
+      max-height: 200px;
+      overflow: auto;
+      border: 1px solid #3a3a3f;
+      border-radius: 6px;
+      background: #0f0f12;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+      display: none;
+    }
+    .task-suggest-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      border: 0;
+      border-bottom: 1px solid #242428;
+      background: transparent;
+      color: #e7e7ea;
+      font-size: 11px;
+      line-height: 1.25;
+      padding: 6px 8px;
+      cursor: pointer;
+    }
+    .task-suggest-item:hover,
+    .task-suggest-item:focus {
+      background: #1f2937;
+      outline: none;
+    }
+    .task-suggest-item .id {
+      display: inline-block;
+      min-width: 72px;
+      color: #93c5fd;
+      margin-right: 6px;
+    }
 
     #saveStatus { font-size: 10px; font-weight: bold; margin-right: 10px; opacity: 0; transition: opacity 0.5s; }
     #saveStatus.saving { color: #fbbf24; opacity: 1; }
@@ -94,47 +235,112 @@
 <div id="app-root">
   <div id="toolbar">
     <div class="brand">
-      <a id="brand-link" href="./exec" target="_blank">MOTK <span>SCHED</span></a>
-      <span id="sched-name-display" style="color:#a1a1aa; margin-left:8px; cursor:pointer; font-size:12px;">Schedule</span>
+      <a id="brand-link" href="<?= ScriptApp.getService().getUrl() ?>" target="_blank">MOTK <span>SCHED</span></a>
       <select id="sched-switch" class="inp-dark" style="margin-left:8px; min-width:140px;"></select>
     </div>
 
     <div id="config-info" style="display:flex; gap:4px;"></div>
 
-    <div class="control-group" style="margin-left:10px;">
-       <select id="sel-preset" class="inp-dark" style="width:90px;">
-          <option value="today">Today</option>
-          <option value="yesterday">Yesterday</option>
-          <option value="tomorrow">Tomorrow</option>
-          <option value="monday">This Mon</option>
-       </select>
-       <select id="sel-range" class="inp-dark" style="width:90px;">
-          <option value="14">2 Weeks</option>
-          <option value="30">1 Month</option>
-          <option value="90">3 Months</option>
-          <option value="180">6 Months</option>
-          <option value="365">1 Year</option>
-          <option value="730">2 Years</option>
-       </select>
-    </div>
-
-    <div class="control-group" style="display:flex; align-items:center; gap:4px; background:#222; padding:2px 6px; border-radius:4px; margin-left:8px;">
-      <label style="font-size:9px; color:#888;">ZOOM</label>
-      <input id="inp-zoom" type="range" min="1" max="200" value="60" style="width:90px">
-      <input id="inp-zoom-val" type="number" value="60" class="inp-dark" style="width:50px; text-align:center;">
-    </div>
-
-    <label style="font-size:10px; color:#aaa; display:flex; gap:4px; align-items:center; margin-left:10px;">
-       <input type="checkbox" id="chk-push"> Auto-Push
-    </label>
-
-    <button id="btn-lanes" class="btn" style="margin-left:10px;">Lanes ▾</button>
-    <div id="lane-menu-popup"></div>
-
     <div style="flex:1"></div>
+    <div class="toolbar-group">
+      <button id="btn-view" class="btn" title="View">VIEW</button>
+      <div id="view-menu-popup" class="toolbar-pop">
+        <div class="pop-title">View</div>
+        <div class="pop-grid">
+          <div class="pop-row">
+            <label for="sel-start-preset">Start</label>
+            <select id="sel-start-preset" class="inp-dark" style="width:130px;">
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="tomorrow">Tomorrow</option>
+              <option value="this_monday">This Monday</option>
+              <option value="next_monday">Next Monday</option>
+              <option value="custom">Custom</option>
+            </select>
+            <input id="start-date" class="inp-dark" type="text" list="start-date-suggest" placeholder="YYYY/MM/DD or today" style="flex:1;">
+            <datalist id="start-date-suggest">
+              <option value="today"></option>
+              <option value="yesterday"></option>
+              <option value="tomorrow"></option>
+              <option value="this monday"></option>
+              <option value="next monday"></option>
+              <option value="<?= Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy/MM/dd") ?>"></option>
+            </datalist>
+          </div>
+          <div class="pop-row">
+            <label for="sel-end-preset">End</label>
+            <select id="sel-end-preset" class="inp-dark" style="width:130px;">
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="tomorrow">Tomorrow</option>
+              <option value="this_monday">This Monday</option>
+              <option value="next_monday">Next Monday</option>
+              <option value="custom">Custom</option>
+            </select>
+            <input id="end-date" class="inp-dark" type="text" list="end-date-suggest" placeholder="YYYY/MM/DD or today" style="flex:1;">
+            <datalist id="end-date-suggest">
+              <option value="today"></option>
+              <option value="yesterday"></option>
+              <option value="tomorrow"></option>
+              <option value="this monday"></option>
+              <option value="next monday"></option>
+              <option value="<?= Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy/MM/dd") ?>"></option>
+            </datalist>
+          </div>
+          <div class="pop-row">
+            <label for="sel-range">Range</label>
+            <select id="sel-range" class="inp-dark" style="flex:1;">
+              <option value="1">1 Day</option>
+              <option value="5">1 Week</option>
+              <option value="14">2 Weeks</option>
+              <option value="30">1 Month</option>
+              <option value="90">3 Months</option>
+              <option value="180">6 Months</option>
+              <option value="365">1 Year</option>
+              <option value="730">2 Years</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div style="font-size:10px; color:#8b8f98;">Range / End: whichever you change later is applied.</div>
+          <div class="pop-row">
+            <label for="inp-zoom">Zoom</label>
+            <input id="inp-zoom" type="range" min="1" max="200" value="60" style="flex:1;">
+            <input id="inp-zoom-val" type="number" value="60" class="inp-dark" style="width:58px; text-align:center;">
+          </div>
+          <div class="pop-row" style="justify-content:flex-end;">
+            <button id="btn-view-fit" class="btn" type="button" title="Fit current Start/End in view">Fit</button>
+            <button id="btn-save-view" class="btn" type="button" title="Save current View settings">Save View</button>
+          </div>
+          <label style="font-size:11px; color:#aaa; display:flex; gap:6px; align-items:center;">
+            <input type="checkbox" id="chk-push"> Auto-Push
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="toolbar-group">
+      <button id="btn-lanes" class="btn" title="Lane Visibility">LANE</button>
+      <div id="lane-menu-popup" class="toolbar-pop">
+        <div class="pop-title">Lanes</div>
+        <div class="pop-grid" style="margin-bottom:6px;">
+          <div class="pop-row">
+            <label for="inp-lane-w">Lane W</label>
+            <input id="inp-lane-w" type="number" class="inp-dark" style="width:78px;">
+          </div>
+          <div class="pop-row">
+            <label for="inp-asset-w">Assets W</label>
+            <input id="inp-asset-w" type="number" class="inp-dark" style="width:78px;">
+          </div>
+          <div class="pop-row" style="justify-content:flex-end;">
+            <button id="btn-save-lane" class="btn" type="button" title="Save current Lane settings">Save Lane</button>
+          </div>
+        </div>
+        <div id="lane-menu-list"></div>
+      </div>
+    </div>
     <div id="saveStatus"></div>
     <button id="btn-reload" class="btn">Reload</button>
     <button id="btn-insp" class="btn">Insp</button>
+    <button id="btn-settings" class="btn" title="Settings">Settings</button>
   </div>
 
   <div id="main">
@@ -148,6 +354,8 @@
         <div id="grid-canvas"></div>
       </div>
     </div>
+
+    <div id="inspector-resizer" title="Resize Inspector"></div>
 
     <div id="inspector">
        <div class="ins-tabs">
@@ -170,6 +378,58 @@
   </div>
 </div>
 
+<div id="settings-modal" class="settings-modal hidden">
+  <div class="settings-panel">
+    <div class="settings-head">
+      <div class="settings-title">Scheduler Settings</div>
+      <button id="btn-settings-close" class="btn" type="button">Close</button>
+    </div>
+    <div class="settings-body">
+      <section class="settings-section">
+        <h4>Schedule Title</h4>
+        <div class="settings-grid-2">
+          <div class="inp-group">
+            <label for="sched-rename-input">Title</label>
+            <input id="sched-rename-input" class="inp-dark" type="text" placeholder="Schedule title">
+          </div>
+          <div style="display:flex; align-items:flex-end; justify-content:flex-end;">
+            <button id="btn-rename-sched-save" class="btn" type="button">Save Title</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <h4>Card Display</h4>
+        <div class="settings-grid-2">
+          <div class="inp-group">
+            <label for="sel-card-main">Main (center)</label>
+            <select id="sel-card-main" class="inp-dark">
+              <option value="shot_code">Shot Code</option>
+              <option value="shot_id">Shot ID</option>
+              <option value="task_name">Task Name</option>
+              <option value="task_status">Task Status</option>
+              <option value="task_assignee">Task Assignee</option>
+              <option value="task_id">Task ID</option>
+            </select>
+          </div>
+          <div class="inp-group">
+            <label for="sel-card-sub">Sub (bottom)</label>
+            <select id="sel-card-sub" class="inp-dark">
+              <option value="shot_code">Shot Code</option>
+              <option value="shot_id">Shot ID</option>
+              <option value="task_name">Task Name</option>
+              <option value="task_status">Task Status</option>
+              <option value="task_assignee">Task Assignee</option>
+              <option value="task_id">Task ID</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
 <div id="loadingSpinner">
   <div class="spinner"></div>
   <div style="color:#fff; font-size:11px; margin-top:10px;">Loading...</div>
@@ -181,16 +441,53 @@ window.app = (function() {
     slotMin: 30,
     workHours: 8,
     originDate: null,
+    originDisplayText: '',
     originAnchor: null,
     workStartH: 0
   };
 
   const state = {
     tasks: [], members: [], cards: {}, lanes: [],
+    tasksById: {},
     startDate: new Date(), dayCount: 14, slotPx: 20,
+    endDate: null, startPreset: 'custom', endPreset: 'custom', viewDriver: 'range',
     workDayMap: [], selection: null, autoPush: true, suppressClick: false,
-    schedId: 'sched_0001', schedName: 'Schedule', scriptUrl: '', viewMeta: {}, allScheds: []
+    schedId: 'sched_0001', schedName: 'Schedule', scriptUrl: (function(){ try { return location.origin + location.pathname; } catch (_) { return location.pathname || ''; } })(), scriptUrlServer: '', viewMeta: {}, allScheds: [],
+    laneWidth: 65,
+    assetColWidth: 65,
+    assetColumnVisible: true,
+    viewDirty: false,
+    laneDirty: false,
+    cardDisplayMain: 'shot_code',
+    cardDisplaySub: 'task_name',
+    assetCapacityById: {},
+    assetNameById: {},
+    assetCapacityDefault: 1,
+    assetUsageBySlot: {},
+    cardAssetConflictById: {},
+    assetUsageStats: { conflictSlots: 0, overloadedAssets: 0, affectedCards: 0 },
+    legacyOffsetWarned: false,
+    gapSelection: null,
+    assetCellSelection: null,
+    commitQueueByCard: {},
+    inspEdit: { active: false, cardId: null, fields: {}, dirty: {}, commitLock: false, isTyping: false, isEditingStart: false, isEditingEnd: false, needsResyncAfterEdit: false, refs: {}, timers: {} }
   };
+  const INSPECTOR_FIELDS_MODE_KEY = 'motk:scheduler:inspectorFieldsMode';
+  try {
+    const mode = localStorage.getItem(INSPECTOR_FIELDS_MODE_KEY);
+    state.inspectorFieldsMode = mode || 'card';
+  } catch (_) {
+    state.inspectorFieldsMode = 'card';
+  }
+
+  const SCHED_CACHE_KEY = 'MOTK_SCHED_CACHE_V2';
+  const SCHED_CACHE_TS_KEY = 'MOTK_SCHED_CACHE_TS_V2';
+  const SCHED_LOAD_DIAG_KEY = 'MOTK_SCHED_LOAD_DIAG_V1';
+  const SCHED_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
+  const INSPECTOR_WIDTH_KEY = 'motk:sched:inspectorW';
+  const INSPECTOR_MIN_W = 260;
+  const INSPECTOR_MAX_W = 720;
+  const INSPECTOR_NARROW_W = 300;
 
   const els = {
     gridScroll: document.getElementById('grid-scroll'),
@@ -201,8 +498,108 @@ window.app = (function() {
     yearCorner: document.getElementById('year-corner'),
     inspContent: document.getElementById('insp-content'),
     cardList: document.getElementById('card-list-container'),
-    configInfo: document.getElementById('config-info')
+    configInfo: document.getElementById('config-info'),
+    settingsModal: document.getElementById('settings-modal'),
+    viewMenuPopup: document.getElementById('view-menu-popup'),
+    laneMenuPopup: document.getElementById('lane-menu-popup')
   };
+
+  const setInspectorWidth_ = (w) => {
+    if (!w || !isFinite(w)) return;
+    const clamped = Math.max(INSPECTOR_MIN_W, Math.min(INSPECTOR_MAX_W, Math.round(w)));
+    document.documentElement.style.setProperty('--sched-inspector-w', `${clamped}px`);
+    const insp = document.getElementById('inspector');
+    if (insp) insp.classList.toggle('inspector-narrow', clamped < INSPECTOR_NARROW_W);
+    return clamped;
+  };
+  const setInspectorClosed_ = (closed) => {
+    const insp = document.getElementById('inspector');
+    const main = document.getElementById('main');
+    if (!insp || !main) return;
+    if (closed) {
+      insp.classList.add('closed');
+      main.classList.add('inspector-closed');
+    } else {
+      insp.classList.remove('closed');
+      main.classList.remove('inspector-closed');
+    }
+  };
+  const setSettingsModalOpen_ = (open) => {
+    var modal = els.settingsModal || document.getElementById('settings-modal');
+    if (!modal) return;
+    if (open) modal.classList.remove('hidden');
+    else modal.classList.add('hidden');
+  };
+  const closeToolbarMenus_ = () => {
+    if (els.viewMenuPopup) els.viewMenuPopup.classList.remove('open');
+    if (els.laneMenuPopup) els.laneMenuPopup.classList.remove('open');
+  };
+  const getToolbarMenu_ = (menuKey) => {
+    if (menuKey === 'view') return els.viewMenuPopup;
+    if (menuKey === 'lane') return els.laneMenuPopup;
+    return null;
+  };
+  const toggleToolbarMenu_ = (menuKey) => {
+    if (!menuKey) return;
+    const target = getToolbarMenu_(menuKey);
+    if (!target) return;
+    const willOpen = !target.classList.contains('open');
+    closeToolbarMenus_();
+    if (willOpen) target.classList.add('open');
+  };
+  const clearInspectorTimers_ = () => {
+    const edit = state.inspEdit;
+    if (!edit || !edit.timers) return;
+    try {
+      Object.keys(edit.timers).forEach((k) => {
+        const t = edit.timers[k];
+        if (t) clearTimeout(t);
+      });
+    } catch (_) {}
+    edit.timers = {};
+  };
+  const queueAssetInspectorRefresh_ = () => {
+    if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) return;
+    if (state.assetInspectorRefreshQueued) return;
+    state.assetInspectorRefreshQueued = true;
+    requestAnimationFrame(() => {
+      state.assetInspectorRefreshQueued = false;
+      if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) return;
+      state.assetCellSelection.rows = summarizeAssetsForRawRange_(
+        state.assetCellSelection.rawStart,
+        state.assetCellSelection.rawEnd
+      );
+      ui.renderInspector();
+    });
+  };
+  const initInspectorResizer_ = () => {
+    const resizer = document.getElementById('inspector-resizer');
+    const insp = document.getElementById('inspector');
+    if (!resizer || !insp) return;
+    resizer.addEventListener('mousedown', (e) => {
+      if (insp.classList.contains('closed')) return;
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = insp.getBoundingClientRect().width;
+      const onMove = (ev) => {
+        const dx = ev.clientX - startX;
+        const newW = startW - dx;
+        setInspectorWidth_(newW);
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        const finalW = insp.getBoundingClientRect().width;
+        try { localStorage.setItem(INSPECTOR_WIDTH_KEY, String(Math.round(finalW))); } catch (_) {}
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  };
+  try {
+    const savedW = Number(localStorage.getItem(INSPECTOR_WIDTH_KEY) || '');
+    if (isFinite(savedW) && savedW > 0) setInspectorWidth_(savedW);
+  } catch (_) {}
 
   if (els.gridScroll) {
     els.gridScroll.addEventListener('scroll', () => {
@@ -216,22 +613,33 @@ window.app = (function() {
   }
 
   const utils = {
-    dateToSlot: (d) => {
-      const anchor = config.originAnchor || config.originDate;
-      if (!d || !anchor) return 0;
-      return Math.floor((d.getTime() - anchor.getTime()) / (config.slotMin * 60000));
+    dateToSlot: (d, kind) => {
+      if (!d || isNaN(d)) return 1;
+      const dateStr = formatYmd_(d);
+      const mins = (d.getHours() * 60 + d.getMinutes()) - (config.workStartH * 60);
+      const rel = Math.round(mins / config.slotMin);
+      return utils.dateValToSlot(dateStr, rel + 1, kind || 'start');
     },
     slotToDate: (s) => {
       const anchor = config.originAnchor || config.originDate;
       if (!anchor) return new Date();
-      return new Date(anchor.getTime() + (s * config.slotMin * 60000));
+      const slot = Math.max(1, Math.round(Number(s) || 1));
+      return new Date(anchor.getTime() + ((slot - 1) * config.slotMin * 60000));
     },
     getSnapProps: (pxPer30) => {
-      if (pxPer30 >= 30) return { min: 30, label: '30m' };
-      if (pxPer30 >= 15) return { min: 60, label: '1h' };
-      if (pxPer30 >= 6) return { min: 120, label: '2h' };
-      if (pxPer30 >= 3) return { min: 240, label: '4h' };
-      return { min: 1440, label: '1d' };
+      let desired = 1440;
+      if (pxPer30 >= 24) desired = 30;
+      else if (pxPer30 >= 12) desired = 60;
+      else if (pxPer30 >= 6) desired = 120;
+      else if (pxPer30 >= 3) desired = 240;
+      const min = Math.max(desired, config.slotMin);
+      let label = `${min}m`;
+      if (min >= 1440) label = '1d';
+      else if (min === 240) label = '4h';
+      else if (min === 120) label = '2h';
+      else if (min === 60) label = '1h';
+      else if (min === 30) label = '30m';
+      return { min, label };
     },
     fmtDate: (d) => `${d.getMonth()+1}/${d.getDate()}`,
     fmtDateAxis: (d) => {
@@ -245,45 +653,122 @@ window.app = (function() {
       if (!d || isNaN(d)) return '';
       return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     },
-    fmtSlotDisplay: (slot) => {
-      if (slot === null || slot === undefined) return 'Slot -';
-      const d = utils.slotToDate(slot);
-      if (!d || isNaN(d)) return `Slot ${slot}`;
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      const minsInDay = (d.getHours() * 60) + d.getMinutes();
-      const daySlot = Math.floor(minsInDay / config.slotMin);
-      return `${y}/${m}/${day} Slot ${daySlot}`;
+    fmtYmdText: (d) => {
+      if (!d || isNaN(d)) return '';
+      return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
     },
-    slotToDateVal: (slot) => {
-      const abs = utils.slotToDate(slot);
-      const anchor = config.originAnchor || config.originDate;
-      if (!abs || isNaN(abs) || !anchor) {
+    parseDateTextStrict: (v) => {
+      if (!v) return null;
+      const s = String(v).trim();
+      if (!s) return null;
+      let y = null; let mo = null; let d = null;
+      const m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+      if (m) {
+        y = Number(m[1]); mo = Number(m[2]); d = Number(m[3]);
+      } else {
+        const m8 = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+        if (m8) {
+          y = Number(m8[1]); mo = Number(m8[2]); d = Number(m8[3]);
+        } else {
+          return null;
+        }
+      }
+      if (!isFinite(y) || !isFinite(mo) || !isFinite(d)) return null;
+      if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+      const dt = new Date(y, mo - 1, d);
+      if (dt.getFullYear() !== y || (dt.getMonth() + 1) !== mo || dt.getDate() !== d) return null;
+      dt.setHours(12,0,0,0);
+      return dt;
+    },
+    fmtSlotDisplay: (slot, kind) => {
+      if (slot === null || slot === undefined) return 'Slot -';
+      const n = utils.normalizeSlot(slot, kind || 'neutral');
+      if (!n || !n.dateVal) return `Slot ${slot}`;
+      const disp = n.slotVal;
+      return `${n.dateVal.replace(/-/g, '/')} Slot ${disp}`;
+    },
+    shiftWorkdays: (base, dayIdx) => {
+      const d = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+      if (!dayIdx) return d;
+      const step = dayIdx > 0 ? 1 : -1;
+      let remain = Math.abs(dayIdx);
+      while (remain > 0) {
+        d.setDate(d.getDate() + step);
+        const dow = d.getDay();
+        if (dow !== 0 && dow !== 6) remain -= 1;
+      }
+      return d;
+    },
+    adjustWeekend: (d, kind) => {
+      const out = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const step = (kind === 'end') ? -1 : 1;
+      while (out.getDay() === 0 || out.getDay() === 6) {
+        out.setDate(out.getDate() + step);
+      }
+      return out;
+    },
+    workdayDiff: (fromDate, toDate) => {
+      const from = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
+      const to = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate());
+      if (from.getTime() === to.getTime()) return 0;
+      let sign = 1;
+      let start = from;
+      let end = to;
+      if (from.getTime() > to.getTime()) {
+        sign = -1;
+        start = to;
+        end = from;
+      }
+      const msPerDay = 86400000;
+      const days = Math.floor((end.getTime() - start.getTime()) / msPerDay);
+      const fullWeeks = Math.floor(days / 7);
+      let business = fullWeeks * 5;
+      const remaining = days % 7;
+      const startDay = start.getDay();
+      for (let i = 1; i <= remaining; i++) {
+        const dow = (startDay + i) % 7;
+        if (dow !== 0 && dow !== 6) business += 1;
+      }
+      return business * sign;
+    },
+    normalizeSlot: (slot, kind) => {
+      const slotsPerDay = Math.max(1, Math.round((config.workHours * 60) / config.slotMin));
+      let raw = Number(slot);
+      if (!isFinite(raw)) raw = 1;
+      raw = Math.max(1, Math.round(raw));
+      const dayIdx = Math.floor((raw - 1) / slotsPerDay);
+      const rel = ((raw - 1) % slotsPerDay) + 1;
+      const origin = config.originDate || config.originAnchor || new Date();
+      const base = new Date(origin.getFullYear(), origin.getMonth(), origin.getDate());
+      let date = utils.shiftWorkdays(base, dayIdx);
+      date = utils.adjustWeekend(date, kind || 'neutral');
+      const dateVal = formatYmd_(date);
+      return { date, dateVal, slotVal: rel, slotsPerDay, rawSlot: raw, dayIdx };
+    },
+    slotToDateVal: (slot, kind) => {
+      const n = utils.normalizeSlot(slot, kind || 'neutral');
+      if (!n || !n.date) {
         const fallback = new Date();
         fallback.setHours(12,0,0,0);
-        return { date: fallback, slot: 0, absStart: 0 };
+        const fbSlot = 1;
+        return { date: fallback, slot: fbSlot, absStart: 1, dateVal: formatYmd_(fallback) };
       }
-      const d = new Date(abs.getFullYear(), abs.getMonth(), abs.getDate(), 12, 0, 0, 0);
-      const anchorDay = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate(), 0, 0, 0, 0);
-      const dayDiff = Math.round((d.getTime() - anchorDay.getTime()) / 86400000);
-      const slotsPerDay = 1440 / config.slotMin;
-      const startSlot = dayDiff * slotsPerDay;
-      const rel = slot - startSlot;
-      const bounded = isFinite(rel) ? Math.max(0, Math.min(rel, slotsPerDay)) : 0;
-      return { date: d, slot: bounded, absStart: startSlot };
+      return { date: n.date, slot: n.slotVal, absStart: (n.dayIdx * n.slotsPerDay) + 1, dateVal: n.dateVal, slotsPerDay: n.slotsPerDay };
     },
-    dateValToSlot: (dateStr, relSlot) => {
+    dateValToSlot: (dateStr, relSlot, kind) => {
       const anchor = config.originAnchor || config.originDate;
-      if (!dateStr || !anchor) return 0;
-      const d = utils.parseDateTime(dateStr);
-      if (!d || isNaN(d)) return 0;
-      d.setHours(0,0,0,0);
-      const anchorDay = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate(), 0, 0, 0, 0);
-      const dayDiff = Math.round((d.getTime() - anchorDay.getTime()) / 86400000);
-      const slotsPerDay = 1440 / config.slotMin;
-      const rel = Math.max(0, Number(relSlot) || 0);
-      return (dayDiff * slotsPerDay) + rel;
+      if (!dateStr || !anchor) return 1;
+      const d0 = utils.parseDateTime(dateStr);
+      if (!d0 || isNaN(d0)) return 1;
+      d0.setHours(0,0,0,0);
+      const adj = utils.adjustWeekend(d0, kind || 'neutral');
+      const anchorDay = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+      const dayIdx = utils.workdayDiff(anchorDay, adj);
+      const slotsPerDay = Math.max(1, Math.round((config.workHours * 60) / config.slotMin));
+      const rawRel = Number(relSlot);
+      const slotInDay = (isFinite(rawRel) && rawRel > 0) ? Math.round(rawRel) : 1;
+      const rel = Math.max(1, Math.min(slotInDay, slotsPerDay));
+      return Math.max(1, (dayIdx * slotsPerDay) + rel);
     },
     parseCardTitle: (title) => {
       if (!title) return { main: 'Card', sub: '' };
@@ -315,6 +800,31 @@ window.app = (function() {
       }
       const s = String(v).trim();
       if (!s) return null;
+      const mDash = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (mDash) {
+        const dLocal = new Date(Number(mDash[1]), Number(mDash[2]) - 1, Number(mDash[3]));
+        if (!isNaN(dLocal)) {
+          dLocal.setHours(12,0,0,0);
+          return dLocal;
+        }
+      }
+      const mSlash = s.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+      if (mSlash) {
+        const dLocal = new Date(Number(mSlash[1]), Number(mSlash[2]) - 1, Number(mSlash[3]));
+        if (!isNaN(dLocal)) {
+          dLocal.setHours(12,0,0,0);
+          return dLocal;
+        }
+      }
+      const strictDate = utils.parseDateTextStrict(s);
+      if (strictDate) return strictDate;
+      if (/[Tt].*(Z|[+-]\d{2}:?\d{2})/.test(s)) {
+        const dIso = new Date(s);
+        if (!isNaN(dIso)) {
+          dIso.setHours(12,0,0,0);
+          return dIso;
+        }
+      }
       if (/^\d{10,}$/.test(s)) {
         const n = Number(s);
         if (isFinite(n)) {
@@ -324,27 +834,6 @@ window.app = (function() {
             return dNum;
           }
         }
-      }
-      if (/[Tt].*(Z|[+-]\d{2}:?\d{2})/.test(s)) {
-        const dIso = new Date(s);
-        if (!isNaN(dIso)) {
-          dIso.setHours(12,0,0,0);
-          return dIso;
-        }
-      }
-      const m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/);
-      if (m) {
-        const hasTime = m[4] !== undefined && m[5] !== undefined;
-        const hour = hasTime ? Number(m[4]) : 12;
-        const min = hasTime ? Number(m[5]) : 0;
-        const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), hour, min, 0, 0);
-        if (!hasTime) d.setHours(12,0,0,0);
-        return d;
-      }
-      const d = new Date(s);
-      if (!isNaN(d)) {
-        d.setHours(12,0,0,0);
-        return d;
       }
       return null;
     },
@@ -357,11 +846,182 @@ window.app = (function() {
     calcSlotPx: (val) => {
       const n = Number(val);
       return Math.max(1, Math.min(200, n));
-    }
+    },
+    setCacheStatus: () => {}
   };
+
+  function _sch_normKey_(k){ return String(k || '').trim().toLowerCase(); }
+
+  function _sch_inferIdKey_(o, idPrefixRe){
+    if (!o || typeof o !== 'object') return null;
+    if ('id' in o) return 'id';
+    var keys = Object.keys(o);
+    var best = null;
+    for (var i=0;i<keys.length;i++){
+      var k = keys[i];
+      var v = o[k];
+      if (typeof v === 'string' && idPrefixRe && idPrefixRe.test(v.trim())) return k;
+    }
+    for (var j=0;j<keys.length;j++){
+      var kk = keys[j];
+      if (/\bid\b|_id$| id$/i.test(_sch_normKey_(kk))) { best = kk; break; }
+    }
+    return best;
+  }
+
+  function _sch_inferNameKey_(o){
+    if (!o || typeof o !== 'object') return null;
+    if ('name' in o) return 'name';
+    var keys = Object.keys(o);
+    for (var i=0;i<keys.length;i++){
+      var k = keys[i];
+      var nk = _sch_normKey_(k);
+      if (/\bname\b|_name$|\btitle\b|_title$/i.test(nk)) return k;
+    }
+    for (var j=0;j<keys.length;j++){
+      var kk = keys[j];
+      var nk2 = _sch_normKey_(kk);
+      if (/\bid\b|_id$| id$/i.test(nk2)) continue;
+      var v = o[kk];
+      if (typeof v === 'string' && v.trim()) return kk;
+    }
+    return null;
+  }
+
+  function _sch_inferKeyByParts_(o, parts){
+    if (!o || typeof o !== 'object' || !parts || !parts.length) return null;
+    var keys = Object.keys(o);
+    for (var i=0;i<keys.length;i++){
+      var k = keys[i];
+      var nk = _sch_normKey_(k);
+      var ok = true;
+      for (var p=0;p<parts.length;p++){
+        if (nk.indexOf(parts[p]) === -1) { ok = false; break; }
+      }
+      if (ok) return k;
+    }
+    return null;
+  }
 
   function getSlotsPerDay_() {
     return Math.round((config.workHours * 60) / config.slotMin);
+  }
+
+  function getLaneWidth_() {
+    try {
+      var raw = getComputedStyle(document.documentElement).getPropertyValue('--lane-w');
+      var n = Math.round(parseFloat(String(raw || '').replace('px', '')));
+      if (isFinite(n) && n > 0) return n;
+    } catch (_) {}
+    return (isFinite(Number(state.laneWidth)) && Number(state.laneWidth) > 0) ? Number(state.laneWidth) : 65;
+  }
+
+  function getVisibleLanes_() {
+    return state.lanes.filter(function(l) { return !!l.visible; });
+  }
+
+  function canvasPointToSlot_(yInCanvas) {
+    const pxPerDay = getPxPerDay_();
+    const dayIdx = Math.floor(yInCanvas / pxPerDay);
+    if (!isFinite(dayIdx) || dayIdx < 0 || dayIdx >= state.workDayMap.length) return null;
+    const yInDay = yInCanvas - (dayIdx * pxPerDay);
+    const spd = Math.max(1, getSlotsPerDay_());
+    const ratio = Math.max(0, Math.min(0.999999, yInDay / pxPerDay));
+    const slotInDay = Math.max(1, Math.min(spd, Math.floor(ratio * spd) + 1));
+    const dateVal = formatYmd_(state.workDayMap[dayIdx]);
+    const rawSlot = utils.dateValToSlot(dateVal, slotInDay, 'start');
+    return {
+      dayIdx: dayIdx,
+      dateVal: dateVal,
+      slotInDay: slotInDay,
+      rawSlot: rawSlot
+    };
+  }
+
+  function resolveAssetCellFromCanvasPoint_(xInCanvas, yInCanvas) {
+    if (!state.assetColumnVisible) return null;
+    const lanes = getVisibleLanes_();
+    if (!lanes.length) return null;
+    const laneAreaW = lanes.length * getLaneWidth_();
+    const assetsColW = getAssetsColWidth_();
+    if (!isFinite(xInCanvas) || xInCanvas < laneAreaW || xInCanvas >= (laneAreaW + assetsColW)) return null;
+    const slotHit = canvasPointToSlot_(yInCanvas);
+    if (!slotHit) return null;
+
+    const snap = getSnapState_();
+    const dayMinutes = Math.max(config.slotMin, config.workHours * 60);
+    let snapMin = Math.max(config.slotMin, Number(snap && snap.min) || config.slotMin);
+    if (snapMin > dayMinutes) snapMin = dayMinutes;
+    const pxPerDay = getPxPerDay_();
+    const yInDay = yInCanvas - (slotHit.dayIdx * pxPerDay);
+    const minuteInDay = Math.max(0, Math.min(dayMinutes - 0.000001, (yInDay / Math.max(1, pxPerDay)) * dayMinutes));
+    let startMin = 0;
+    for (let m = 0; m < dayMinutes; m += snapMin) {
+      const cellMinutes = Math.min(snapMin, dayMinutes - m);
+      if (minuteInDay >= m && minuteInDay < (m + cellMinutes)) {
+        startMin = m;
+        break;
+      }
+    }
+    const slotInDayStart = Math.floor(startMin / config.slotMin) + 1;
+    const spanSlots = Math.max(1, Math.round(snapMin / config.slotMin));
+    const slotsPerDay = Math.max(1, getSlotsPerDay_());
+    const rawStart = utils.dateValToSlot(slotHit.dateVal, slotInDayStart, 'start');
+    const rawEnd = Math.min(rawStart + spanSlots - 1, utils.dateValToSlot(slotHit.dateVal, slotsPerDay, 'end'));
+    const rows = summarizeAssetsForRawRange_(rawStart, rawEnd);
+    return {
+      dateVal: slotHit.dateVal,
+      rawStart: rawStart,
+      rawEnd: rawEnd,
+      resolutionLabel: snap && snap.label ? String(snap.label) : '',
+      rows: rows
+    };
+  }
+
+  function selectionFromAssetCellElement_(el) {
+    if (!el || !el.dataset) return null;
+    var rawStart = Math.round(Number(el.dataset.rawStart));
+    var rawEnd = Math.round(Number(el.dataset.rawEnd));
+    var dateVal = String(el.dataset.dateVal || '').trim();
+    if (!isFinite(rawStart) || rawStart < 1) return null;
+    if (!isFinite(rawEnd) || rawEnd < rawStart) rawEnd = rawStart;
+    if (!dateVal) return null;
+    return {
+      dateVal: dateVal,
+      rawStart: rawStart,
+      rawEnd: rawEnd,
+      resolutionLabel: String(el.dataset.resolutionLabel || ''),
+      rows: summarizeAssetsForRawRange_(rawStart, rawEnd)
+    };
+  }
+
+  function findGapAtSlot_(laneId, rawSlot) {
+    const laneCards = Object.values(state.cards || {})
+      .filter(function(c) {
+        return String(c && c.laneId || '') === String(laneId || '') &&
+          isFinite(Number(c && c.start)) && isFinite(Number(c && c.end));
+      })
+      .sort(function(a, b) { return Number(a.start) - Number(b.start); });
+    if (laneCards.length < 2) return null;
+    const s = Math.round(Number(rawSlot));
+    if (!isFinite(s) || s < 1) return null;
+    for (let i = 0; i < laneCards.length - 1; i++) {
+      const a = laneCards[i];
+      const b = laneCards[i + 1];
+      const from = Math.round(Number(a.end)) + 1;
+      const to = Math.round(Number(b.start)) - 1;
+      if (from <= to && s >= from && s <= to) {
+        return {
+          laneId: String(laneId || ''),
+          fromSlot: from,
+          toSlot: to,
+          sizeSlots: (to - from + 1),
+          prevCardId: String(a.id || ''),
+          nextCardId: String(b.id || '')
+        };
+      }
+    }
+    return null;
   }
 
   function getPxPerDay_() {
@@ -370,12 +1030,20 @@ window.app = (function() {
 
   function getSnapState_() {
     const pxPer30 = state.slotPx * (30 / config.slotMin);
-    return utils.getSnapProps(pxPer30);
+    let snap = utils.getSnapProps(pxPer30);
+    const dayMinutes = config.workHours * 60;
+    if (snap.label === '1d' || snap.min >= 1440) {
+      snap = { min: Math.max(dayMinutes, config.slotMin), label: '1d' };
+    }
+    return snap;
   }
 
   function snapMinutes_(yInDay, pxPerDay) {
     const snap = getSnapState_();
     const dayMinutes = config.workHours * 60;
+    if (snap.label === '1d' || snap.min >= dayMinutes) {
+      return { minutes: 0, snap: { min: dayMinutes, label: '1d' } };
+    }
     const mins = Math.max(0, Math.min(dayMinutes, (yInDay / pxPerDay) * dayMinutes));
     let snapped = Math.round(mins / snap.min) * snap.min;
     snapped = Math.max(0, Math.min(dayMinutes, snapped));
@@ -385,6 +1053,629 @@ window.app = (function() {
   function formatYmd_(d) {
     if (!d || isNaN(d)) return '----';
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  function normalizeOriginDisplayText_(raw) {
+    if (raw === undefined || raw === null) return '';
+    if (raw instanceof Date && !isNaN(raw)) return formatYmd_(raw).replace(/-/g, '/');
+    if (typeof raw === 'number') {
+      const d = new Date(raw);
+      return isNaN(d) ? '' : formatYmd_(d).replace(/-/g, '/');
+    }
+    const s = String(raw).trim();
+    if (!s) return '';
+    // Prioritize robust datetime parsing to avoid YYYY-MM-DD extraction
+    // from UTC ISO strings that would show one-day shift in local view.
+    const parsed = utils.parseDateTime(s);
+    if (parsed && !isNaN(parsed)) {
+      return formatYmd_(parsed).replace(/-/g, '/');
+    }
+    const m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (m) {
+      return `${m[1]}/${String(m[2]).padStart(2, '0')}/${String(m[3]).padStart(2, '0')}`;
+    }
+    const m8 = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (m8) {
+      return `${m8[1]}/${m8[2]}/${m8[3]}`;
+    }
+    return s.replace(/-/g, '/');
+  }
+
+  var CARD_DISPLAY_BASE_OPTIONS = [
+    { value: 'shot_code', label: 'Shot Code' },
+    { value: 'shot_id', label: 'Shot ID' },
+    { value: 'task_name', label: 'Task Name' },
+    { value: 'task_status', label: 'Task Status' },
+    { value: 'task_assignee', label: 'Task Assignee' },
+    { value: 'task_id', label: 'Task ID' },
+    { value: 'card_id', label: 'Card ID' },
+    { value: 'card_memo', label: 'Card Memo' },
+    { value: 'card_lane', label: 'Card Lane' },
+    { value: 'card_start_slot', label: 'Card Start Slot' },
+    { value: 'card_end_slot', label: 'Card End Slot' }
+  ];
+  var CARD_DISPLAY_BASE_FIELDS = CARD_DISPLAY_BASE_OPTIONS.map(function (o) { return o.value; });
+
+  function normalizeCardDisplayField_(value, fallback) {
+    var raw = String(value || '').trim();
+    var v = raw.toLowerCase();
+    if (CARD_DISPLAY_BASE_FIELDS.indexOf(v) >= 0) return v;
+    if (/^task:/i.test(raw)) return 'task:' + raw.replace(/^task:/i, '');
+    if (/^card:/i.test(raw)) return 'card:' + raw.replace(/^card:/i, '');
+    return fallback || 'task_name';
+  }
+
+  function normalizePresetKey_(value) {
+    var key = String(value || '').trim().toLowerCase().replace(/\s+/g, '_');
+    if (key === 'monday') key = 'this_monday';
+    if (key === 'thismonday') key = 'this_monday';
+    if (key === 'nextmonday') key = 'next_monday';
+    if (key === 'today' || key === 'yesterday' || key === 'tomorrow' || key === 'this_monday' || key === 'next_monday' || key === 'custom') return key;
+    return 'custom';
+  }
+
+  function resolveDatePreset_(presetKey) {
+    var key = normalizePresetKey_(presetKey);
+    const base = new Date();
+    base.setHours(0,0,0,0);
+    if (key === 'today') return base;
+    if (key === 'yesterday') {
+      const d = new Date(base.getTime());
+      d.setDate(d.getDate() - 1);
+      return d;
+    }
+    if (key === 'tomorrow') {
+      const d = new Date(base.getTime());
+      d.setDate(d.getDate() + 1);
+      return d;
+    }
+    if (key === 'this_monday') {
+      const d = new Date(base.getTime());
+      const day = d.getDay() || 7;
+      d.setDate(d.getDate() - (day - 1));
+      return d;
+    }
+    if (key === 'next_monday') {
+      const d = new Date(base.getTime());
+      const day = d.getDay() || 7;
+      d.setDate(d.getDate() - (day - 1) + 7);
+      return d;
+    }
+    return null;
+  }
+
+  function resolveDateInput_(raw) {
+    const text = String(raw || '').trim();
+    if (!text) return null;
+    const presetDate = resolveDatePreset_(text);
+    if (presetDate) return presetDate;
+    const strict = utils.parseDateTextStrict(text);
+    if (!strict || isNaN(strict)) return null;
+    strict.setHours(0,0,0,0);
+    return strict;
+  }
+
+  function escapeHtml_(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function getTaskByIdSafe_(id) {
+    var key = String(id || '').trim();
+    if (!key) return null;
+    return state.tasksById[key] || null;
+  }
+
+  function resolveCardDisplayValue_(card, slotType) {
+    var fieldKey = slotType === 'main' ? state.cardDisplayMain : state.cardDisplaySub;
+    fieldKey = normalizeCardDisplayField_(fieldKey, slotType === 'main' ? 'shot_code' : 'task_name');
+    var task = getTaskByIdSafe_(card && card.taskId);
+    if (/^task:/i.test(fieldKey)) {
+      var taskDynKey = fieldKey.replace(/^task:/i, '');
+      if (!task) return '';
+      return String(task[taskDynKey] == null ? '' : task[taskDynKey]).trim();
+    }
+    if (/^card:/i.test(fieldKey)) {
+      var cardDynKey = fieldKey.replace(/^card:/i, '');
+      return String(card && card[cardDynKey] == null ? '' : card[cardDynKey]).trim();
+    }
+    if (!task && fieldKey.indexOf('card_') !== 0) return '';
+    if (fieldKey === 'shot_code') return String(task.shotCode || task.shotId || '').trim();
+    if (fieldKey === 'shot_id') return String(task.shotId || '').trim();
+    if (fieldKey === 'task_name') return String(task.name || '').trim();
+    if (fieldKey === 'task_status') return String(task.status || '').trim();
+    if (fieldKey === 'task_assignee') return String(task.assignee || '').trim();
+    if (fieldKey === 'task_id') return String(task.id || card.taskId || '').trim();
+    if (fieldKey === 'card_id') return String(card && card.id || '').trim();
+    if (fieldKey === 'card_memo') return String(card && card.memo || '').trim();
+    if (fieldKey === 'card_lane') return String(card && card.laneId || '').trim();
+    if (fieldKey === 'card_start_slot') return String(card && card.start || '').trim();
+    if (fieldKey === 'card_end_slot') return String(card && card.end || '').trim();
+    return '';
+  }
+
+  function getCardDisplayModel_(card) {
+    var cardNo = (card && card.displayId != null && card.displayId !== '') ? String(card.displayId) : utils.getDisplayId(card && card.id);
+    cardNo = String(cardNo || '').trim();
+    if (/^\d+$/.test(cardNo)) cardNo = String(Number(cardNo));
+    return {
+      cardNo: cardNo,
+      mainText: resolveCardDisplayValue_(card, 'main'),
+      subText: resolveCardDisplayValue_(card, 'sub')
+    };
+  }
+
+  function parseEntityIdsClient_(value, prefix) {
+    var out = [];
+    var seen = {};
+    var pfx = String(prefix || '').trim().toLowerCase();
+    var pushOne = function(token) {
+      var s = String(token || '').trim();
+      if (!s) return;
+      var lower = s.toLowerCase();
+      if (pfx) {
+        if (!new RegExp('^' + pfx + '_').test(lower)) return;
+      }
+      if (seen[lower]) return;
+      seen[lower] = true;
+      out.push(s);
+    };
+    var walk = function(v) {
+      if (v === null || v === undefined || v === '') return;
+      if (Array.isArray(v)) {
+        v.forEach(walk);
+        return;
+      }
+      if (typeof v === 'object') {
+        ['id', 'ids', 'value', 'values', 'list', 'items', 'assetIds', 'asset_ids'].forEach(function(k) {
+          if (v.hasOwnProperty(k)) walk(v[k]);
+        });
+        return;
+      }
+      var s = String(v).trim();
+      if (!s) return;
+      if (pfx) {
+        var re = new RegExp(pfx + '_[a-z0-9]+', 'ig');
+        var hits = s.match(re);
+        if (hits && hits.length) {
+          hits.forEach(pushOne);
+          return;
+        }
+      }
+      s.split(/[\s,;|\n\r\t]+/).forEach(pushOne);
+    };
+    walk(value);
+    return out;
+  }
+
+  function getTaskAssetIds_(taskId) {
+    var task = getTaskByIdSafe_(taskId);
+    if (!task) return [];
+    return parseEntityIdsClient_(task.assetIds || task.assets || task.asset_ids || '', 'as');
+  }
+
+  function getAssetCapacity_(assetId) {
+    var key = String(assetId || '').trim();
+    var fb = Number(state.assetCapacityDefault);
+    if (!isFinite(fb) || fb <= 0) fb = 1;
+    if (!key) return fb;
+    var n = Number(state.assetCapacityById && state.assetCapacityById[key]);
+    if (isFinite(n) && n > 0) return Math.floor(n);
+    return fb;
+  }
+
+  function getAssetLabel_(assetId) {
+    var key = String(assetId || '').trim();
+    if (!key) return '';
+    var name = state.assetNameById && state.assetNameById[key];
+    if (name) return String(name);
+    return key;
+  }
+
+  function buildTaskDetailHref_(taskId) {
+    var tid = String(taskId || '').trim();
+    if (!tid) return '#';
+    try {
+      if (window.Router && typeof window.Router.buildEntityUrl === 'function') {
+        return window.Router.buildEntityUrl('task', tid);
+      }
+    } catch (_) {}
+    var base = String(state.scriptUrl || state.scriptUrlServer || '').trim();
+    if (!base) {
+      try {
+        var p = String(location.pathname || '');
+        base = /\/userCodeAppPanel\b/i.test(p) ? (location.origin + '/exec') : (location.origin + p);
+      } catch (_) {
+        base = '';
+      }
+    }
+    if (!base) return '#';
+    try {
+      var u = new URL(base, location.origin);
+      u.search = '';
+      u.searchParams.set('page', 'Detail');
+      u.searchParams.set('entity', 'task');
+      u.searchParams.set('id', tid);
+      return u.toString();
+    } catch (_) {
+      return base + '?page=Detail&entity=task&id=' + encodeURIComponent(tid);
+    }
+  }
+
+  function slotLabelFromRaw_(rawSlot) {
+    var v = utils.slotToDateVal(rawSlot, 'start');
+    return utils.fmtYmdText(v.date) + '-' + v.slot;
+  }
+
+  function refreshAssetUsageState_() {
+    var usageBySlot = {};
+    var cardConflict = {};
+    var cardConflictSlots = {};
+    var overloadedAssets = 0;
+    var conflictSlots = 0;
+
+    Object.values(state.cards || {}).forEach(function(card) {
+      if (!card || !isFinite(Number(card.start)) || !isFinite(Number(card.end))) return;
+      var start = Math.max(1, Math.round(Number(card.start)));
+      var end = Math.max(start, Math.round(Number(card.end)));
+      var assetIds = getTaskAssetIds_(card.taskId);
+      if (!assetIds.length) return;
+      for (var slot = start; slot <= end; slot++) {
+        if (!usageBySlot[slot]) usageBySlot[slot] = {};
+        var slotUsage = usageBySlot[slot];
+        for (var i = 0; i < assetIds.length; i++) {
+          var aid = assetIds[i];
+          if (!slotUsage[aid]) {
+            slotUsage[aid] = {
+              count: 0,
+              capacity: getAssetCapacity_(aid),
+              cardIds: {}
+            };
+          }
+          slotUsage[aid].count += 1;
+          slotUsage[aid].cardIds[String(card.id)] = true;
+        }
+      }
+    });
+
+    Object.keys(usageBySlot).forEach(function(slotKey) {
+      var slotUsage = usageBySlot[slotKey] || {};
+      var slotHasConflict = false;
+      Object.keys(slotUsage).forEach(function(assetId) {
+        var u = slotUsage[assetId];
+        if (!u) return;
+        if (u.count <= u.capacity) return;
+        overloadedAssets += 1;
+        slotHasConflict = true;
+        Object.keys(u.cardIds || {}).forEach(function(cardId) {
+          if (!cardConflict[cardId]) cardConflict[cardId] = { assets: {}, overSlots: 0 };
+          if (!cardConflictSlots[cardId]) cardConflictSlots[cardId] = {};
+          cardConflict[cardId].assets[assetId] = (cardConflict[cardId].assets[assetId] || 0) + 1;
+          cardConflictSlots[cardId][slotKey] = true;
+        });
+      });
+      if (slotHasConflict) conflictSlots += 1;
+    });
+
+    Object.keys(cardConflict).forEach(function(cardId) {
+      var slotSet = cardConflictSlots[cardId] || {};
+      cardConflict[cardId].overSlots = Object.keys(slotSet).length;
+      cardConflict[cardId].assetIds = Object.keys(cardConflict[cardId].assets || {});
+    });
+
+    state.assetUsageBySlot = usageBySlot;
+    state.cardAssetConflictById = cardConflict;
+    state.assetUsageStats = {
+      conflictSlots: conflictSlots,
+      overloadedAssets: overloadedAssets,
+      affectedCards: Object.keys(cardConflict).length
+    };
+  }
+
+  function buildAssetSlotLinesForCard_(card, limit) {
+    if (!card) return [];
+    var assetIds = getTaskAssetIds_(card.taskId);
+    if (!assetIds.length) return [];
+    var maxLines = Math.max(1, Number(limit) || 60);
+    var start = Math.max(1, Math.round(Number(card.start) || 1));
+    var end = Math.max(start, Math.round(Number(card.end) || start));
+    var lines = [];
+    for (var slot = start; slot <= end; slot++) {
+      var slotUsage = state.assetUsageBySlot[String(slot)] || state.assetUsageBySlot[slot];
+      if (!slotUsage) continue;
+      var parts = [];
+      for (var i = 0; i < assetIds.length; i++) {
+        var aid = assetIds[i];
+        var u = slotUsage[aid];
+        if (!u) continue;
+        var warn = u.count > u.capacity ? ' !' : '';
+        parts.push(getAssetLabel_(aid) + ' ' + u.count + '/' + u.capacity + warn);
+      }
+      if (!parts.length) continue;
+      lines.push(slotLabelFromRaw_(slot) + ': ' + parts.join(', '));
+      if (lines.length >= maxLines) break;
+    }
+    return lines;
+  }
+
+  function getVisibleRawSlotRange_() {
+    if (!state.workDayMap || !state.workDayMap.length) return null;
+    var slotsPerDay = Math.max(1, getSlotsPerDay_());
+    var firstDay = state.workDayMap[0];
+    var lastDay = state.workDayMap[state.workDayMap.length - 1];
+    if (!firstDay || !lastDay) return null;
+    var startRaw = utils.dateValToSlot(formatYmd_(firstDay), 1, 'start');
+    var endRaw = utils.dateValToSlot(formatYmd_(lastDay), slotsPerDay, 'end');
+    startRaw = Math.max(1, Math.round(Number(startRaw) || 1));
+    endRaw = Math.max(startRaw, Math.round(Number(endRaw) || startRaw));
+    return { startRaw: startRaw, endRaw: endRaw, slotsPerDay: slotsPerDay };
+  }
+
+  function getAssetsColWidth_() {
+    try {
+      var raw = getComputedStyle(document.documentElement).getPropertyValue('--asset-col-w');
+      var n = Math.round(parseFloat(String(raw || '').replace('px', '')));
+      if (isFinite(n) && n > 80) return n;
+    } catch (_) {}
+    return (isFinite(Number(state.assetColWidth)) && Number(state.assetColWidth) > 0) ? Number(state.assetColWidth) : 65;
+  }
+
+  function updateViewLaneSaveButtons_() {
+    var viewBtn = document.getElementById('btn-save-view');
+    if (viewBtn) {
+      viewBtn.textContent = state.viewDirty ? 'Save View*' : 'Save View';
+    }
+    var laneBtn = document.getElementById('btn-save-lane');
+    if (laneBtn) {
+      laneBtn.textContent = state.laneDirty ? 'Save Lane*' : 'Save Lane';
+    }
+  }
+
+  function markViewDirty_() {
+    state.viewDirty = true;
+    updateViewLaneSaveButtons_();
+  }
+
+  function markLaneDirty_() {
+    state.laneDirty = true;
+    updateViewLaneSaveButtons_();
+  }
+
+  function summarizeAssetsForRawRange_(fromRaw, toRaw) {
+    var byAsset = {};
+    var start = Math.max(1, Math.round(Number(fromRaw) || 1));
+    var end = Math.max(start, Math.round(Number(toRaw) || start));
+    for (var slot = start; slot <= end; slot++) {
+      var slotUsage = state.assetUsageBySlot[String(slot)] || state.assetUsageBySlot[slot];
+      if (!slotUsage) continue;
+      Object.keys(slotUsage).forEach(function(assetId) {
+        var u = slotUsage[assetId];
+        if (!u) return;
+        var count = Math.max(0, Number(u.count) || 0);
+        if (!byAsset[assetId]) {
+          byAsset[assetId] = {
+            assetId: assetId,
+            peak: 0,
+            capacity: getAssetCapacity_(assetId)
+          };
+        }
+        if (count > byAsset[assetId].peak) byAsset[assetId].peak = count;
+      });
+    }
+    return Object.keys(byAsset).map(function(assetId) {
+      var item = byAsset[assetId];
+      item.over = item.peak > item.capacity;
+      item.label = getAssetLabel_(assetId);
+      return item;
+    }).sort(function(a, b) {
+      if (a.over !== b.over) return a.over ? -1 : 1;
+      if (a.peak !== b.peak) return b.peak - a.peak;
+      return String(a.label || '').localeCompare(String(b.label || ''));
+    });
+  }
+
+  function isAssetCellSelected_(dateVal, rawStart, rawEnd) {
+    var sel = state.assetCellSelection;
+    if (!sel) return false;
+    return String(sel.dateVal || '') === String(dateVal || '') &&
+      Number(sel.rawStart || 0) === Number(rawStart || 0) &&
+      Number(sel.rawEnd || 0) === Number(rawEnd || 0);
+  }
+
+  function renderAssetCellInspector_(selection, container) {
+    if (!selection || !container) return;
+    var rows = summarizeAssetsForRawRange_(selection.rawStart, selection.rawEnd);
+    var head = document.createElement('div');
+    head.style.cssText = 'background:#222; padding:6px; font-weight:bold; border-radius:4px;';
+    head.textContent = 'ASSETS';
+    container.appendChild(head);
+
+    var metaRow = document.createElement('div');
+    metaRow.style.cssText = 'display:flex; gap:6px; flex-wrap:wrap;';
+    var tagRange = document.createElement('span');
+    tagRange.className = 'info-tag';
+    tagRange.textContent = `${slotLabelFromRaw_(selection.rawStart)} - ${slotLabelFromRaw_(selection.rawEnd)}`;
+    var tagRes = document.createElement('span');
+    tagRes.className = 'info-tag';
+    tagRes.textContent = `Res: ${selection.resolutionLabel || '-'}`;
+    metaRow.appendChild(tagRange);
+    metaRow.appendChild(tagRes);
+    container.appendChild(metaRow);
+
+    var list = document.createElement('div');
+    list.style.cssText = 'display:flex; flex-direction:column; gap:4px;';
+    if (!rows.length) {
+      var empty = document.createElement('div');
+      empty.className = 'inp';
+      empty.style.cssText = 'font-size:11px; color:#888;';
+      empty.textContent = '(no assets in this cell)';
+      list.appendChild(empty);
+    } else {
+      rows.forEach(function(r) {
+        var item = document.createElement('div');
+        item.className = 'inp';
+        item.style.cssText = 'display:flex; align-items:center; justify-content:space-between; font-size:11px; line-height:1.25;';
+        if (r && r.over) {
+          item.style.borderColor = '#ef4444';
+          item.style.color = '#fecaca';
+          item.style.background = 'rgba(127,29,29,0.25)';
+        }
+        var left = document.createElement('span');
+        left.style.cssText = 'min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+        left.textContent = String(r && r.label || '');
+        var right = document.createElement('span');
+        right.style.cssText = 'font-family:ui-monospace, SFMono-Regular, Menlo, monospace; margin-left:8px;';
+        right.textContent = `(${Number(r && r.peak || 0)}/${Number(r && r.capacity || 0)})`;
+        item.appendChild(left);
+        item.appendChild(right);
+        list.appendChild(item);
+      });
+    }
+    container.appendChild(list);
+  }
+
+  function renderAssetsColumnInGrid_(lanes, pxPerDay, snap) {
+    var assetsColW = getAssetsColWidth_();
+    var laneCount = Array.isArray(lanes) ? lanes.length : 0;
+    var laneWidth = getLaneWidth_();
+    var leftBase = laneCount * laneWidth;
+    var dayMinutes = Math.max(config.slotMin, config.workHours * 60);
+    var snapMin = (snap && snap.min && snap.min > 0) ? snap.min : config.slotMin;
+    if (snapMin >= dayMinutes) snapMin = dayMinutes;
+    if (snapMin < config.slotMin) snapMin = config.slotMin;
+    var slotsPerDay = Math.max(1, getSlotsPerDay_());
+    state.workDayMap.forEach(function(day, dayIdx) {
+      var dateVal = formatYmd_(day);
+      var dayTop = dayIdx * pxPerDay;
+      var dayBottom = dayTop + pxPerDay;
+      for (var startMin = 0; startMin < dayMinutes; startMin += snapMin) {
+        var endMin = Math.min(dayMinutes, startMin + snapMin);
+        var cellMinutes = Math.max(config.slotMin, endMin - startMin);
+        var top = dayTop + Math.round((startMin / dayMinutes) * pxPerDay);
+        var bottom = (endMin >= dayMinutes)
+          ? dayBottom
+          : (dayTop + Math.round((endMin / dayMinutes) * pxPerDay));
+        if (bottom <= top) bottom = top + 1;
+        var h = Math.max(1, bottom - top);
+        var slotInDayStart = Math.floor(startMin / config.slotMin) + 1;
+        var spanSlots = Math.max(1, Math.ceil(cellMinutes / config.slotMin));
+        var rawStart = utils.dateValToSlot(dateVal, slotInDayStart, 'start');
+        var rawEnd = Math.min(rawStart + spanSlots - 1, utils.dateValToSlot(dateVal, slotsPerDay, 'end'));
+        var rows = summarizeAssetsForRawRange_(rawStart, rawEnd);
+        var cell = document.createElement('div');
+        cell.className = 'asset-cell';
+        if (rows.length) cell.classList.add('has-assets');
+        cell.style.left = leftBase + 'px';
+        cell.style.width = assetsColW + 'px';
+        cell.style.top = top + 'px';
+        cell.style.height = Math.max(1, h) + 'px';
+        var hasOver = rows.some(function(r) { return !!(r && r.over); });
+        if (hasOver) cell.classList.add('over');
+        if (isAssetCellSelected_(dateVal, rawStart, rawEnd)) cell.classList.add('selected');
+        var summaryTitle = rows.slice(0, 5).map(function(r) {
+          return `${r.label} (${r.peak}/${r.capacity})${r.over ? ' !' : ''}`;
+        }).join('\n');
+        cell.title = `${slotLabelFromRaw_(rawStart)} - ${slotLabelFromRaw_(rawEnd)}\n` + (summaryTitle || '(no assets)');
+        cell.dataset.assetCell = '1';
+        cell.dataset.dateVal = dateVal;
+        cell.dataset.rawStart = String(rawStart);
+        cell.dataset.rawEnd = String(rawEnd);
+        cell.dataset.resolutionLabel = snap && snap.label ? String(snap.label) : '';
+        cell.addEventListener('mousedown', function(ev) {
+          ev.stopPropagation();
+        });
+        cell.addEventListener('click', function(ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          var sel = selectionFromAssetCellElement_(ev.currentTarget) || {
+            dateVal: dateVal,
+            rawStart: rawStart,
+            rawEnd: rawEnd,
+            resolutionLabel: snap && snap.label ? String(snap.label) : '',
+            rows: rows
+          };
+          actions.selectAssetCell(sel);
+        });
+        els.canvas.appendChild(cell);
+      }
+    });
+  }
+
+  function warnLegacySlotOffsetOnce_() {
+    if (state.legacyOffsetWarned) return;
+    const starts = Object.values(state.cards || {})
+      .map((c) => Number(c && c.start))
+      .filter((n) => isFinite(n));
+    if (!starts.length) return;
+    const slotsPerDay = Math.max(1, Math.round((config.workHours * 60) / config.slotMin));
+    const minStartSlot = Math.min.apply(null, starts);
+    const maybeLegacyOffset = minStartSlot >= slotsPerDay &&
+      ((minStartSlot % slotsPerDay) === 0 || (minStartSlot % slotsPerDay) === 1);
+    if (!maybeLegacyOffset) return;
+    state.legacyOffsetWarned = true;
+    console.warn('[MOTK][Scheduler] Legacy slot offset suspected; stored slots may be one-day shifted.', {
+      slotsPerDay: slotsPerDay,
+      minStartSlot: minStartSlot,
+      originDate: formatYmd_(config.originDate)
+    });
+  }
+
+  function getRangeOptions_() {
+    return [1, 5, 14, 30, 90, 180, 365, 730];
+  }
+
+  function computeEndDateByRange_(startDate, dayCount) {
+    const s = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    const n = Math.max(1, Number(dayCount) || 1);
+    return utils.shiftWorkdays(s, n - 1);
+  }
+
+  function computeDayCountByStartEnd_(startDate, endDate) {
+    const s = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    const e = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+    const diffDays = Math.floor((e.getTime() - s.getTime()) / 86400000);
+    return Math.max(1, diffDays + 1);
+  }
+
+  function syncEndFromRange_() {
+    state.endDate = computeEndDateByRange_(state.startDate, state.dayCount);
+  }
+
+  function buildCardDisplayOptions_() {
+    var options = CARD_DISPLAY_BASE_OPTIONS.slice();
+    var seen = {};
+    options.forEach(function (opt) { seen[opt.value] = true; });
+    var taskSamples = Array.isArray(state.tasks) ? state.tasks : [];
+    taskSamples.slice(0, 200).forEach(function (t) {
+      if (!t || typeof t !== 'object') return;
+      Object.keys(t).forEach(function (k) {
+        if (!k) return;
+        var v = t[k];
+        if (v && typeof v === 'object') return;
+        var key = 'task:' + String(k);
+        if (seen[key]) return;
+        seen[key] = true;
+        options.push({ value: key, label: 'Task: ' + String(k) });
+      });
+    });
+    var cardSamples = Object.values(state.cards || {}).slice(0, 200);
+    cardSamples.forEach(function (c) {
+      if (!c || typeof c !== 'object') return;
+      Object.keys(c).forEach(function (k) {
+        if (!k) return;
+        var v = c[k];
+        if (v && typeof v === 'object') return;
+        var key = 'card:' + String(k);
+        if (seen[key]) return;
+        seen[key] = true;
+        options.push({ value: key, label: 'Card: ' + String(k) });
+      });
+    });
+    return options;
   }
 
   const store = {
@@ -408,6 +1699,10 @@ window.app = (function() {
         config.originDate = new Date();
         config.originDate.setHours(12,0,0,0);
       }
+      config.originDisplayText = normalizeOriginDisplayText_(origin);
+      if (!config.originDisplayText) {
+        config.originDisplayText = formatYmd_(config.originDate).replace(/-/g, '/');
+      }
       if (config.originDate) {
         config.originAnchor = new Date(
           config.originDate.getFullYear(),
@@ -421,6 +1716,10 @@ window.app = (function() {
       state.viewMeta = (data.schedConfig && data.schedConfig.view_meta) ? data.schedConfig.view_meta : {};
       state.schedName = (data.schedConfig && data.schedConfig.schedName) ? String(data.schedConfig.schedName) : state.schedName;
       state.allScheds = (data.schedConfig && Array.isArray(data.schedConfig.allScheds)) ? data.schedConfig.allScheds : [];
+      state.assetCapacityById = (data && data.assetCapacityById && typeof data.assetCapacityById === 'object') ? data.assetCapacityById : {};
+      state.assetNameById = (data && data.assetNameById && typeof data.assetNameById === 'object') ? data.assetNameById : {};
+      state.assetCapacityDefault = Number(data && data.assetCapacityDefault);
+      if (!isFinite(state.assetCapacityDefault) || state.assetCapacityDefault <= 0) state.assetCapacityDefault = 1;
 
       var hasViewDate = false;
       if (state.viewMeta && typeof state.viewMeta === 'object') {
@@ -430,30 +1729,53 @@ window.app = (function() {
         if (state.viewMeta.dayCount) {
           state.dayCount = Number(state.viewMeta.dayCount) || state.dayCount;
         }
+        state.startPreset = normalizePresetKey_(state.viewMeta.startPreset || 'custom');
+        state.endPreset = normalizePresetKey_(state.viewMeta.endPreset || 'custom');
+        state.viewDriver = String(state.viewMeta.viewDriver || '').trim().toLowerCase() === 'end' ? 'end' : 'range';
+        state.cardDisplayMain = normalizeCardDisplayField_(state.viewMeta.cardDisplayMain, 'shot_code');
+        state.cardDisplaySub = normalizeCardDisplayField_(state.viewMeta.cardDisplaySub, 'task_name');
+        var vmLaneWidth = Number(state.viewMeta.laneWidth);
+        if (isFinite(vmLaneWidth) && vmLaneWidth > 0) state.laneWidth = Math.round(vmLaneWidth);
+        var vmAssetWidth = Number(state.viewMeta.assetColWidth);
+        if (isFinite(vmAssetWidth) && vmAssetWidth > 0) state.assetColWidth = Math.round(vmAssetWidth);
+        if (state.viewMeta.assetColumnVisible !== undefined && state.viewMeta.assetColumnVisible !== null) {
+          state.assetColumnVisible = !!state.viewMeta.assetColumnVisible;
+        }
+        if (state.viewMeta.autoPush !== undefined && state.viewMeta.autoPush !== null) {
+          state.autoPush = !!state.viewMeta.autoPush;
+        }
         if (state.viewMeta.startDate) {
-          var vmDate = new Date(state.viewMeta.startDate);
-          if (!isNaN(vmDate)) {
+          var vmDate = utils.parseDateTime(state.viewMeta.startDate);
+          if (vmDate && !isNaN(vmDate)) {
             vmDate.setHours(0,0,0,0);
             state.startDate = vmDate;
             hasViewDate = true;
           }
         }
+        if (state.viewMeta.endDate) {
+          var vmEndDate = utils.parseDateTime(state.viewMeta.endDate);
+          if (vmEndDate && !isNaN(vmEndDate)) {
+            vmEndDate.setHours(0,0,0,0);
+            state.endDate = vmEndDate;
+          }
+        }
       }
 
       if (els.configInfo) {
+        var originText = config.originDisplayText || formatYmd_(config.originDate).replace(/-/g, '/');
+        var baseOriginText = formatYmd_(config.originDate).replace(/-/g, '/');
         els.configInfo.innerHTML = `
-          <span class="info-tag">Origin: ${formatYmd_(config.originDate)}</span>
+          <span class="info-tag" title="Base origin for rawSlot: ${baseOriginText}">Origin: ${originText}</span>
           <span class="info-tag">Slot: ${config.slotMin}m</span>
           <span class="info-tag">Work: ${config.workHours}h</span>
         `;
       }
-      if (data.scriptUrl) {
-        var brandLink = document.getElementById('brand-link');
-        if (brandLink) brandLink.href = data.scriptUrl;
-        state.scriptUrl = data.scriptUrl;
-      }
-      var schedNameEl = document.getElementById('sched-name-display');
-      if (schedNameEl) schedNameEl.textContent = state.schedName;
+      state.scriptUrlServer = String(data.scriptUrl || '');
+      if (state.scriptUrlServer) state.scriptUrl = state.scriptUrlServer;
+      document.documentElement.style.setProperty('--lane-w', `${Math.round(state.laneWidth)}px`);
+      document.documentElement.style.setProperty('--asset-col-w', `${Math.round(state.assetColWidth)}px`);
+      var brandLink = document.getElementById('brand-link');
+      if (brandLink) brandLink.href = state.scriptUrl;
       var schedSel = document.getElementById('sched-switch');
       if (schedSel) {
         schedSel.innerHTML = '';
@@ -469,14 +1791,35 @@ window.app = (function() {
       }
 
       const rawTasks = data.tasks || [];
-      state.tasks = rawTasks.map((t) => ({
-        id: String(t.taskId || t.id || t['Task ID'] || t['Task Id'] || '').trim(),
-        name: t.taskName || t.name || t['Task Name'] || '',
-        status: t.status || t['Status'] || '',
-        assignee: t.assignee || t['Assignee'] || '',
-        planStart: t.planStart || t['Plan Start'] || '',
-        planEnd: t.planEnd || t['Plan End'] || ''
-      })).filter(t => t.id);
+      state.tasks = rawTasks.map((t) => {
+        var tidK = _sch_inferIdKey_(t, /^ta_/i);
+        var tnmK = _sch_inferNameKey_(t);
+        var stK = _sch_inferKeyByParts_(t, ['status']);
+        var asK = _sch_inferKeyByParts_(t, ['assignee']) || _sch_inferKeyByParts_(t, ['assign']);
+        var psK = _sch_inferKeyByParts_(t, ['plan', 'start', 'iso']) || _sch_inferKeyByParts_(t, ['plan', 'start']) || _sch_inferKeyByParts_(t, ['start']);
+        var peK = _sch_inferKeyByParts_(t, ['plan', 'end', 'iso']) || _sch_inferKeyByParts_(t, ['plan', 'end']) || _sch_inferKeyByParts_(t, ['end']);
+        var shotCodeK = _sch_inferKeyByParts_(t, ['shot', 'code']) || _sch_inferKeyByParts_(t, ['shotcode']);
+        var shotIdK = _sch_inferKeyByParts_(t, ['shot', 'id']) || _sch_inferKeyByParts_(t, ['shot', 'link']) || _sch_inferKeyByParts_(t, ['shot']);
+        var assetLinkK = _sch_inferKeyByParts_(t, ['asset', 'link']) || _sch_inferKeyByParts_(t, ['asset']) || _sch_inferKeyByParts_(t, ['resource']);
+        var idVal = String(tidK ? t[tidK] : (t.taskId || t.id || '')).trim();
+        return {
+          id: idVal,
+          taskId: idVal,
+          name: String(tnmK ? t[tnmK] : (t.taskName || t.name || '')).trim(),
+          status: String(stK ? t[stK] : (t.status || '')).trim(),
+          assignee: String(asK ? t[asK] : (t.assignee || '')).trim(),
+          planStartIso: String(psK ? t[psK] : (t.planStartIso || t.planStart || '')).trim(),
+          planEndIso: String(peK ? t[peK] : (t.planEndIso || t.planEnd || '')).trim(),
+          planStart: String(psK ? t[psK] : (t.planStartIso || t.planStart || '')).trim(),
+          planEnd: String(peK ? t[peK] : (t.planEndIso || t.planEnd || '')).trim(),
+          shotCode: String(shotCodeK ? t[shotCodeK] : (t.shotCode || t.shot_code || '')).trim(),
+          shotId: String(shotIdK ? t[shotIdK] : (t.shotId || t.shot_id || t.shotLink || t.shot_link || t.shot || '')).trim(),
+          assetIds: parseEntityIdsClient_(assetLinkK ? t[assetLinkK] : (t.assetIds || t.asset_ids || t.assetLink || t.asset_link || t.resources || ''), 'as'),
+          raw: t
+        };
+      }).filter(t => t.id);
+      state.tasksById = {};
+      state.tasks.forEach((t) => { state.tasksById[String(t.id)] = t; });
 
       state.members = data.members || [];
 
@@ -484,33 +1827,59 @@ window.app = (function() {
       const laneMap = new Map();
       laneMap.set('unassigned', { id:'unassigned', label:'Unassigned', order:-1, visible: viewLaneVis && viewLaneVis.hasOwnProperty('unassigned') ? !!viewLaneVis.unassigned : true });
       state.members.forEach((m,i) => {
-        const id = String(m.memberId || m.id || m['Member ID'] || '').trim();
-        const name = m.role || m.name || m['Role'] || id;
+        var midK = _sch_inferIdKey_(m, /^me_/i);
+        var mnmK = _sch_inferNameKey_(m);
+        const id = String(midK ? m[midK] : (m.memberId || m.id || '')).trim();
+        const name = (mnmK ? String(m[mnmK] || '') : String(m.role || m.name || '')).trim() || id;
         if (id) laneMap.set(id, { id, label: name, order: i, visible: viewLaneVis && viewLaneVis.hasOwnProperty(id) ? !!viewLaneVis[id] : true });
       });
       state.lanes = Array.from(laneMap.values()).sort((a,b) => a.order - b.order);
+      var laneOrder = (state.viewMeta && Array.isArray(state.viewMeta.laneOrder)) ? state.viewMeta.laneOrder.map(function(x){ return String(x || ''); }) : [];
+      if (laneOrder.length) {
+        var laneOrderMap = {};
+        laneOrder.forEach(function(id, idx) { laneOrderMap[id] = idx; });
+        state.lanes.sort(function(a, b) {
+          var aid = String(a && a.id || '');
+          var bid = String(b && b.id || '');
+          if (aid === 'unassigned') return -1;
+          if (bid === 'unassigned') return 1;
+          var ao = Object.prototype.hasOwnProperty.call(laneOrderMap, aid) ? laneOrderMap[aid] : 9999;
+          var bo = Object.prototype.hasOwnProperty.call(laneOrderMap, bid) ? laneOrderMap[bid] : 9999;
+          if (ao !== bo) return ao - bo;
+          return String(a.label || aid).localeCompare(String(b.label || bid));
+        });
+      }
 
       state.cards = {};
       const tMap = {};
       state.tasks.forEach(t => { tMap[t.id] = t; });
 
       (data.cards||[]).forEach((c, i) => {
-        const rawId = c.cardId || c.cardNo || c['card number'] || c['card no'] || c['Card No'] || c['Card Number'] || `c_${i}`;
+        var cidK = _sch_inferIdKey_(c, /^c_/i);
+        var cnumK = _sch_inferKeyByParts_(c, ['card', 'number']) || _sch_inferKeyByParts_(c, ['card', 'no']);
+        const rawId = (cidK ? c[cidK] : null) || c.cardId || c.cardNo || (cnumK ? c[cnumK] : null) || `c_${i}`;
         const id = String(rawId).trim() || `c_${i}`;
-        const tid = String(c.taskId || c.taskLink || c['Task Link'] || c['Task ID'] || c.taskid || '').trim();
+        var cTidK = _sch_inferIdKey_(c, /^ta_/i);
+        const tid = String(cTidK ? c[cTidK] : (c.taskId || c.taskLink || c.taskid || '')).trim();
         const t = tMap[tid] || {};
 
-        let start = Number(c.start || c.startSlot || c.startslot || c['Start Slot']);
+        var startK = _sch_inferKeyByParts_(c, ['start', 'slot']) || _sch_inferKeyByParts_(c, ['start']);
+        let start = Number(c.start || c.startSlot || c.startslot || (startK ? c[startK] : null));
         if (isNaN(start)) {
-          if (t.planStart) start = utils.dateToSlot(utils.parseDateTime(t.planStart));
-          else start = 0;
+          if (t.planStart) {
+            const ps = utils.parseDateTime(t.planStart);
+            start = ps ? utils.dateValToSlot(formatYmd_(ps), 1, 'start') : 1;
+          } else start = 1;
         }
+        start = Math.max(1, Math.round(start));
 
-        let len = Number(c.len || c.lengthMin || c.lengthmin || c['Length']);
+        var lenK = _sch_inferKeyByParts_(c, ['length']) || _sch_inferKeyByParts_(c, ['duration']) || _sch_inferKeyByParts_(c, ['len']);
+        let len = Number(c.len || c.lengthMin || c.lengthmin || (lenK ? c[lenK] : null));
         if (isNaN(len) || len < config.slotMin) len = Math.max(config.slotMin, 60);
         const dur = Math.ceil(len / config.slotMin);
 
-        let lane = c.laneId || c.laneVal || c.lane || c['Lane'] || c['Assignee'] || c.laneval || '';
+        var laneK = _sch_inferKeyByParts_(c, ['lane']) || _sch_inferKeyByParts_(c, ['assignee']) || _sch_inferKeyByParts_(c, ['member']);
+        let lane = c.laneId || c.laneVal || c.lane || c.laneval || (laneK ? c[laneK] : '') || '';
         if (!lane) lane = t.assignee || 'unassigned';
         lane = String(lane || 'unassigned');
 
@@ -520,16 +1889,20 @@ window.app = (function() {
           laneMap.set(lane, { id: lane, label: lane, order: 999, visible: laneVisible });
         }
 
-        var displayId = null;
-        if (id) {
-          var num = Number(id);
-          if (isFinite(num)) displayId = num;
-          else {
-            var match = String(id).match(/\\d+/);
-            displayId = match ? Number(match[0]) : id;
-          }
+        var displayId = '';
+        var rawDisplayId = (cnumK ? c[cnumK] : null);
+        if (rawDisplayId === null || rawDisplayId === undefined || String(rawDisplayId).trim() === '') {
+          rawDisplayId = c.displayId;
         }
+        if (rawDisplayId === null || rawDisplayId === undefined || String(rawDisplayId).trim() === '') {
+          rawDisplayId = c.cardNo;
+        }
+        if (rawDisplayId === null || rawDisplayId === undefined || String(rawDisplayId).trim() === '') {
+          rawDisplayId = utils.getDisplayId(id);
+        }
+        displayId = String(rawDisplayId || '').trim();
 
+        var memoK = _sch_inferKeyByParts_(c, ['memo']) || _sch_inferKeyByParts_(c, ['note']);
         state.cards[id] = {
           id: id,
           displayId: displayId,
@@ -537,30 +1910,64 @@ window.app = (function() {
           title: t.name || 'Card',
           laneId: lane,
           start: start,
-          end: start + dur,
-          memo: c.memo || c.cardMemo || c['Memo'] || '',
+          end: start + Math.max(1, dur) - 1,
+          memo: c.memo || c.cardMemo || (memoK ? c[memoK] : '') || '',
           status: t.status || '',
           cardMeta: c.cardMeta || {}
         };
       });
+      warnLegacySlotOffsetOnce_();
+      refreshAssetUsageState_();
 
       if (!hasViewDate) {
         store.fitViewToCards();
       }
+      if (state.viewDriver === 'end' && state.endDate) {
+        state.dayCount = computeDayCountByStartEnd_(state.startDate, state.endDate);
+      } else {
+        syncEndFromRange_();
+      }
+      state.dayCount = Math.max(1, Number(state.dayCount) || 1);
       store.calcDays();
+      store.updateStartDateInput();
+      store.updateEndDateInput();
 
       var zoomInput = document.getElementById('inp-zoom');
       if (zoomInput) zoomInput.value = state.slotPx;
       var zoomVal = document.getElementById('inp-zoom-val');
       if (zoomVal) zoomVal.value = state.slotPx;
       var pushChk = document.getElementById('chk-push');
-      state.autoPush = true;
       if (pushChk) {
-        pushChk.checked = true;
-        pushChk.disabled = true;
+        pushChk.checked = !!state.autoPush;
+        pushChk.disabled = false;
       }
       var rangeSel = document.getElementById('sel-range');
-      if (rangeSel) rangeSel.value = String(state.dayCount);
+      if (rangeSel) {
+        var opts = getRangeOptions_().map(function(n){ return String(n); });
+        rangeSel.value = opts.indexOf(String(state.dayCount)) >= 0 ? String(state.dayCount) : 'custom';
+      }
+      var startPresetSel = document.getElementById('sel-start-preset');
+      if (startPresetSel) startPresetSel.value = normalizePresetKey_(state.startPreset);
+      var endPresetSel = document.getElementById('sel-end-preset');
+      if (endPresetSel) endPresetSel.value = normalizePresetKey_(state.endPreset);
+      var cardMainSel = document.getElementById('sel-card-main');
+      var cardSubSel = document.getElementById('sel-card-sub');
+      ui.syncCardDisplayFieldSelectors(cardMainSel, cardSubSel);
+      var cfgOrigin = document.getElementById('cfg-origin-date');
+      if (cfgOrigin) cfgOrigin.value = utils.fmtYmdInput(config.originDate);
+      var cfgSlot = document.getElementById('cfg-slot-min');
+      if (cfgSlot) cfgSlot.value = String(config.slotMin);
+      var cfgWork = document.getElementById('cfg-work-hours');
+      if (cfgWork) cfgWork.value = String(config.workHours);
+      var renameInput = document.getElementById('sched-rename-input');
+      if (renameInput) renameInput.value = state.schedName;
+      var laneWInput = document.getElementById('inp-lane-w');
+      if (laneWInput) laneWInput.value = String(Math.round(getLaneWidth_()));
+      var assetWInput = document.getElementById('inp-asset-w');
+      if (assetWInput) assetWInput.value = String(Math.round(getAssetsColWidth_()));
+      state.viewDirty = false;
+      state.laneDirty = false;
+      updateViewLaneSaveButtons_();
 
       render.all();
     },
@@ -572,7 +1979,8 @@ window.app = (function() {
         if (c.start && c.start < minS && c.start > 0) { minS = c.start; hasCards = true; }
       });
       if (hasCards && minS !== Infinity) {
-        const d = utils.slotToDate(minS);
+        const n = utils.normalizeSlot(minS, 'start');
+        const d = n && n.date ? new Date(n.date.getTime()) : new Date();
         d.setHours(0,0,0,0);
         state.startDate = d;
       } else if (config.originDate) {
@@ -583,50 +1991,167 @@ window.app = (function() {
         state.startDate.setHours(0,0,0,0);
       }
 
+      store.updateStartDateInput();
+    },
+
+    updateStartDateInput: () => {
       const input = document.getElementById('start-date');
-      if (input) input.value = formatYmd_(state.startDate);
+      if (!input) return;
+      if (document.activeElement === input || input.dataset.editing === '1') return;
+      input.value = utils.fmtYmdText(state.startDate);
+    },
+
+    updateEndDateInput: () => {
+      const input = document.getElementById('end-date');
+      if (!input) return;
+      if (document.activeElement === input || input.dataset.editing === '1') return;
+      if (!state.endDate || isNaN(state.endDate)) {
+        input.value = '';
+        return;
+      }
+      input.value = utils.fmtYmdText(state.endDate);
     },
 
     calcDays: () => {
       state.workDayMap = [];
+      if (state.viewDriver === 'end' && state.endDate) {
+        const s = new Date(state.startDate); s.setHours(0,0,0,0);
+        const e = new Date(state.endDate); e.setHours(0,0,0,0);
+        if (e.getTime() < s.getTime()) {
+          state.endDate = new Date(s.getTime());
+          state.dayCount = 1;
+          state.workDayMap.push(new Date(s.getTime()));
+          return;
+        }
+        let d = new Date(s.getTime());
+        const sameDay = s.getTime() === e.getTime();
+        while (d.getTime() <= e.getTime()) {
+          const day = d.getDay();
+          if (day !== 0 && day !== 6) state.workDayMap.push(new Date(d.getTime()));
+          else if (sameDay) state.workDayMap.push(new Date(d.getTime()));
+          d.setDate(d.getDate() + 1);
+        }
+        state.dayCount = Math.max(1, Math.floor((e.getTime() - s.getTime()) / 86400000) + 1);
+        if (!state.workDayMap.length) state.workDayMap.push(new Date(s.getTime()));
+        return;
+      }
       let d = new Date(state.startDate); d.setHours(0,0,0,0);
       for (let i = 0; i < state.dayCount; i++) {
         const day = d.getDay();
         if (day !== 0 && day !== 6) state.workDayMap.push(new Date(d));
+        else if (state.dayCount === 1) state.workDayMap.push(new Date(d));
         d.setDate(d.getDate()+1);
       }
     },
 
     getLanes: () => state.lanes,
     saveLanes: () => {
-      store.saveViewMeta();
+      markLaneDirty_();
     },
-    saveViewMeta: () => {
+    saveViewMeta: (scope) => {
       var visMap = {};
       state.lanes.forEach(function(l) { visMap[l.id] = l.visible; });
       var meta = {
         zoom: state.slotPx,
         autoPush: state.autoPush,
         dayCount: state.dayCount,
-        startDate: state.startDate ? state.startDate.getTime() : null,
-        laneVisibility: visMap
+        startDate: state.startDate ? formatYmd_(state.startDate) : null,
+        endDate: state.endDate ? formatYmd_(state.endDate) : null,
+        startPreset: normalizePresetKey_(state.startPreset),
+        endPreset: normalizePresetKey_(state.endPreset),
+        viewDriver: state.viewDriver === 'end' ? 'end' : 'range',
+        laneVisibility: visMap,
+        laneOrder: state.lanes.map(function(l) { return String(l.id || ''); }),
+        laneWidth: Math.round(getLaneWidth_()),
+        assetColWidth: Math.round(getAssetsColWidth_()),
+        assetColumnVisible: !!state.assetColumnVisible,
+        cardDisplayMain: normalizeCardDisplayField_(state.cardDisplayMain, 'shot_code'),
+        cardDisplaySub: normalizeCardDisplayField_(state.cardDisplaySub, 'task_name')
       };
       var payload = JSON.stringify({ schedId: state.schedId, type: 'view_meta', value: meta });
-      google.script.run.sv_scheduler_save_meta_v2(payload);
+      google.script.run
+        .withSuccessHandler(function() {
+          state.viewDirty = false;
+          state.laneDirty = false;
+          updateViewLaneSaveButtons_();
+          utils.saveStatus('saved', (scope === 'lane') ? 'Lane Saved' : (scope === 'view' ? 'View Saved' : 'Saved'));
+        })
+        .withFailureHandler(function(err) {
+          console.error('[MOTK][Scheduler] saveViewMeta failed', err);
+          utils.saveStatus('error', 'Save Error');
+        })
+        .sv_scheduler_save_meta_v2(payload);
     }
   };
 
+  function flushCommitQueue_(cardKey) {
+    const entry = state.commitQueueByCard[cardKey];
+    if (!entry || entry.inflight || !entry.pending) return;
+    const payload = entry.pending;
+    entry.pending = null;
+    entry.inflight = true;
+    utils.saveStatus('saving', 'Saving...');
+    google.script.run
+      .withSuccessHandler((str) => {
+        let res = null;
+        try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
+        if (res && res.ok) {
+          utils.saveStatus('saved', 'Saved');
+        } else {
+          console.warn('[MOTK][Scheduler][Commit] RPC error', { cardKey, payload, res });
+          utils.saveStatus('error', 'Error');
+        }
+        entry.inflight = false;
+        queueAssetInspectorRefresh_();
+        if (entry.pending) flushCommitQueue_(cardKey);
+      })
+      .withFailureHandler((err) => {
+        console.error('[MOTK][Scheduler][Commit] Network failure', { cardKey, payload, err });
+        utils.saveStatus('error', 'Net Error');
+        entry.inflight = false;
+        queueAssetInspectorRefresh_();
+        if (entry.pending) {
+          console.warn('[MOTK][Scheduler][Commit] Pending latest update remains queued after failure.', { cardKey });
+          flushCommitQueue_(cardKey);
+        }
+      })
+      .sv_scheduler_commit_v2(JSON.stringify(payload));
+  }
+
+  function enqueueCommit_(payload) {
+    const cardId = (payload && payload.card && payload.card.id != null) ? String(payload.card.id) : '__global__';
+    if (!state.commitQueueByCard[cardId]) {
+      state.commitQueueByCard[cardId] = { inflight: false, pending: null };
+    }
+    state.commitQueueByCard[cardId].pending = payload;
+    flushCommitQueue_(cardId);
+  }
+
   const actions = {
-    renameSched: () => {
-      const newName = prompt('Rename Schedule:', state.schedName);
+    renameSched: (nextName) => {
+      const fromInput = (nextName !== undefined && nextName !== null) ? String(nextName).trim() : '';
+      const newName = fromInput || prompt('Rename Schedule:', state.schedName);
       if (!newName || newName === state.schedName) return;
       state.schedName = newName;
-      const h = document.getElementById('sched-name-display');
-      if (h) h.textContent = state.schedName;
+      const renameInput = document.getElementById('sched-rename-input');
+      if (renameInput && document.activeElement !== renameInput) renameInput.value = state.schedName;
+      if (Array.isArray(state.allScheds)) {
+        state.allScheds = state.allScheds.map((s) => (String(s.id) === String(state.schedId)) ? Object.assign({}, s, { name: newName }) : s);
+        const sel = document.getElementById('sched-switch');
+        if (sel) {
+          const opt = Array.from(sel.options || []).find((o) => String(o.value) === String(state.schedId));
+          if (opt) opt.textContent = newName;
+        }
+      }
       google.script.run.sv_scheduler_rename_sched(JSON.stringify({
         schedId: state.schedId,
         name: newName
       }));
+    },
+    renameSchedFromSettings: () => {
+      const input = document.getElementById('sched-rename-input');
+      if (!input) return;
+      actions.renameSched(input.value);
     },
     switchSched: (id) => {
       if (!id || String(id) === String(state.schedId)) return;
@@ -639,27 +2164,86 @@ window.app = (function() {
       const sp = document.getElementById('loadingSpinner');
       if (sp) sp.style.display='flex';
 
+      const t0 = Date.now();
+      const diag = {
+        ts: t0,
+        usedCache: false,
+        cacheAgeMs: null,
+        t_cache_render_end: null,
+        netMs: null,
+        totalMs: null,
+        ok: false,
+        error: null,
+        payloadBytesApprox: null
+      };
+
+      let cacheUsed = false;
+      try {
+        const raw = localStorage.getItem(SCHED_CACHE_KEY);
+        const rawTs = localStorage.getItem(SCHED_CACHE_TS_KEY);
+        const ts = Number(rawTs);
+        if (raw && isFinite(ts)) {
+          diag.cacheAgeMs = t0 - ts;
+          if (diag.cacheAgeMs >= 0 && diag.cacheAgeMs <= SCHED_CACHE_MAX_AGE_MS) {
+            const cached = JSON.parse(raw);
+            store.init(cached);
+            cacheUsed = true;
+            diag.usedCache = true;
+            diag.t_cache_render_end = Date.now();
+            utils.saveStatus('saved', 'Loaded');
+            if (sp) sp.style.display='none';
+          }
+        }
+      } catch (e) {
+        console.error('scheduler cache parse error', e);
+      }
+      const tNetStart = Date.now();
       google.script.run
         .withSuccessHandler(str => {
-          if (sp) sp.style.display='none';
+          const tNetEnd = Date.now();
+          diag.netMs = tNetEnd - tNetStart;
+          diag.totalMs = tNetEnd - t0;
+          diag.payloadBytesApprox = str ? String(str).length : 0;
+          if (!cacheUsed && sp) sp.style.display='none';
           let res;
           try { res = JSON.parse(str); } catch(e){ console.error(e); }
           if (res && res.ok) {
-            utils.saveStatus('saved', 'Loaded');
             store.init(res);
+            diag.ok = true;
+            utils.saveStatus('saved', 'Loaded');
+            try {
+              localStorage.setItem(SCHED_CACHE_KEY, JSON.stringify(res));
+              localStorage.setItem(SCHED_CACHE_TS_KEY, String(Date.now()));
+            } catch (_) { }
           } else {
-            utils.saveStatus('error', (res && res.error) ? res.error.message : 'Load Failed');
+            diag.ok = false;
+            diag.error = (res && res.error) ? (res.error.message || res.error) : 'Load Failed';
+            if (!cacheUsed) {
+              utils.saveStatus('error', diag.error);
+            } else {
+              utils.saveStatus('saved', 'Loaded');
+            }
           }
+          try { sessionStorage.setItem(SCHED_LOAD_DIAG_KEY, JSON.stringify(diag, null, 2)); } catch (_) { }
         })
         .withFailureHandler(e => {
-          if (sp) sp.style.display='none';
-          utils.saveStatus('error', e.message);
+          const tNetEnd = Date.now();
+          diag.netMs = tNetEnd - tNetStart;
+          diag.totalMs = tNetEnd - t0;
+          diag.ok = false;
+          diag.error = String(e && (e.message || e));
+          if (!cacheUsed && sp) sp.style.display='none';
+          if (!cacheUsed) {
+            utils.saveStatus('error', diag.error);
+          } else {
+            utils.saveStatus('saved', 'Loaded');
+          }
+          try { sessionStorage.setItem(SCHED_LOAD_DIAG_KEY, JSON.stringify(diag, null, 2)); } catch (_) { }
         })
         .sv_scheduler_load_v2();
     },
 
     commit: (id, type) => {
-      utils.saveStatus('saving', 'Saving...');
       const c = state.cards[id];
       if (!c && type !== 'delete') return;
       const payload = {
@@ -668,32 +2252,125 @@ window.app = (function() {
           id: id,
           taskId: c ? c.taskId : '',
           lane: c ? c.laneId : '',
-          start: c ? c.start : 0,
-          end: c ? c.end : 0,
-          len: c ? (c.end - c.start) * config.slotMin : 0,
+          start: c ? c.start : 1,
+          end: c ? c.end : 1,
+          len: c ? (Math.max(1, (c.end - c.start + 1)) * config.slotMin) : 0,
           memo: c ? c.memo : ''
         }
       };
-      google.script.run
-        .withSuccessHandler(str => {
-          const res = JSON.parse(str);
-          if (res.ok) utils.saveStatus('saved', 'Saved');
-          else utils.saveStatus('error', 'Error');
-        })
-        .withFailureHandler(err => {
-          console.error(err);
-          utils.saveStatus('error', 'Net Error');
-        })
-        .sv_scheduler_commit_v2(JSON.stringify(payload));
+      enqueueCommit_(payload);
+      queueAssetInspectorRefresh_();
     },
 
-    selectCard: (id) => {
-      const key = String(id);
-      if (!state.cards[key]) return;
-      state.selection = key;
+    clearAssetCellSelection: (opts = {}) => {
+      if (!state.assetCellSelection) return;
+      state.assetCellSelection = null;
+      if (opts && opts.skipRender) return;
+      render.grid();
+      ui.renderInspector();
+    },
+
+    clearGapSelection: () => {
+      if (!state.gapSelection) return;
+      state.gapSelection = null;
+      state.assetCellSelection = null;
+      render.grid();
+      ui.renderInspector();
+    },
+
+    selectAssetCell: (selection) => {
+      if (!selection || !isFinite(Number(selection.rawStart)) || !isFinite(Number(selection.rawEnd))) {
+        actions.clearAssetCellSelection();
+        return;
+      }
+      state.selection = null;
+      state.gapSelection = null;
+      state.assetCellSelection = {
+        dateVal: String(selection.dateVal || ''),
+        rawStart: Math.max(1, Math.round(Number(selection.rawStart))),
+        rawEnd: Math.max(1, Math.round(Number(selection.rawEnd))),
+        resolutionLabel: String(selection.resolutionLabel || ''),
+        rows: Array.isArray(selection.rows) ? selection.rows : []
+      };
       render.grid();
       ui.renderInspector();
       ui.switchTab('edit');
+      setInspectorClosed_(false);
+    },
+
+    selectGap: (gap) => {
+      if (!gap || !gap.laneId || !isFinite(Number(gap.fromSlot)) || !isFinite(Number(gap.toSlot))) {
+        actions.clearGapSelection();
+        return;
+      }
+      state.selection = null;
+      state.assetCellSelection = null;
+      state.gapSelection = {
+        laneId: String(gap.laneId),
+        fromSlot: Math.max(1, Math.round(Number(gap.fromSlot))),
+        toSlot: Math.max(1, Math.round(Number(gap.toSlot))),
+        sizeSlots: Math.max(0, Math.round(Number(gap.sizeSlots || 0))),
+        prevCardId: String(gap.prevCardId || ''),
+        nextCardId: String(gap.nextCardId || '')
+      };
+      render.grid();
+      ui.renderInspector();
+    },
+
+    closeSelectedGap: () => {
+      const g = state.gapSelection;
+      if (!g || !g.laneId) return;
+      const shift = Math.max(0, Math.round(Number(g.sizeSlots || 0)));
+      if (shift <= 0) {
+        actions.clearGapSelection();
+        return;
+      }
+      const targets = Object.values(state.cards || {})
+        .filter((c) => String(c && c.laneId || '') === String(g.laneId) && isFinite(Number(c && c.start)) && Number(c.start) >= Number(g.fromSlot))
+        .sort((a, b) => Number(a.start) - Number(b.start));
+      if (!targets.length) {
+        actions.clearGapSelection();
+        return;
+      }
+      targets.forEach((c) => {
+        const oldStart = Math.round(Number(c.start));
+        const oldEnd = Math.round(Number(c.end));
+        const nextStart = Math.max(1, oldStart - shift);
+        const nextEnd = Math.max(nextStart, oldEnd - shift);
+        if (nextStart === oldStart && nextEnd === oldEnd) return;
+        c.start = nextStart;
+        c.end = nextEnd;
+        actions.commit(c.id, 'update');
+      });
+      state.gapSelection = null;
+      render.grid();
+      ui.renderCardList();
+      ui.refreshInspectorValuesFromCard();
+      utils.saveStatus('saved', 'Gap closed');
+    },
+
+    selectCard: (id, opts = {}) => {
+      const key = String(id);
+      if (!state.cards[key]) return;
+      state.gapSelection = null;
+      state.assetCellSelection = null;
+      if (String(state.selection || '') !== key) clearInspectorTimers_();
+      state.selection = key;
+      render.grid();
+      ui.renderInspector();
+      if (opts && opts.focus === false) return;
+      requestAnimationFrame(() => actions.focusSelected());
+    },
+
+    focusSelected: () => {
+      const edit = state.inspEdit;
+      if (edit && edit.isTyping) return;
+      const id = String(state.selection || '');
+      if (!id) return;
+      const esc = id.replace(/\"/g, '\\\"');
+      const cardEl = els.canvas ? els.canvas.querySelector(`[data-card-id=\"${esc}\"]`) : null;
+      if (!cardEl) return;
+      cardEl.scrollIntoView({ block: 'center', inline: 'center', behavior: 'auto' });
     },
 
     setZoomFromSlider: (v) => {
@@ -701,7 +2378,7 @@ window.app = (function() {
       const inp = document.getElementById('inp-zoom-val');
       if (inp) inp.value = state.slotPx;
       render.grid();
-      store.saveViewMeta();
+      markViewDirty_();
     },
 
     setZoomFromInput: (v) => {
@@ -709,65 +2386,257 @@ window.app = (function() {
       const slider = document.getElementById('inp-zoom');
       if (slider) slider.value = state.slotPx;
       render.grid();
-      store.saveViewMeta();
+      markViewDirty_();
     },
 
-    setPreset: (mode) => {
-      const d = new Date(); d.setHours(0,0,0,0);
-      if (mode === 'yesterday') d.setDate(d.getDate() - 1);
-      if (mode === 'tomorrow') d.setDate(d.getDate() + 1);
-      if (mode === 'monday') {
-        const day = d.getDay() || 7;
-        d.setDate(d.getDate() - (day - 1));
+    fitZoomToView: () => {
+      store.calcDays();
+      const rows = Math.max(1, state.workDayMap.length);
+      const slotsPerDay = Math.max(1, getSlotsPerDay_());
+      const gs = els.gridScroll || document.getElementById('grid-scroll');
+      if (!gs) return;
+      const viewportH = Math.max(1, gs.clientHeight || 1);
+      const fit = Math.floor(viewportH / (rows * slotsPerDay));
+      state.slotPx = utils.calcSlotPx(Math.max(1, fit));
+      const slider = document.getElementById('inp-zoom');
+      if (slider) slider.value = state.slotPx;
+      const inp = document.getElementById('inp-zoom-val');
+      if (inp) inp.value = state.slotPx;
+      render.grid();
+      markViewDirty_();
+    },
+
+    setStartPreset: (preset) => {
+      const normalized = normalizePresetKey_(preset);
+      state.startPreset = normalized;
+      if (normalized === 'custom') {
+        markViewDirty_();
+        return;
       }
-      state.startDate = d; store.calcDays(); render.grid();
-      const input = document.getElementById('start-date');
-      if (input) input.value = formatYmd_(d);
-      store.saveViewMeta();
+      const d = resolveDatePreset_(normalized);
+      if (!d) return;
+      state.startDate = d;
+      if (state.viewDriver === 'end' && state.endDate) {
+        state.dayCount = computeDayCountByStartEnd_(state.startDate, state.endDate);
+      } else {
+        syncEndFromRange_();
+      }
+      store.calcDays();
+      store.updateStartDateInput();
+      store.updateEndDateInput();
+      const rangeSel = document.getElementById('sel-range');
+      if (rangeSel) {
+        var opts = getRangeOptions_().map(function(n){ return String(n); });
+        rangeSel.value = opts.indexOf(String(state.dayCount)) >= 0 ? String(state.dayCount) : 'custom';
+      }
+      render.grid();
+      markViewDirty_();
+    },
+
+    setEndPreset: (preset) => {
+      const normalized = normalizePresetKey_(preset);
+      state.endPreset = normalized;
+      if (normalized === 'custom') {
+        markViewDirty_();
+        return;
+      }
+      const d = resolveDatePreset_(normalized);
+      if (!d) return;
+      state.endDate = d;
+      state.viewDriver = 'end';
+      state.dayCount = computeDayCountByStartEnd_(state.startDate, state.endDate);
+      store.calcDays();
+      store.updateEndDateInput();
+      const rangeSel = document.getElementById('sel-range');
+      if (rangeSel) {
+        var opts = getRangeOptions_().map(function(n){ return String(n); });
+        rangeSel.value = opts.indexOf(String(state.dayCount)) >= 0 ? String(state.dayCount) : 'custom';
+      }
+      render.grid();
+      markViewDirty_();
     },
 
     setDuration: (mode) => {
-      state.dayCount = parseInt(mode, 10);
+      var n = parseInt(mode, 10);
+      if (!isFinite(n) || n <= 0) return;
+      state.dayCount = n;
+      state.viewDriver = 'range';
+      state.endPreset = 'custom';
+      syncEndFromRange_();
       store.calcDays();
+      store.updateEndDateInput();
       render.grid();
-      store.saveViewMeta();
+      markViewDirty_();
+    },
+
+    setCardDisplayField: (slotType, fieldKey) => {
+      var normalized = normalizeCardDisplayField_(fieldKey, slotType === 'main' ? 'shot_code' : 'task_name');
+      if (slotType === 'main') state.cardDisplayMain = normalized;
+      else state.cardDisplaySub = normalized;
+      render.grid();
+      ui.renderCardList();
+      markViewDirty_();
+    },
+
+    saveViewSettings: () => {
+      store.saveViewMeta('view');
+    },
+
+    saveLaneSettings: () => {
+      store.saveViewMeta('lane');
+    },
+
+    saveScheduleConfig: () => {
+      var originEl = document.getElementById('cfg-origin-date');
+      var slotEl = document.getElementById('cfg-slot-min');
+      var workEl = document.getElementById('cfg-work-hours');
+      var req = {
+        scheduleId: state.schedId,
+        cfg: {
+          originDate: originEl ? String(originEl.value || '').trim() : '',
+          slotMin: slotEl ? Number(slotEl.value) : NaN,
+          workHours: workEl ? Number(workEl.value) : NaN
+        }
+      };
+      if (!req.cfg.originDate) {
+        alert('Origin Date is required.');
+        return;
+      }
+      if (!isFinite(req.cfg.slotMin) || req.cfg.slotMin <= 0) {
+        alert('Slot Min must be a positive number.');
+        return;
+      }
+      if (!isFinite(req.cfg.workHours) || req.cfg.workHours <= 0) {
+        alert('Work Hours must be a positive number.');
+        return;
+      }
+      utils.saveStatus('saving', 'Saving config...');
+      google.script.run
+        .withSuccessHandler((str) => {
+          var res = null;
+          try { res = JSON.parse(str); } catch (_) { res = { ok: false }; }
+          if (!res || !res.ok) {
+            utils.saveStatus('error', 'Config save failed');
+            return;
+          }
+          utils.saveStatus('saved', 'Config saved');
+          setSettingsModalOpen_(false);
+          actions.load();
+        })
+        .withFailureHandler((err) => {
+          console.error('[MOTK][Scheduler][ConfigSave] failed', err);
+          utils.saveStatus('error', 'Config save failed');
+        })
+        .sv_scheduler_save_config_v2(JSON.stringify(req));
     },
 
     resolveCollisions: (movedCard) => {
       if (!state.autoPush) return;
-      const sorted = Object.values(state.cards)
-        .filter(c => c.laneId === movedCard.laneId && c.id !== movedCard.id && c.start >= movedCard.start)
-        .sort((a, b) => a.start - b.start);
-      let pushEdge = movedCard.end;
-      sorted.forEach(c => {
-        if (c.start < pushEdge) {
-          const len = c.end - c.start;
-          c.start = pushEdge;
-          c.end = c.start + len;
-          pushEdge = c.end;
-          actions.commit(c.id, 'update');
-        } else {
-          pushEdge = c.end;
+      if (!movedCard || !movedCard.laneId || movedCard.laneId === 'unassigned') return;
+      if (!isFinite(movedCard.start) || !isFinite(movedCard.end)) return;
+
+      const dur = movedCard.end - movedCard.start + 1;
+      if (!isFinite(dur) || dur <= 0) return;
+
+      const laneCards = Object.values(state.cards)
+        .filter(c => c.laneId === movedCard.laneId && isFinite(c.start) && isFinite(c.end));
+      if (!laneCards.length) return;
+
+      // Sort by start, but keep moved card after any other card with same start.
+      laneCards.sort((a, b) => {
+        if (a.start !== b.start) return a.start - b.start;
+        const aIsMoved = a.id === movedCard.id ? 1 : 0;
+        const bIsMoved = b.id === movedCard.id ? 1 : 0;
+        if (aIsMoved !== bIsMoved) return aIsMoved - bIsMoved;
+        return String(a.id).localeCompare(String(b.id));
+      });
+
+      let cursorEnd = 0;
+      laneCards.forEach(c => {
+        if (c.id === movedCard.id) {
+          if (c.start <= cursorEnd) {
+            c.start = cursorEnd + 1;
+            c.end = c.start + dur - 1;
+          }
+          cursorEnd = Math.max(cursorEnd, c.end);
+          return;
         }
+        if (c.start <= cursorEnd) {
+          const len = c.end - c.start + 1;
+          c.start = cursorEnd + 1;
+          c.end = c.start + len - 1;
+          actions.commit(c.id, 'update');
+        }
+        cursorEnd = Math.max(cursorEnd, c.end);
       });
     },
 
     moveCard: (id, newStart, newLane) => {
       const c = state.cards[id];
       if (!c) return;
-      const dur = c.end - c.start;
+      const dur = c.end - c.start + 1;
       c.start = newStart;
-      c.end = newStart + dur;
+      c.end = newStart + dur - 1;
       c.laneId = newLane;
       actions.resolveCollisions(c);
       render.grid();
+      ui.renderCardList();
       actions.commit(id, 'update');
-      ui.renderInspector();
+      if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) {
+        ui.refreshInspectorValuesFromCard();
+      }
+      queueAssetInspectorRefresh_();
     },
 
     toggleLane: (id) => {
       const l = state.lanes.find(x => x.id === id);
-      if (l) { l.visible = !l.visible; store.saveLanes(); render.all(); }
+      if (l) {
+        l.visible = !l.visible;
+        store.saveLanes();
+        render.all();
+      }
+    },
+
+    moveLane: (id, dir) => {
+      var laneId = String(id || '');
+      if (!laneId || laneId === 'unassigned') return;
+      var step = Number(dir);
+      if (!isFinite(step) || !step) return;
+      var idx = state.lanes.findIndex(function(l) { return String(l && l.id || '') === laneId; });
+      if (idx < 0) return;
+      var next = idx + (step > 0 ? 1 : -1);
+      if (next < 1 || next >= state.lanes.length) return;
+      var tmp = state.lanes[idx];
+      state.lanes[idx] = state.lanes[next];
+      state.lanes[next] = tmp;
+      render.all();
+      markLaneDirty_();
+    },
+
+    setLaneWidth: (raw) => {
+      var n = Math.round(Number(raw));
+      if (!isFinite(n)) return;
+      if (!(n > 0)) return;
+      n = Math.min(360, n);
+      state.laneWidth = n;
+      document.documentElement.style.setProperty('--lane-w', `${n}px`);
+      var laneWInput = document.getElementById('inp-lane-w');
+      if (laneWInput && document.activeElement !== laneWInput) laneWInput.value = String(n);
+      render.all();
+      markLaneDirty_();
+    },
+
+    setAssetColWidth: (raw) => {
+      var n = Math.round(Number(raw));
+      if (!isFinite(n)) return;
+      if (!(n > 0)) return;
+      n = Math.min(420, n);
+      state.assetColWidth = n;
+      document.documentElement.style.setProperty('--asset-col-w', `${n}px`);
+      var assetWInput = document.getElementById('inp-asset-w');
+      if (assetWInput && document.activeElement !== assetWInput) assetWInput.value = String(n);
+      render.all();
+      markLaneDirty_();
     },
 
     deleteCard: (id) => {
@@ -775,6 +2644,7 @@ window.app = (function() {
       delete state.cards[id];
       state.selection = null;
       render.grid();
+      ui.renderCardList();
       ui.renderInspector();
       actions.commit(id, 'delete');
     },
@@ -786,7 +2656,7 @@ window.app = (function() {
       if (!confirm(`Create ${orphans.length} cards?`)) return;
       orphans.forEach((t, i) => {
         const id = 'c_auto_' + Date.now() + '_' + i;
-        state.cards[id] = { id, taskId: t.id, title: t.name, laneId: 'unassigned', start: 0, end: 1, memo: '', status: t.status };
+        state.cards[id] = { id, taskId: t.id, title: t.name, laneId: 'unassigned', start: 1, end: 2, memo: '', status: t.status };
         actions.commit(id, 'create');
       });
       ui.renderCardList();
@@ -803,10 +2673,12 @@ window.app = (function() {
       });
       const nextNum = String(maxNum + 1).padStart(3, '0');
       const id = nextNum;
-      state.cards[id] = { id, taskId: '', title: 'New_Task', laneId: 'unassigned', start: 0, end: 10, memo: '' };
+      const card = { id, taskId: '', title: 'New_Task', laneId: 'unassigned', start: 1, end: 10, memo: '' };
+      state.cards[id] = card;
       actions.commit(id, 'create');
       ui.renderCardList();
       render.grid();
+      actions.selectCard(id);
     }
   };
 
@@ -820,25 +2692,37 @@ window.app = (function() {
         d.className = 'lane-header-cell'; d.textContent = l.label;
         els.laneHeaders.appendChild(d);
       });
+      if (state.assetColumnVisible) {
+        const assetsHead = document.createElement('div');
+        assetsHead.className = 'lane-header-cell assets-col';
+        assetsHead.textContent = 'ASSETS';
+        els.laneHeaders.appendChild(assetsHead);
+      }
     },
 
     grid: () => {
       els.dateAxis.innerHTML = ''; els.canvas.innerHTML = '';
+      refreshAssetUsageState_();
       const lanes = state.lanes.filter(l => l.visible);
       const pxPerDay = getPxPerDay_();
       const h = state.workDayMap.length * pxPerDay;
-      const w = lanes.length * 140;
+      const laneWidth = getLaneWidth_();
+      const assetsColW = getAssetsColWidth_();
+      const w = (lanes.length * laneWidth) + (state.assetColumnVisible ? assetsColW : 0);
 
       els.canvas.style.height = h + 'px';
       els.canvas.style.width = w + 'px';
 
       const snap = getSnapState_();
       if (els.configInfo) {
+        var originText = config.originDisplayText || formatYmd_(config.originDate).replace(/-/g, '/');
+        var baseOriginText = formatYmd_(config.originDate).replace(/-/g, '/');
         els.configInfo.innerHTML = `
-          <span class="info-tag">Origin: ${formatYmd_(config.originDate)}</span>
+          <span class="info-tag" title="Base origin for rawSlot: ${baseOriginText}">Origin: ${originText}</span>
           <span class="info-tag">Slot: ${config.slotMin}m</span>
           <span class="info-tag">Work: ${config.workHours}h</span>
           <span class="info-tag">Res: ${snap.label}</span>
+          <span class="info-tag" title="Overloaded assets by slot">Asset⚠: ${state.assetUsageStats.conflictSlots || 0}</span>
         `;
       }
       const dayMinutes = config.workHours * 60;
@@ -854,6 +2738,9 @@ window.app = (function() {
       els.canvas.style.backgroundSize = bgSize;
 
       let lastYear = null;
+      if (state.workDayMap && state.workDayMap.length) {
+        lastYear = state.workDayMap[0].getFullYear();
+      }
       state.workDayMap.forEach((d) => {
         const cell = document.createElement('div');
         const compact = pxPerDay < 40;
@@ -875,6 +2762,21 @@ window.app = (function() {
         col.className = 'lane-col-bg'; col.dataset.laneId = l.id;
         els.canvas.appendChild(col);
       });
+      for (let i = 1; i < lanes.length; i++) {
+        const line = document.createElement('div');
+        line.className = 'lane-boundary-line';
+        line.style.left = (i * laneWidth) + 'px';
+        els.canvas.appendChild(line);
+      }
+      if (state.assetColumnVisible) {
+        const assetsBg = document.createElement('div');
+        assetsBg.className = 'asset-col-bg';
+        els.canvas.appendChild(assetsBg);
+        const assetBoundary = document.createElement('div');
+        assetBoundary.className = 'lane-boundary-line';
+        assetBoundary.style.left = (lanes.length * laneWidth) + 'px';
+        els.canvas.appendChild(assetBoundary);
+      }
 
       state.workDayMap.forEach((d, idx) => {
         if (idx === 0) return;
@@ -885,40 +2787,66 @@ window.app = (function() {
         els.canvas.appendChild(sep);
       });
 
+      if (state.gapSelection && state.gapSelection.sizeSlots > 0) {
+        const g = state.gapSelection;
+        const gapStart = utils.normalizeSlot(g.fromSlot, 'start');
+        const laneIdx = lanes.findIndex((l) => String(l.id || '') === String(g.laneId || ''));
+        const gapDayIdx = gapStart ? state.workDayMap.findIndex((wd) => formatYmd_(wd) === gapStart.dateVal) : -1;
+        if (laneIdx >= 0 && gapDayIdx >= 0) {
+          const startRatio = gapStart.slotsPerDay > 0 ? ((gapStart.slotVal - 1) / gapStart.slotsPerDay) : 0;
+          const top = (gapDayIdx * pxPerDay) + (startRatio * pxPerDay);
+          const spanSlots = Math.max(1, Math.round(Number(g.toSlot) - Number(g.fromSlot) + 1));
+          const h = Math.max(8, (spanSlots / Math.max(1, gapStart.slotsPerDay)) * pxPerDay);
+          const left = (laneIdx * laneWidth) + 4;
+          const gapEl = document.createElement('div');
+          gapEl.className = 'gap-marker';
+          gapEl.style.top = top + 'px';
+          gapEl.style.left = left + 'px';
+          gapEl.style.height = Math.max(6, h - 1) + 'px';
+          gapEl.title = `Gap ${g.fromSlot}-${g.toSlot} (${g.sizeSlots})`;
+          els.canvas.appendChild(gapEl);
+        }
+      }
+
       Object.values(state.cards).forEach(c => {
         if (c.start === null) return;
-        const d = utils.slotToDate(c.start);
-        const dayStr = d.toDateString();
-        const dayIdx = state.workDayMap.findIndex(wd => wd.toDateString() === dayStr);
+        const sNorm = utils.normalizeSlot(c.start, 'start');
+        const dayIdx = state.workDayMap.findIndex(wd => formatYmd_(wd) === sNorm.dateVal);
         if(dayIdx === -1) return;
         const laneIdx = lanes.findIndex(l => l.id === c.laneId);
         if(laneIdx === -1) return;
 
-        const minsFromStart = (d.getHours() * 60 + d.getMinutes()) - (config.workStartH * 60);
-        const dayMinutes = config.workHours * 60;
-
-        const topRatio = Math.max(0, Math.min(1, minsFromStart / dayMinutes));
-        const top = (dayIdx * pxPerDay) + (topRatio * pxPerDay);
-
-        const durMins = (c.end - c.start) * config.slotMin;
-        const hRatio = durMins / dayMinutes;
-        const h = Math.max(14, hRatio * pxPerDay);
-        const left = (laneIdx * 140) + 2;
+        const startRatio = sNorm.slotsPerDay > 0 ? ((sNorm.slotVal - 1) / sNorm.slotsPerDay) : 0;
+        const top = (dayIdx * pxPerDay) + (startRatio * pxPerDay);
+        const spanSlotsRaw = Math.round(Number(c.end) - Number(c.start) + 1);
+        const spanSlots = Math.max(1, isFinite(spanSlotsRaw) ? spanSlotsRaw : 1);
+        const h = Math.max(14, (spanSlots / Math.max(1, sNorm.slotsPerDay)) * pxPerDay);
+        const left = (laneIdx * laneWidth) + 4;
 
         const div = document.createElement('div');
-        div.className = `card ${state.selection === c.id ? 'selected' : ''}`;
+        const conflictInfo = state.cardAssetConflictById[String(c.id)];
+        div.className = `card ${state.selection === c.id ? 'selected' : ''} ${conflictInfo ? 'asset-conflict' : ''}`;
         div.style.top = top + 'px'; div.style.left = left + 'px';
         div.style.height = (h - 1) + 'px';
 
-        const titleInfo = utils.parseCardTitle(c.title);
-        const displayId = utils.getDisplayId(c.id);
-        div.innerHTML = `<div class="c-id">${displayId}</div><div class="c-main">${titleInfo.main}</div>`;
-        if (h > 35 && titleInfo.sub) div.innerHTML += `<div class="c-sub">${titleInfo.sub}</div>`;
+        const view = getCardDisplayModel_(c);
+        div.innerHTML = `<div class="c-id">${escapeHtml_(view.cardNo)}</div><div class="c-main">${escapeHtml_(view.mainText)}</div>`;
+        if (h > 35 && view.subText) div.innerHTML += `<div class="c-sub">${escapeHtml_(view.subText)}</div>`;
+        if (conflictInfo && conflictInfo.overSlots > 0) {
+          var conflictAssetText = (conflictInfo.assetIds || []).map(getAssetLabel_).join(', ');
+          var overAssetCount = Array.isArray(conflictInfo.assetIds) ? conflictInfo.assetIds.length : 0;
+          div.title = `Asset overlap: ${overAssetCount} asset(s)` + (conflictAssetText ? ` | ${conflictAssetText}` : '');
+        }
+        div.dataset.cardId = String(c.id);
 
         const xBtn = document.createElement('div'); xBtn.className='card-close'; xBtn.textContent='×';
         xBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          c.start = null; render.all(); actions.commit(c.id, 'update');
+          c.laneId = '';
+          render.grid();
+          ui.renderCardList();
+          ui.refreshInspectorValuesFromCard();
+          actions.commit(c.id, 'update');
         });
         div.appendChild(xBtn);
 
@@ -928,39 +2856,141 @@ window.app = (function() {
         div.addEventListener('mousedown', (e) => dragStart(e, c, div));
         els.canvas.appendChild(div);
       });
+      if (state.assetColumnVisible) {
+        renderAssetsColumnInGrid_(lanes, pxPerDay, snap);
+      }
+      if (state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart))) {
+        state.assetCellSelection.rows = summarizeAssetsForRawRange_(
+          state.assetCellSelection.rawStart,
+          state.assetCellSelection.rawEnd
+        );
+        ui.renderInspector();
+      }
     }
   };
 
   const ui = {
+    syncCardDisplayFieldSelectors: (mainSel, subSel) => {
+      const main = mainSel || document.getElementById('sel-card-main');
+      const sub = subSel || document.getElementById('sel-card-sub');
+      if (!main || !sub) return;
+      const options = buildCardDisplayOptions_();
+      const ensureOption_ = (value) => {
+        const v = String(value || '').trim();
+        if (!v) return;
+        if (options.some((o) => o.value === v)) return;
+        options.push({ value: v, label: v.indexOf(':') > 0 ? v.replace(':', ': ') : v });
+      };
+      ensureOption_(state.cardDisplayMain);
+      ensureOption_(state.cardDisplaySub);
+      const renderTo = (sel, selectedValue, fallback) => {
+        const normalized = normalizeCardDisplayField_(selectedValue, fallback);
+        sel.innerHTML = '';
+        options.forEach((opt) => {
+          const o = document.createElement('option');
+          o.value = opt.value;
+          o.textContent = opt.label;
+          sel.appendChild(o);
+        });
+        const values = options.map((o) => o.value);
+        if (values.indexOf(normalized) >= 0) sel.value = normalized;
+        else sel.value = fallback;
+      };
+      renderTo(main, state.cardDisplayMain, 'shot_code');
+      renderTo(sub, state.cardDisplaySub, 'task_name');
+      state.cardDisplayMain = normalizeCardDisplayField_(main.value, 'shot_code');
+      state.cardDisplaySub = normalizeCardDisplayField_(sub.value, 'task_name');
+    },
     renderMenu: () => {
-      const m = document.getElementById('lane-menu-popup');
+      const m = document.getElementById('lane-menu-list');
       if (!m) return;
       m.innerHTML = '';
-      state.lanes.forEach(l => {
+      const assetsRow = document.createElement('div');
+      assetsRow.className = 'lane-row';
+      const assetsChk = document.createElement('input');
+      assetsChk.type = 'checkbox';
+      assetsChk.checked = !!state.assetColumnVisible;
+      assetsChk.addEventListener('change', () => {
+        state.assetColumnVisible = !!assetsChk.checked;
+        if (!state.assetColumnVisible) state.assetCellSelection = null;
+        markLaneDirty_();
+        render.all();
+      });
+      assetsRow.appendChild(assetsChk);
+      assetsRow.appendChild(document.createTextNode('ASSETS'));
+      m.appendChild(assetsRow);
+      state.lanes.forEach((l, idx) => {
         const row = document.createElement('div'); row.className = 'lane-row';
         const chk = document.createElement('input'); chk.type = 'checkbox'; chk.checked = l.visible;
         chk.addEventListener('change', () => { actions.toggleLane(l.id); });
         row.appendChild(chk);
         row.appendChild(document.createTextNode(l.label));
+        const ctrls = document.createElement('span');
+        ctrls.className = 'lane-row-controls';
+        const up = document.createElement('button');
+        up.type = 'button';
+        up.className = 'btn lane-row-btn';
+        up.textContent = '↑';
+        up.disabled = (idx <= 1 || String(l.id || '') === 'unassigned');
+        up.addEventListener('click', () => actions.moveLane(l.id, -1));
+        const down = document.createElement('button');
+        down.type = 'button';
+        down.className = 'btn lane-row-btn';
+        down.textContent = '↓';
+        down.disabled = (idx >= state.lanes.length - 1 || String(l.id || '') === 'unassigned');
+        down.addEventListener('click', () => actions.moveLane(l.id, 1));
+        ctrls.appendChild(up);
+        ctrls.appendChild(down);
+        row.appendChild(ctrls);
         m.appendChild(row);
       });
     },
     renderCardList: () => {
+      refreshAssetUsageState_();
       const c = document.getElementById('card-list-container');
       if (!c) return;
       c.innerHTML = '';
       const q = document.getElementById('inp-filter').value.toLowerCase();
       Object.values(state.cards).forEach(card => {
-        if (q && !card.title.toLowerCase().includes(q)) return;
+        const cardView = getCardDisplayModel_(card);
+        const searchBlob = [
+          String(card.title || ''),
+          String(cardView.cardNo || ''),
+          String(cardView.mainText || ''),
+          String(cardView.subText || ''),
+          String(card.taskId || '')
+        ].join(' ').toLowerCase();
+        if (q && searchBlob.indexOf(q) < 0) return;
         const d = document.createElement('div');
-        d.className = `list-item ${card.start===null?'':'placed'}`;
-        const titleInfo = utils.parseCardTitle(card.title);
-        const displayId = utils.getDisplayId(card.id);
-        d.innerHTML = `
-          <span style="font-size:9px;color:#666;width:22px;display:inline-block;">${displayId}</span>
-          <span style="font-weight:bold;margin-right:6px;">${titleInfo.main}</span>
-          <span style="font-size:10px;color:#888">${titleInfo.sub}</span>
-        `;
+        const laneId = String(card.laneId || '').trim();
+        const lane = state.lanes.find(l => String(l.id || '') === laneId);
+        const isUnassigned = !laneId || laneId === 'unassigned' || !lane;
+        const invalidRange = (card.start === null || card.start === undefined || card.end === null || card.end === undefined ||
+          !isFinite(card.start) || !isFinite(card.end) || (card.end - card.start) <= 0);
+        const isAttention = isUnassigned || (!isUnassigned && invalidRange);
+        const laneLabel = isUnassigned ? 'UNASSIGNED' : String(lane.label || laneId);
+        d.className = `list-item ${card.start===null?'':'placed'} ${isUnassigned ? 'unassigned' : ''} ${isAttention ? 'attention' : ''}`;
+        d.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;white-space:nowrap;flex-wrap:nowrap;';
+
+        const left = document.createElement('div');
+        left.className = 'li-left';
+        left.style.cssText = 'display:flex;align-items:center;gap:6px;min-width:0;flex:1;flex-wrap:nowrap;overflow:hidden;';
+        const idEl = document.createElement('span');
+        idEl.style.cssText = 'font-size:9px;color:#666;min-width:36px;display:inline-block;white-space:nowrap;flex:0 0 auto;';
+        idEl.textContent = cardView.cardNo || '';
+        const titleEl = document.createElement('span');
+        titleEl.className = 'li-title';
+        titleEl.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;';
+        titleEl.textContent = cardView.mainText + (cardView.subText ? (' / ' + cardView.subText) : '');
+        left.appendChild(idEl);
+        left.appendChild(titleEl);
+
+        const laneEl = document.createElement('span');
+        laneEl.className = 'li-lane';
+        laneEl.style.cssText = 'margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%;flex:0 0 auto;';
+        laneEl.textContent = laneLabel;
+        d.appendChild(left);
+        d.appendChild(laneEl);
         d.draggable = true;
         d.addEventListener('dragstart', (e) => {
           e.dataTransfer.setData('text/plain', String(card.id));
@@ -979,26 +3009,227 @@ window.app = (function() {
       document.getElementById('panel-'+t).classList.remove('hidden');
     },
     renderInspector: () => {
-      const c = state.cards[state.selection];
+      refreshAssetUsageState_();
       const p = els.inspContent;
       if (!p) return;
-      if (!c) { p.innerHTML = 'Select a card'; return; }
-      document.getElementById('inspector').classList.remove('closed');
+
+      // Asset-cell inspector always takes precedence while a cell is selected.
+      if (state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart))) {
+        setInspectorClosed_(false);
+        p.innerHTML = '';
+        renderAssetCellInspector_(state.assetCellSelection, p);
+        return;
+      }
+
+      const c = state.cards[state.selection];
+      if (!c) {
+        if (state.gapSelection && state.gapSelection.sizeSlots > 0) {
+          setInspectorClosed_(false);
+          p.innerHTML = `Gap selected in lane <b>${escapeHtml_(state.gapSelection.laneId)}</b><br>` +
+            `Slots: ${state.gapSelection.fromSlot} - ${state.gapSelection.toSlot} (${state.gapSelection.sizeSlots})<br>` +
+            `Press <b>Delete</b> to close this gap.`;
+        } else {
+          p.innerHTML = 'Select a card';
+        }
+        return;
+      }
+      setInspectorClosed_(false);
       p.innerHTML = '';
 
+      let renderQueued = false;
+      const scheduleRender_ = (refreshInspector) => {
+        if (renderQueued) return;
+        renderQueued = true;
+        requestAnimationFrame(() => {
+          renderQueued = false;
+          render.grid();
+          queueAssetInspectorRefresh_();
+          if (refreshInspector) ui.renderInspector();
+        });
+      };
+
+      const edit = state.inspEdit || (state.inspEdit = { active: false, cardId: null, fields: {}, dirty: {}, commitLock: false, isTyping: false, isEditingStart: false, isEditingEnd: false, isEditingTask: false, isTypingStartDate: false, isTypingEndDate: false, isTypingTaskDate: false, needsResyncAfterEdit: false, refs: {}, timers: {}, taskDraft: {}, taskDraftId: '', taskTimers: {} });
+      const initEdit_ = () => {
+        if (edit.active && String(edit.cardId) === String(c.id)) return;
+        clearInspectorTimers_();
+        edit.sessionId = (Number(edit.sessionId) || 0) + 1;
+        const sVal = utils.slotToDateVal(c.start || 1, 'start');
+        const eVal = utils.slotToDateVal(c.end || 1, 'end');
+        edit.active = true;
+        edit.cardId = c.id;
+        edit.fields = {
+          startDate: utils.fmtYmdText(sVal.date),
+          startSlot: String(sVal.slot),
+          endDate: utils.fmtYmdText(eVal.date),
+          endSlot: String(eVal.slot),
+          memo: c.memo || ''
+        };
+        edit.dirty = {};
+        edit.isTyping = false;
+        edit.isEditingStart = false;
+        edit.isEditingEnd = false;
+        edit.isTypingStartDate = false;
+        edit.isTypingEndDate = false;
+        edit.needsResyncAfterEdit = false;
+        edit.refs = {};
+      };
+      const isCurrentInspectorCard_ = () => {
+        const id = String(c && c.id || '');
+        return !!id &&
+          String(state.selection || '') === id &&
+          String(edit.cardId || '') === id &&
+          !!state.cards[id];
+      };
+      const setField_ = (k, v) => { edit.fields[k] = v; edit.dirty[k] = true; };
+      const commitOnce_ = (key, fn) => {
+        const now = Date.now();
+        if (edit.commitLock && edit.lastCommitKey === key && now - edit.lastCommitTs < 200) return;
+        if (edit.commitLock) return;
+        edit.commitLock = true;
+        edit.lastCommitKey = key;
+        edit.lastCommitTs = now;
+        fn();
+        setTimeout(() => { edit.commitLock = false; }, 0);
+      };
+      const refreshEditFromCard_ = () => {
+        const sVal = utils.slotToDateVal(c.start || 1, 'start');
+        const eVal = utils.slotToDateVal(c.end || 1, 'end');
+        edit.fields.startDate = utils.fmtYmdText(sVal.date);
+        edit.fields.startSlot = String(sVal.slot);
+        edit.fields.endDate = utils.fmtYmdText(eVal.date);
+        edit.fields.endSlot = String(eVal.slot);
+        edit.fields.memo = c.memo || '';
+      };
+      const syncInputs_ = () => {
+        if (!edit.refs) return;
+        if (edit.refs.inpStartDate && !edit.isTypingStartDate && document.activeElement !== edit.refs.inpStartDate) edit.refs.inpStartDate.value = edit.fields.startDate || '';
+        if (edit.refs.inpStartSlot) edit.refs.inpStartSlot.value = edit.fields.startSlot || '';
+        if (edit.refs.inpEndDate && !edit.isTypingEndDate && document.activeElement !== edit.refs.inpEndDate) edit.refs.inpEndDate.value = edit.fields.endDate || '';
+        if (edit.refs.inpEndSlot) edit.refs.inpEndSlot.value = edit.fields.endSlot || '';
+        if (edit.refs.inpMemo) edit.refs.inpMemo.value = edit.fields.memo || '';
+        if (edit.refs.pickStart) {
+          const dS = utils.parseDateTextStrict(edit.fields.startDate);
+          edit.refs.pickStart.value = dS ? utils.fmtYmdInput(dS) : '';
+        }
+        if (edit.refs.pickEnd) {
+          const dE = utils.parseDateTextStrict(edit.fields.endDate);
+          edit.refs.pickEnd.value = dE ? utils.fmtYmdInput(dE) : '';
+        }
+        if (edit.refs.metaStart) {
+          const sRaw = utils.normalizeSlot(c.start, 'start').rawSlot;
+          edit.refs.metaStart.textContent = `rawSlot: ${sRaw}`;
+        }
+        if (edit.refs.metaEnd) {
+          const eRaw = utils.normalizeSlot(c.end, 'end').rawSlot;
+          edit.refs.metaEnd.textContent = `rawSlot: ${eRaw}`;
+        }
+      };
+      const setDateError_ = (el, msg) => {
+        if (!el) return;
+        el.textContent = msg || '';
+        el.style.display = msg ? 'block' : 'none';
+      };
+      const setTyping_ = (on) => { edit.isTyping = !!on; };
+      const normalizeDateInput_ = (raw) => {
+        const d = utils.parseDateTextStrict(raw);
+        return d ? utils.fmtYmdText(d) : '';
+      };
+      initEdit_();
+      const inspectorSessionId = Number(edit.sessionId) || 0;
+
+      const getTaskById_ = (id) => state.tasks.find(t => String(t.id || '') === String(id || ''));
+      const fmtTaskDate_ = (v) => {
+        if (!v) return '';
+        if (v instanceof Date && !isNaN(v)) return utils.fmtYmdText(v);
+        const d1 = utils.parseDateTextStrict(v);
+        if (d1) return utils.fmtYmdText(d1);
+        const d2 = utils.parseDateTime(v);
+        return d2 && !isNaN(d2) ? utils.fmtYmdText(d2) : '';
+      };
+
       const title = document.createElement('div');
-      title.style.cssText = 'background:#222; padding:6px; font-weight:bold; border-radius:4px;';
-      title.textContent = c.title;
+      title.style.cssText = 'background:#222; padding:6px; font-weight:bold; border-radius:4px; display:flex; align-items:center; justify-content:space-between; gap:8px;';
+      const titleText = document.createElement('span');
+      const cardViewTop = getCardDisplayModel_(c);
+      titleText.textContent = cardViewTop.mainText || c.title || '';
+      titleText.style.cssText = 'min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+      const focusBtn = document.createElement('button');
+      focusBtn.type = 'button';
+      focusBtn.className = 'btn';
+      focusBtn.textContent = 'Focus';
+      focusBtn.addEventListener('click', () => {
+        if (edit.isTypingStartDate || edit.isTypingEndDate || edit.isEditingStart || edit.isEditingEnd || edit.isTyping) return;
+        actions.focusSelected();
+      });
+      title.appendChild(titleText);
+      title.appendChild(focusBtn);
+      const headerMeta = document.createElement('div');
+      headerMeta.style.cssText = 'display:flex; align-items:center; gap:6px; min-width:0;';
+      const cardNo = document.createElement('div');
+      cardNo.className = 'info-tag';
+      cardNo.style.cssText = 'display:inline-block; font-size:10px; margin-bottom:2px; flex:0 0 auto;';
+      const displayId = (c.displayId != null && c.displayId !== '') ? String(c.displayId) : utils.getDisplayId(c.id);
+      cardNo.textContent = `CARD NO. ${displayId}`;
+      headerMeta.appendChild(cardNo);
+      if (cardViewTop.subText) {
+        const subTag = document.createElement('div');
+        subTag.className = 'info-tag';
+        subTag.style.cssText = 'display:inline-block; font-size:10px; margin-bottom:2px; color:#aab0ba; border-color:#3a3f49; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+        subTag.textContent = cardViewTop.subText;
+        headerMeta.appendChild(subTag);
+      }
+      p.appendChild(headerMeta);
       p.appendChild(title);
 
-      const addField = (label, el) => {
+      const modeWrap = document.createElement('div');
+      modeWrap.style.cssText = 'display:flex; align-items:center; gap:6px; font-size:11px; color:#aaa;';
+      const modeLabel = document.createElement('span');
+      modeLabel.textContent = 'Inspector fields:';
+      const modeSel = document.createElement('select');
+      modeSel.className = 'inp';
+      modeSel.style.cssText = 'height:24px; padding:2px 6px;';
+      modeSel.innerHTML = '<option value="card">Card</option><option value="card+task">Card+Task (read-only)</option>';
+      modeSel.value = state.inspectorFieldsMode || 'card';
+      modeSel.addEventListener('change', () => {
+        state.inspectorFieldsMode = modeSel.value || 'card';
+        try { localStorage.setItem(INSPECTOR_FIELDS_MODE_KEY, state.inspectorFieldsMode); } catch (_) { }
+        ui.renderInspector();
+      });
+      modeWrap.appendChild(modeLabel);
+      modeWrap.appendChild(modeSel);
+      p.appendChild(modeWrap);
+
+      const extInfo = document.createElement('div');
+      extInfo.className = 'info-tag';
+      extInfo.style.cssText = 'margin-top:4px; display:none;';
+      extInfo.textContent = '';
+      p.appendChild(extInfo);
+      edit.refs.extIndicator = extInfo;
+
+      const addField = (label, el, metaText, metaKey) => {
         const g = document.createElement('div'); g.className='inp-group';
+        const header = document.createElement('div');
+        header.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:6px;';
         const l = document.createElement('label'); l.textContent=label;
-        g.appendChild(l); g.appendChild(el); p.appendChild(g);
+        header.appendChild(l);
+        if (metaText !== undefined && metaText !== null && metaText !== '') {
+          const meta = document.createElement('span');
+          meta.className = 'info-tag';
+          meta.style.whiteSpace = 'nowrap';
+          meta.style.fontFamily = 'monospace';
+          meta.style.flex = '0 0 auto';
+          meta.textContent = String(metaText);
+          header.appendChild(meta);
+          if (metaKey && edit.refs) edit.refs[metaKey] = meta;
+        }
+        g.style.userSelect = 'text';
+        g.appendChild(header);
+        g.appendChild(el);
+        p.appendChild(g);
       };
 
       const linkWrap = document.createElement('div');
-      linkWrap.style.cssText = 'display:flex; align-items:center; gap:4px;';
+      linkWrap.style.cssText = 'display:flex; align-items:center; gap:4px; position:relative; flex-wrap:wrap;';
       const dlId = 'task-datalist';
       let dl = document.getElementById(dlId);
       if (!dl) {
@@ -1018,72 +3249,387 @@ window.app = (function() {
       inpTask.className = 'inp';
       inpTask.setAttribute('list', dlId);
       inpTask.value = c.taskId || '';
-      inpTask.addEventListener('change', (e) => {
-        c.taskId = String(e.target.value || '');
-        const t = state.tasks.find(x => x.id === c.taskId);
-        if (t && t.name) c.title = t.name;
-        actions.commit(c.id, 'update');
-        ui.renderInspector();
-        render.grid();
-      });
+      edit.refs.inpTask = inpTask;
       const btnLink = document.createElement('a');
       btnLink.innerHTML = '&#8599;';
       btnLink.className = 'btn';
-      btnLink.style.cssText = 'padding:4px 8px; text-decoration:none;';
-      if (state.scriptUrl && c.taskId) {
-        btnLink.href = `${state.scriptUrl}?page=detail&taskId=${encodeURIComponent(c.taskId)}`;
-        btnLink.target = '_blank';
-      } else {
-        btnLink.href = '#';
-      }
+      btnLink.style.cssText = 'padding:4px 8px; text-decoration:none; flex:0 0 auto;';
+      btnLink.target = '_blank';
+      btnLink.rel = 'noopener';
+      edit.refs.taskLinkBtn = btnLink;
+      const syncTaskLinkBtn_ = () => {
+        const href = buildTaskDetailHref_(c.taskId);
+        btnLink.href = href || '#';
+      };
+      const applyTaskLink_ = (rawTaskId, force) => {
+        const nextTaskId = String(rawTaskId || '').trim();
+        if (!force && String(c.taskId || '') === nextTaskId) return;
+        c.taskId = nextTaskId;
+        const t = state.tasks.find(x => x.id === c.taskId);
+        if (t && t.name) c.title = t.name;
+        syncTaskLinkBtn_();
+        actions.commit(c.id, 'update');
+        ui.renderCardList();
+        render.grid();
+        queueAssetInspectorRefresh_();
+        ui.renderInspector();
+      };
+      inpTask.addEventListener('change', (e) => applyTaskLink_(e.target.value, true));
+      inpTask.addEventListener('input', (e) => {
+        const nextVal = String(e.target.value || '').trim();
+        if (nextVal && state.tasksById[nextVal]) applyTaskLink_(nextVal, false);
+      });
+      const taskSuggest = document.createElement('div');
+      taskSuggest.className = 'task-suggest-box';
+      const hideTaskSuggest_ = () => {
+        taskSuggest.style.display = 'none';
+      };
+      const renderTaskSuggest_ = (keyword) => {
+        const q = String(keyword || '').trim().toLowerCase();
+        const list = (state.tasks || []).filter((t) => {
+          const tid = String(t && t.id || '').toLowerCase();
+          const nm = String(t && t.name || '').toLowerCase();
+          if (!q) return true;
+          return tid.indexOf(q) >= 0 || nm.indexOf(q) >= 0;
+        }).slice(0, 120);
+        taskSuggest.innerHTML = '';
+        if (!list.length) {
+          const none = document.createElement('div');
+          none.className = 'task-suggest-item';
+          none.style.cursor = 'default';
+          none.textContent = '(no task)';
+          taskSuggest.appendChild(none);
+          return;
+        }
+        list.forEach((t) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'task-suggest-item';
+          b.innerHTML = `<span class="id">${escapeHtml_(String(t.id || ''))}</span><span>${escapeHtml_(String(t.name || t.id || ''))}</span>`;
+          b.addEventListener('mousedown', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            inpTask.value = String(t.id || '');
+            applyTaskLink_(t.id, true);
+            hideTaskSuggest_();
+          });
+          taskSuggest.appendChild(b);
+        });
+      };
+      const openTaskSuggest_ = (keyword) => {
+        renderTaskSuggest_(keyword);
+        taskSuggest.style.display = 'block';
+      };
+      inpTask.addEventListener('focus', () => openTaskSuggest_(''));
+      inpTask.addEventListener('click', () => openTaskSuggest_(''));
+      inpTask.addEventListener('input', () => openTaskSuggest_(inpTask.value || ''));
+      inpTask.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          hideTaskSuggest_();
+          return;
+        }
+        if (e.key === 'ArrowDown') {
+          openTaskSuggest_(inpTask.value || '');
+        }
+      });
+      inpTask.addEventListener('blur', () => setTimeout(hideTaskSuggest_, 120));
+      syncTaskLinkBtn_();
       linkWrap.appendChild(inpTask);
       linkWrap.appendChild(btnLink);
-      addField('Task Link', linkWrap);
+      linkWrap.appendChild(taskSuggest);
+      addField('Task', linkWrap);
 
-      const sVal = utils.slotToDateVal(c.start || 0);
+      if (state.inspectorFieldsMode === 'card+task') {
+        const t = c.taskId ? (getTaskById_(c.taskId) || {}) : {};
+        const taskName = document.createElement('input');
+        taskName.className = 'inp';
+        taskName.readOnly = true;
+        taskName.value = String(t.name || '');
+        edit.refs.taskName = taskName;
+        addField('Task Name', taskName);
+
+        const taskStatus = document.createElement('input');
+        taskStatus.className = 'inp';
+        taskStatus.readOnly = true;
+        taskStatus.value = String(t.status || '');
+        edit.refs.taskStatus = taskStatus;
+        addField('Status', taskStatus);
+
+        const taskAssignee = document.createElement('input');
+        taskAssignee.className = 'inp';
+        taskAssignee.readOnly = true;
+        taskAssignee.value = String(t.assignee || '');
+        edit.refs.taskAssignee = taskAssignee;
+        addField('Assignee', taskAssignee);
+
+        const taskPlanStart = document.createElement('input');
+        taskPlanStart.className = 'inp';
+        taskPlanStart.readOnly = true;
+        taskPlanStart.value = fmtTaskDate_(t.planStart);
+        edit.refs.taskPlanStart = taskPlanStart;
+        addField('Plan Start', taskPlanStart);
+
+        const taskPlanEnd = document.createElement('input');
+        taskPlanEnd.className = 'inp';
+        taskPlanEnd.readOnly = true;
+        taskPlanEnd.value = fmtTaskDate_(t.planEnd);
+        edit.refs.taskPlanEnd = taskPlanEnd;
+        addField('Plan End', taskPlanEnd);
+      }
+
       const gStart = document.createElement('div');
-      gStart.style.cssText = 'display:flex; gap:4px;';
+      gStart.style.cssText = 'display:flex; gap:4px; align-items:flex-start;';
+      const gStartDate = document.createElement('div');
+      gStartDate.style.cssText = 'display:flex; flex-direction:column; gap:2px; flex:1 1 auto;';
+      const gStartRow = document.createElement('div');
+      gStartRow.style.cssText = 'display:flex; gap:4px; align-items:center;';
+      const startWrap = document.createElement('div');
+      startWrap.className = 'date-wrap';
       const inpSD = document.createElement('input');
-      inpSD.type = 'date'; inpSD.className = 'inp';
-      inpSD.value = utils.fmtYmdInput(sVal.date);
+      inpSD.type = 'text'; inpSD.className = 'inp';
+      inpSD.placeholder = 'YYYY/MM/DD';
+      inpSD.autocomplete = 'off';
+      inpSD.value = edit.fields.startDate || '';
+      const pickSD = document.createElement('input');
+      pickSD.type = 'date';
+      pickSD.className = 'date-picker-overlay';
+      pickSD.tabIndex = -1;
+      const pickSDInit = utils.parseDateTextStrict(edit.fields.startDate);
+      pickSD.value = pickSDInit ? utils.fmtYmdInput(pickSDInit) : '';
+      const errSD = document.createElement('div');
+      errSD.style.cssText = 'color:#ef4444; font-size:10px; display:none;';
       const inpSS = document.createElement('input');
       inpSS.type = 'number'; inpSS.className = 'inp';
       inpSS.style.width = '60px';
-      inpSS.value = sVal.slot;
-      const updateStart = () => {
-        const newStart = utils.dateValToSlot(inpSD.value, inpSS.value);
-        const len = c.end - c.start;
+      inpSS.value = edit.fields.startSlot || '';
+      const rawLen = (c.end != null && c.start != null) ? (Math.max(1, c.end - c.start + 1) * config.slotMin) : '';
+      const sSlotsPerDay = getSlotsPerDay_();
+      if (isFinite(sSlotsPerDay)) {
+        inpSS.min = '1';
+        inpSS.max = String(Math.max(1, sSlotsPerDay));
+      }
+      const applyStart_ = () => commitOnce_('start', () => {
+        if ((Number(edit.sessionId) || 0) !== inspectorSessionId) return;
+        if (!isCurrentInspectorCard_()) return;
+        const d = utils.parseDateTextStrict(edit.fields.startDate);
+        if (!d) {
+          setDateError_(errSD, 'Invalid date');
+          setTyping_(false);
+          return;
+        }
+        setDateError_(errSD, '');
+        edit.isTypingStartDate = false;
+        const dateStr = formatYmd_(d);
+        const newStart = utils.dateValToSlot(dateStr, edit.fields.startSlot, 'start');
+        const len = c.end - c.start + 1;
         c.start = newStart;
-        c.end = newStart + len;
+        c.end = newStart + len - 1;
         actions.resolveCollisions(c);
-        render.grid(); actions.commit(c.id, 'update'); ui.renderInspector();
-      };
-      inpSD.addEventListener('change', updateStart);
-      inpSS.addEventListener('change', updateStart);
-      gStart.appendChild(inpSD);
+        actions.commit(c.id, 'update');
+        edit.fields.startDate = utils.fmtYmdText(d);
+        refreshEditFromCard_();
+        syncInputs_();
+        edit.isEditingStart = false;
+        edit.needsResyncAfterEdit = false;
+        if (edit.refs.extIndicator) { edit.refs.extIndicator.textContent = ''; edit.refs.extIndicator.style.display = 'none'; }
+        setTyping_(false);
+        scheduleRender_(false);
+      });
+      inpSD.addEventListener('focus', () => { edit.isEditingStart = true; edit.isTypingStartDate = true; setTyping_(true); if (edit.timers.start) clearTimeout(edit.timers.start); });
+      inpSS.addEventListener('focus', () => { edit.isEditingStart = true; setTyping_(true); if (edit.timers.start) clearTimeout(edit.timers.start); });
+      inpSD.addEventListener('paste', (e) => {
+        const text = (e.clipboardData && e.clipboardData.getData('text')) ? e.clipboardData.getData('text') : '';
+        if (text) {
+          const norm = normalizeDateInput_(text);
+          if (norm) {
+            e.preventDefault();
+            inpSD.value = norm;
+            setField_('startDate', norm);
+            setDateError_(errSD, '');
+          }
+        }
+      });
+      inpSD.addEventListener('input', (e) => {
+        setField_('startDate', e.target.value);
+        if (!e.target.value || utils.parseDateTextStrict(e.target.value)) setDateError_(errSD, '');
+        edit.isTypingStartDate = true;
+      });
+      inpSS.addEventListener('input', (e) => setField_('startSlot', e.target.value));
+      inpSD.addEventListener('blur', () => {
+        edit.isEditingStart = false;
+        edit.isTypingStartDate = false;
+        const cardIdAtQueue = String(c.id || '');
+        edit.timers.start = setTimeout(() => {
+          if (!edit.isEditingStart && isCurrentInspectorCard_() && String(c.id || '') === cardIdAtQueue) applyStart_();
+        }, 120);
+      });
+      inpSS.addEventListener('blur', () => {
+        edit.isEditingStart = false;
+        const cardIdAtQueue = String(c.id || '');
+        edit.timers.start = setTimeout(() => {
+          if (!edit.isEditingStart && isCurrentInspectorCard_() && String(c.id || '') === cardIdAtQueue) applyStart_();
+        }, 120);
+      });
+      inpSD.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); edit.isEditingStart = false; applyStart_(); } });
+      inpSS.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); edit.isEditingStart = false; applyStart_(); } });
+      pickSD.addEventListener('change', () => {
+        if (!pickSD.value) return;
+        const d = utils.parseDateTextStrict(pickSD.value);
+        if (!d) return;
+        const t = utils.fmtYmdText(d);
+        inpSD.value = t;
+        setField_('startDate', t);
+        setDateError_(errSD, '');
+        edit.isTypingStartDate = false;
+        applyStart_();
+      });
+      startWrap.appendChild(inpSD);
+      startWrap.appendChild(pickSD);
+      gStartRow.appendChild(startWrap);
+      gStartDate.appendChild(gStartRow);
+      gStartDate.appendChild(errSD);
+      gStart.appendChild(gStartDate);
       gStart.appendChild(inpSS);
-      addField('Start (Date/Slot)', gStart);
+      edit.refs.inpStartDate = inpSD;
+      edit.refs.inpStartSlot = inpSS;
+      edit.refs.errStartDate = errSD;
+      edit.refs.pickStart = pickSD;
+      addField('Start (Date/Slot)', gStart, `rawSlot: ${utils.normalizeSlot(c.start, 'start').rawSlot}`, 'metaStart');
 
-      const eVal = utils.slotToDateVal(c.end || 0);
       const gEnd = document.createElement('div');
-      gEnd.style.cssText = 'display:flex; gap:4px;';
+      gEnd.style.cssText = 'display:flex; gap:4px; align-items:flex-start;';
+      const gEndDate = document.createElement('div');
+      gEndDate.style.cssText = 'display:flex; flex-direction:column; gap:2px; flex:1 1 auto;';
+      const gEndRow = document.createElement('div');
+      gEndRow.style.cssText = 'display:flex; gap:4px; align-items:center;';
+      const endWrap = document.createElement('div');
+      endWrap.className = 'date-wrap';
       const inpED = document.createElement('input');
-      inpED.type = 'date'; inpED.className = 'inp';
-      inpED.value = utils.fmtYmdInput(eVal.date);
+      inpED.type = 'text'; inpED.className = 'inp';
+      inpED.placeholder = 'YYYY/MM/DD';
+      inpED.autocomplete = 'off';
+      inpED.value = edit.fields.endDate || '';
+      const pickED = document.createElement('input');
+      pickED.type = 'date';
+      pickED.className = 'date-picker-overlay';
+      pickED.tabIndex = -1;
+      const pickEDInit = utils.parseDateTextStrict(edit.fields.endDate);
+      pickED.value = pickEDInit ? utils.fmtYmdInput(pickEDInit) : '';
+      const errED = document.createElement('div');
+      errED.style.cssText = 'color:#ef4444; font-size:10px; display:none;';
       const inpES = document.createElement('input');
       inpES.type = 'number'; inpES.className = 'inp';
       inpES.style.width = '60px';
-      inpES.value = eVal.slot;
-      const updateEnd = () => {
-        const newEnd = utils.dateValToSlot(inpED.value, inpES.value);
-        c.end = newEnd;
-        render.grid(); actions.commit(c.id, 'update'); ui.renderInspector();
-      };
-      inpED.addEventListener('change', updateEnd);
-      inpES.addEventListener('change', updateEnd);
-      gEnd.appendChild(inpED);
+      inpES.value = edit.fields.endSlot || '';
+      const eSlotsPerDay = getSlotsPerDay_();
+      if (isFinite(eSlotsPerDay)) {
+        inpES.min = '1';
+        inpES.max = String(eSlotsPerDay);
+      }
+      const applyEnd_ = () => commitOnce_('end', () => {
+        if ((Number(edit.sessionId) || 0) !== inspectorSessionId) return;
+        if (!isCurrentInspectorCard_()) return;
+        const slotsPerDay = getSlotsPerDay_();
+        let slotNum = Number(edit.fields.endSlot);
+        const d0 = utils.parseDateTextStrict(edit.fields.endDate);
+        if (!d0) {
+          setDateError_(errED, 'Invalid date');
+          setTyping_(false);
+          return;
+        }
+        setDateError_(errED, '');
+        edit.isTypingEndDate = false;
+        let dateStr = formatYmd_(d0);
+        if (!isFinite(slotNum)) slotNum = slotsPerDay;
+        if (slotNum <= 0) {
+          slotNum = slotsPerDay;
+          const d = utils.parseDateTime(dateStr);
+          if (d && !isNaN(d)) {
+            d.setHours(0,0,0,0);
+            const adj = utils.adjustWeekend(d, 'end');
+            const prev = utils.shiftWorkdays(adj, -1);
+            dateStr = formatYmd_(prev);
+          }
+        }
+        const newEnd = utils.dateValToSlot(dateStr, slotNum, 'end');
+        c.end = Math.max(c.start, newEnd);
+        actions.commit(c.id, 'update');
+        edit.fields.endDate = utils.fmtYmdText(d0);
+        refreshEditFromCard_();
+        syncInputs_();
+        edit.isEditingEnd = false;
+        edit.needsResyncAfterEdit = false;
+        if (edit.refs.extIndicator) { edit.refs.extIndicator.textContent = ''; edit.refs.extIndicator.style.display = 'none'; }
+        setTyping_(false);
+        scheduleRender_(false);
+      });
+      inpED.addEventListener('focus', () => { edit.isEditingEnd = true; edit.isTypingEndDate = true; setTyping_(true); if (edit.timers.end) clearTimeout(edit.timers.end); });
+      inpES.addEventListener('focus', () => { edit.isEditingEnd = true; setTyping_(true); if (edit.timers.end) clearTimeout(edit.timers.end); });
+      inpED.addEventListener('paste', (e) => {
+        const text = (e.clipboardData && e.clipboardData.getData('text')) ? e.clipboardData.getData('text') : '';
+        if (text) {
+          const norm = normalizeDateInput_(text);
+          if (norm) {
+            e.preventDefault();
+            inpED.value = norm;
+            setField_('endDate', norm);
+            setDateError_(errED, '');
+          }
+        }
+      });
+      inpED.addEventListener('input', (e) => {
+        setField_('endDate', e.target.value);
+        if (!e.target.value || utils.parseDateTextStrict(e.target.value)) setDateError_(errED, '');
+        edit.isTypingEndDate = true;
+      });
+      inpES.addEventListener('input', (e) => setField_('endSlot', e.target.value));
+      inpED.addEventListener('blur', () => {
+        edit.isEditingEnd = false;
+        edit.isTypingEndDate = false;
+        const cardIdAtQueue = String(c.id || '');
+        edit.timers.end = setTimeout(() => {
+          if (!edit.isEditingEnd && isCurrentInspectorCard_() && String(c.id || '') === cardIdAtQueue) applyEnd_();
+        }, 120);
+      });
+      inpES.addEventListener('blur', () => {
+        edit.isEditingEnd = false;
+        const cardIdAtQueue = String(c.id || '');
+        edit.timers.end = setTimeout(() => {
+          if (!edit.isEditingEnd && isCurrentInspectorCard_() && String(c.id || '') === cardIdAtQueue) applyEnd_();
+        }, 120);
+      });
+      inpED.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); edit.isEditingEnd = false; applyEnd_(); } });
+      inpES.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); edit.isEditingEnd = false; applyEnd_(); } });
+      pickED.addEventListener('change', () => {
+        if (!pickED.value) return;
+        const d = utils.parseDateTextStrict(pickED.value);
+        if (!d) return;
+        const t = utils.fmtYmdText(d);
+        inpED.value = t;
+        setField_('endDate', t);
+        setDateError_(errED, '');
+        edit.isTypingEndDate = false;
+        applyEnd_();
+      });
+      endWrap.appendChild(inpED);
+      endWrap.appendChild(pickED);
+      gEndRow.appendChild(endWrap);
+      gEndDate.appendChild(gEndRow);
+      gEndDate.appendChild(errED);
+      gEnd.appendChild(gEndDate);
       gEnd.appendChild(inpES);
-      addField('End (Date/Slot)', gEnd);
+      edit.refs.inpEndDate = inpED;
+      edit.refs.inpEndSlot = inpES;
+      edit.refs.errEndDate = errED;
+      edit.refs.pickEnd = pickED;
+      addField('End (Date/Slot)', gEnd, `rawSlot: ${utils.normalizeSlot(c.end, 'end').rawSlot}`, 'metaEnd');
+
+      const lenBox = document.createElement('div');
+      lenBox.className = 'inp';
+      lenBox.style.cssText = 'font-family:ui-monospace, SFMono-Regular, Menlo, monospace;';
+      lenBox.textContent = `${rawLen !== '' ? rawLen : 0}mins`;
+      edit.refs.lenBox = lenBox;
+      addField('Length', lenBox);
 
       const selLane = document.createElement('select'); selLane.className='inp';
       store.getLanes().forEach(l => {
@@ -1093,14 +3639,113 @@ window.app = (function() {
       });
       selLane.addEventListener('change', (e) => {
         c.laneId = e.target.value;
-        render.grid(); actions.commit(c.id, 'update'); ui.renderInspector();
+        render.grid();
+        ui.renderCardList();
+        actions.commit(c.id, 'update');
+        ui.refreshInspectorValuesFromCard();
+        queueAssetInspectorRefresh_();
       });
+      edit.refs.selLane = selLane;
       addField('Lane', selLane);
 
       const txtMemo = document.createElement('textarea'); txtMemo.className='inp';
-      txtMemo.value = c.memo || '';
-      txtMemo.addEventListener('change', (e) => { c.memo = e.target.value; actions.commit(c.id, 'update'); });
+      txtMemo.value = edit.fields.memo || '';
+      txtMemo.addEventListener('focus', () => setTyping_(true));
+      txtMemo.addEventListener('input', (e) => setField_('memo', e.target.value));
+      txtMemo.addEventListener('blur', () => commitOnce_('memo', () => {
+        if ((Number(edit.sessionId) || 0) !== inspectorSessionId) return;
+        c.memo = edit.fields.memo || '';
+        actions.commit(c.id, 'update');
+        refreshEditFromCard_();
+        syncInputs_();
+        setTyping_(false);
+      }));
+      edit.refs.inpMemo = txtMemo;
       addField('Memo', txtMemo);
+
+      const taskAssetIds = getTaskAssetIds_(c.taskId);
+      const taskAssetText = taskAssetIds.length
+        ? taskAssetIds.map(getAssetLabel_).join(', ')
+        : '';
+      const assetSummaryEl = document.createElement('div');
+      assetSummaryEl.className = 'inp';
+      assetSummaryEl.style.cssText = 'min-height:30px; white-space:normal; line-height:1.3;';
+      assetSummaryEl.textContent = taskAssetText || '(none)';
+      addField('Task Assets', assetSummaryEl);
+
+      const cardAssetConflict = state.cardAssetConflictById[String(c.id)] || null;
+      const overAssetCount = (cardAssetConflict && Array.isArray(cardAssetConflict.assetIds))
+        ? cardAssetConflict.assetIds.length
+        : 0;
+      const conflictText = (overAssetCount > 0)
+        ? (`OVER CAPACITY: ${overAssetCount} asset(s)`)
+        : 'OK';
+      const conflictEl = document.createElement('div');
+      conflictEl.className = 'info-tag';
+      conflictEl.style.cssText = 'display:inline-block; font-family:monospace;';
+      if (overAssetCount > 0) {
+        conflictEl.style.color = '#fecaca';
+        conflictEl.style.borderColor = '#ef4444';
+      }
+      conflictEl.textContent = conflictText;
+      addField('Asset Overlap', conflictEl);
+    },
+    refreshInspectorValuesFromCard: () => {
+      const edit = state.inspEdit;
+      const c = state.cards[state.selection];
+      if (!edit || !edit.refs || !c) return;
+      if (edit.isTyping || edit.isEditingStart || edit.isEditingEnd || edit.isEditingTask || edit.isTypingStartDate || edit.isTypingEndDate || edit.isTypingTaskDate) {
+        edit.needsResyncAfterEdit = true;
+        if (edit.refs.extIndicator) {
+          edit.refs.extIndicator.textContent = 'Changed externally';
+          edit.refs.extIndicator.style.display = 'inline-block';
+        }
+        return;
+      }
+      const sVal = utils.slotToDateVal(c.start || 1, 'start');
+      const eVal = utils.slotToDateVal(c.end || 1, 'end');
+      edit.fields.startDate = utils.fmtYmdText(sVal.date);
+      edit.fields.startSlot = String(sVal.slot);
+      edit.fields.endDate = utils.fmtYmdText(eVal.date);
+      edit.fields.endSlot = String(eVal.slot);
+      edit.fields.memo = c.memo || '';
+      if (edit.refs.inpStartDate) edit.refs.inpStartDate.value = edit.fields.startDate || '';
+      if (edit.refs.inpStartSlot) edit.refs.inpStartSlot.value = edit.fields.startSlot || '';
+      if (edit.refs.inpEndDate) edit.refs.inpEndDate.value = edit.fields.endDate || '';
+      if (edit.refs.inpEndSlot) edit.refs.inpEndSlot.value = edit.fields.endSlot || '';
+      if (edit.refs.inpMemo) edit.refs.inpMemo.value = edit.fields.memo || '';
+      if (edit.refs.inpTask) edit.refs.inpTask.value = String(c.taskId || '');
+      if (edit.refs.taskLinkBtn) {
+        edit.refs.taskLinkBtn.href = buildTaskDetailHref_(c.taskId);
+      }
+      if (edit.refs.pickStart) edit.refs.pickStart.value = utils.fmtYmdInput(sVal.date);
+      if (edit.refs.pickEnd) edit.refs.pickEnd.value = utils.fmtYmdInput(eVal.date);
+      const fmtTaskDate_ = (v) => {
+        if (!v) return '';
+        if (v instanceof Date && !isNaN(v)) return utils.fmtYmdText(v);
+        const d1 = utils.parseDateTextStrict(v);
+        if (d1) return utils.fmtYmdText(d1);
+        const d2 = utils.parseDateTime(v);
+        return d2 && !isNaN(d2) ? utils.fmtYmdText(d2) : '';
+      };
+      const t = c.taskId ? (state.tasks.find(x => String(x.id || '') === String(c.taskId)) || {}) : {};
+      if (edit.refs.taskName) edit.refs.taskName.value = String(t.name || '');
+      if (edit.refs.taskStatus) edit.refs.taskStatus.value = String(t.status || '');
+      if (edit.refs.taskAssignee) edit.refs.taskAssignee.value = String(t.assignee || '');
+      if (edit.refs.taskPlanStart) edit.refs.taskPlanStart.value = fmtTaskDate_(t.planStart);
+      if (edit.refs.taskPlanEnd) edit.refs.taskPlanEnd.value = fmtTaskDate_(t.planEnd);
+      if (edit.refs.metaStart) edit.refs.metaStart.textContent = `rawSlot: ${utils.normalizeSlot(c.start, 'start').rawSlot}`;
+      if (edit.refs.metaEnd) edit.refs.metaEnd.textContent = `rawSlot: ${utils.normalizeSlot(c.end, 'end').rawSlot}`;
+      if (edit.refs.lenBox) {
+        const liveLen = Math.max(1, Number(c.end) - Number(c.start) + 1) * config.slotMin;
+        edit.refs.lenBox.textContent = `${isFinite(liveLen) ? liveLen : 0}mins`;
+      }
+      if (edit.refs.selLane) edit.refs.selLane.value = String(c.laneId || '');
+      edit.needsResyncAfterEdit = false;
+      if (edit.refs.extIndicator) {
+        edit.refs.extIndicator.textContent = '';
+        edit.refs.extIndicator.style.display = 'none';
+      }
     }
   };
 
@@ -1126,16 +3771,21 @@ window.app = (function() {
     if (!drag) return;
     const dy = e.clientY - drag.startY;
     const dx = e.clientX - drag.startX;
-    if (!drag.didMove && (Math.abs(dy) > 3 || Math.abs(dx) > 3)) drag.didMove = true;
+    if (!drag.didMove && (Math.abs(dy) > 6 || Math.abs(dx) > 6)) drag.didMove = true;
     if (!drag.didMove) return;
-    if (drag.isResizing) drag.el.style.height = (drag.startHeight + dy) + 'px';
-    else drag.el.style.top = (drag.startTop + dy) + 'px';
+    if (drag.isResizing) {
+      drag.el.style.height = (drag.startHeight + dy) + 'px';
+    } else {
+      drag.el.style.top = (drag.startTop + dy) + 'px';
+      drag.el.style.transform = 'translateX(' + dx + 'px)';
+    }
   }
   function dragEnd(e) {
     document.removeEventListener('mousemove', dragMove); document.removeEventListener('mouseup', dragEnd);
     if (drag) {
+      if (drag.el) drag.el.style.transform = '';
       if (!drag.didMove) {
-        actions.selectCard(drag.card.id);
+        actions.selectCard(drag.card.id, { focus: false });
         drag = null;
         return;
       }
@@ -1152,32 +3802,55 @@ window.app = (function() {
         const snap = snapState.snap;
 
         const d = new Date(state.workDayMap[dayIdx]);
-        d.setHours(config.workStartH, 0, 0, 0);
-        d.setMinutes(snappedMins);
-
-        const newStart = utils.dateToSlot(d);
+        d.setHours(0, 0, 0, 0);
+        const spd = getSlotsPerDay_();
+        let slotVal = Math.round(snappedMins / config.slotMin) + 1;
+        slotVal = Math.max(1, Math.min(spd, slotVal));
+        const newStart = utils.dateValToSlot(formatYmd_(d), slotVal, 'start');
 
         const rect = els.canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const colIdx = Math.floor(x / 140);
+        const scrollX = els.gridScroll ? els.gridScroll.scrollLeft : 0;
+        const x = (e.clientX - rect.left) + scrollX;
+        const laneWidth = getLaneWidth_();
+        const colIdx = Math.floor(x / laneWidth);
         const lanes = state.lanes.filter(l => l.visible);
         const newLane = (colIdx>=0 && colIdx<lanes.length) ? lanes[colIdx].id : drag.card.laneId;
 
-        state.selection = drag.card.id;
+        if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) {
+          state.selection = drag.card.id;
+        }
+        const prevStart = drag.card.start;
+        const prevEnd = drag.card.end;
+        const prevLane = drag.card.laneId;
+        let changed = false;
         if (drag.isResizing) {
           const hRatio = h / pxPerDay;
           const durMins = hRatio * (config.workHours * 60);
           let snappedDur = Math.round(durMins / snap.min) * snap.min;
           if (snappedDur < snap.min) snappedDur = snap.min;
           const slots = Math.max(1, Math.round(snappedDur / config.slotMin));
-          drag.card.end = drag.card.start + slots;
+          const nextEnd = drag.card.start + slots - 1;
+          if (nextEnd !== prevEnd) {
+            drag.card.end = nextEnd;
+            changed = true;
+          }
         } else {
-          const len = drag.card.end - drag.card.start;
-          drag.card.start = newStart;
-          drag.card.end = newStart + len;
-          drag.card.laneId = newLane;
+          const len = drag.card.end - drag.card.start + 1;
+          const nextStart = newStart;
+          const nextEnd = newStart + len - 1;
+          if (nextStart !== prevStart || nextEnd !== prevEnd || String(newLane) !== String(prevLane)) {
+            drag.card.start = nextStart;
+            drag.card.end = nextEnd;
+            drag.card.laneId = newLane;
+            changed = true;
+          }
         }
-        actions.moveCard(drag.card.id, drag.card.start, drag.card.laneId);
+        if (changed) {
+          actions.moveCard(drag.card.id, drag.card.start, drag.card.laneId);
+        } else {
+          render.grid();
+          ui.refreshInspectorValuesFromCard();
+        }
       } else {
          render.grid();
       }
@@ -1194,8 +3867,10 @@ window.app = (function() {
     const c = state.cards[key];
     const pxPerDay = getPxPerDay_();
     const rect = els.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const scrollX = els.gridScroll ? els.gridScroll.scrollLeft : 0;
+    const scrollY = els.gridScroll ? els.gridScroll.scrollTop : 0;
+    const x = (e.clientX - rect.left) + scrollX;
+    const y = (e.clientY - rect.top) + scrollY;
 
     const dayIdx = Math.floor(y / pxPerDay);
     if (!state.workDayMap[dayIdx]) return;
@@ -1205,53 +3880,304 @@ window.app = (function() {
     const snappedMins = snapState.minutes;
 
     const d = new Date(state.workDayMap[dayIdx]);
-    d.setHours(config.workStartH, 0, 0, 0);
-    d.setMinutes(snappedMins);
-    const newStart = utils.dateToSlot(d);
+    d.setHours(0, 0, 0, 0);
+    const spd = getSlotsPerDay_();
+    let slotVal = Math.round(snappedMins / config.slotMin) + 1;
+    slotVal = Math.max(1, Math.min(spd, slotVal));
+    const newStart = utils.dateValToSlot(formatYmd_(d), slotVal, 'start');
 
     const lanes = state.lanes.filter(l => l.visible);
-    const laneIdx = Math.floor(x / 140);
+    const laneWidth = getLaneWidth_();
+    const laneIdx = Math.floor(x / laneWidth);
     const newLane = (laneIdx >= 0 && laneIdx < lanes.length) ? lanes[laneIdx].id : c.laneId;
 
-    var dur = (c.start !== null && c.end !== null && isFinite(c.end - c.start) && (c.end - c.start) > 0) ? (c.end - c.start) : Math.max(1, Math.round(snapState.snap.min / config.slotMin));
+    var dur = (c.start !== null && c.end !== null && isFinite(c.end - c.start) && (c.end - c.start) >= 0) ? (c.end - c.start + 1) : Math.max(1, Math.round(snapState.snap.min / config.slotMin));
     c.start = newStart;
-    c.end = newStart + dur;
+    c.end = newStart + dur - 1;
     c.laneId = newLane;
-    state.selection = c.id;
+    if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) {
+      state.selection = c.id;
+    }
     actions.moveCard(c.id, c.start, c.laneId);
   }
 
   function bindEvents() {
     const safeAdd = (id, evt, fn) => { const e = document.getElementById(id); if (e) e.addEventListener(evt, fn); };
-    safeAdd('sel-preset', 'change', (e) => actions.setPreset(e.target.value));
-    safeAdd('sel-range', 'change', (e) => actions.setDuration(e.target.value));
+    const isTypingElement_ = (el) => {
+      if (!el) return false;
+      const tag = String(el.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+      if (el.isContentEditable) return true;
+      return false;
+    };
+    const pickGapFromCanvasEvent_ = (e) => {
+      const canvas = els.canvas || document.getElementById('grid-canvas');
+      if (!canvas) return;
+      if (e.target && e.target.closest && e.target.closest('.card')) return;
+      var assetCellEl = (e.target && e.target.closest) ? e.target.closest('.asset-cell') : null;
+      if (assetCellEl) {
+        var directSel = selectionFromAssetCellElement_(assetCellEl);
+        if (directSel) {
+          actions.selectAssetCell(directSel);
+          return;
+        }
+      }
+      const rect = canvas.getBoundingClientRect();
+      const scrollX = els.gridScroll ? els.gridScroll.scrollLeft : 0;
+      const scrollY = els.gridScroll ? els.gridScroll.scrollTop : 0;
+      const x = (e.clientX - rect.left) + scrollX;
+      const y = (e.clientY - rect.top) + scrollY;
+      const assetSel = resolveAssetCellFromCanvasPoint_(x, y);
+      if (assetSel) {
+        actions.selectAssetCell(assetSel);
+        return;
+      }
+      const lanes = getVisibleLanes_();
+      if (!lanes.length) {
+        actions.clearGapSelection();
+        actions.clearAssetCellSelection({ skipRender: true });
+        return;
+      }
+      const laneWidth = getLaneWidth_();
+      const laneIdx = Math.floor(x / laneWidth);
+      if (!isFinite(laneIdx) || laneIdx < 0 || laneIdx >= lanes.length) {
+        actions.clearGapSelection();
+        actions.clearAssetCellSelection({ skipRender: true });
+        return;
+      }
+      const laneId = lanes[laneIdx].id;
+      const slotHit = canvasPointToSlot_(y);
+      if (!slotHit) {
+        actions.clearGapSelection();
+        actions.clearAssetCellSelection({ skipRender: true });
+        return;
+      }
+      const gap = findGapAtSlot_(laneId, slotHit.rawSlot);
+      if (!gap) {
+        actions.clearGapSelection();
+        actions.clearAssetCellSelection({ skipRender: true });
+        return;
+      }
+      actions.selectGap(gap);
+    };
+    safeAdd('sel-start-preset', 'change', (e) => actions.setStartPreset(e.target.value));
+    safeAdd('sel-end-preset', 'change', (e) => actions.setEndPreset(e.target.value));
+    safeAdd('sel-range', 'change', (e) => {
+      const value = String(e && e.target ? e.target.value : '').trim();
+      if (!value || value === 'custom') return;
+      actions.setDuration(value);
+    });
+    safeAdd('sel-card-main', 'change', (e) => actions.setCardDisplayField('main', e.target.value));
+    safeAdd('sel-card-sub', 'change', (e) => actions.setCardDisplayField('sub', e.target.value));
     safeAdd('inp-zoom', 'input', (e) => actions.setZoomFromSlider(e.target.value));
     safeAdd('inp-zoom-val', 'change', (e) => actions.setZoomFromInput(e.target.value));
+    safeAdd('btn-view-fit', 'click', () => actions.fitZoomToView());
+
+    const syncRangeSelect_ = () => {
+      const rangeSel = document.getElementById('sel-range');
+      if (!rangeSel) return;
+      const opts = getRangeOptions_().map(function(n){ return String(n); });
+      rangeSel.value = opts.indexOf(String(state.dayCount)) >= 0 ? String(state.dayCount) : 'custom';
+    };
+
+    const startInput = document.getElementById('start-date');
+    if (startInput) {
+      let lastCommitTs = 0;
+      const commitStartDate_ = () => {
+        const now = Date.now();
+        if (now - lastCommitTs < 80) return;
+        lastCommitTs = now;
+        const raw = String(startInput.value || '').trim();
+        if (!raw) {
+          store.updateStartDateInput();
+          return;
+        }
+        const d = resolveDateInput_(raw);
+        if (!d) {
+          store.updateStartDateInput();
+          return;
+        }
+        state.startDate = d;
+        state.startPreset = 'custom';
+        const presetSel = document.getElementById('sel-start-preset');
+        if (presetSel) presetSel.value = 'custom';
+        if (state.viewDriver === 'end' && state.endDate) {
+          state.dayCount = computeDayCountByStartEnd_(state.startDate, state.endDate);
+        } else {
+          syncEndFromRange_();
+        }
+        store.calcDays();
+        render.grid();
+        markViewDirty_();
+        store.updateStartDateInput();
+        store.updateEndDateInput();
+        syncRangeSelect_();
+      };
+      startInput.addEventListener('focus', () => { startInput.dataset.editing = '1'; });
+      startInput.addEventListener('input', () => { startInput.dataset.editing = '1'; });
+      startInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          startInput.dataset.editing = '0';
+          commitStartDate_();
+          startInput.blur();
+        }
+      });
+      startInput.addEventListener('blur', () => {
+        startInput.dataset.editing = '0';
+        commitStartDate_();
+      });
+      startInput.addEventListener('change', () => {
+        if (document.activeElement !== startInput) commitStartDate_();
+      });
+      startInput.addEventListener('paste', (e) => {
+        const t = (e.clipboardData && e.clipboardData.getData) ? e.clipboardData.getData('text') : '';
+        const d = resolveDateInput_(t);
+        if (d) {
+          e.preventDefault();
+          startInput.value = utils.fmtYmdText(d);
+          startInput.dataset.editing = '1';
+        }
+      });
+    }
+
+    const endInput = document.getElementById('end-date');
+    if (endInput) {
+      let lastCommitTs = 0;
+      const commitEndDate_ = () => {
+        const now = Date.now();
+        if (now - lastCommitTs < 80) return;
+        lastCommitTs = now;
+        const raw = String(endInput.value || '').trim();
+        if (!raw) {
+          store.updateEndDateInput();
+          return;
+        }
+        const d = resolveDateInput_(raw);
+        if (!d) {
+          store.updateEndDateInput();
+          return;
+        }
+        state.endDate = d;
+        state.endPreset = 'custom';
+        state.viewDriver = 'end';
+        const presetSel = document.getElementById('sel-end-preset');
+        if (presetSel) presetSel.value = 'custom';
+        state.dayCount = computeDayCountByStartEnd_(state.startDate, state.endDate);
+        store.calcDays();
+        render.grid();
+        markViewDirty_();
+        store.updateEndDateInput();
+        syncRangeSelect_();
+      };
+      endInput.addEventListener('focus', () => { endInput.dataset.editing = '1'; });
+      endInput.addEventListener('input', () => { endInput.dataset.editing = '1'; });
+      endInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          endInput.dataset.editing = '0';
+          commitEndDate_();
+          endInput.blur();
+        }
+      });
+      endInput.addEventListener('blur', () => {
+        endInput.dataset.editing = '0';
+        commitEndDate_();
+      });
+      endInput.addEventListener('change', () => {
+        if (document.activeElement !== endInput) commitEndDate_();
+      });
+      endInput.addEventListener('paste', (e) => {
+        const t = (e.clipboardData && e.clipboardData.getData) ? e.clipboardData.getData('text') : '';
+        const d = resolveDateInput_(t);
+        if (d) {
+          e.preventDefault();
+          endInput.value = utils.fmtYmdText(d);
+          endInput.dataset.editing = '1';
+        }
+      });
+    }
     safeAdd('chk-push', 'change', (e) => {
-      state.autoPush = true;
-      if (e && e.target) e.target.checked = true;
-      store.saveViewMeta();
+      state.autoPush = !!(e && e.target && e.target.checked);
+      markViewDirty_();
     });
     safeAdd('btn-reload', 'click', actions.load);
-    safeAdd('btn-insp', 'click', () => document.getElementById('inspector').classList.toggle('closed'));
-    safeAdd('btn-close-insp', 'click', () => document.getElementById('inspector').classList.add('closed'));
+    safeAdd('btn-insp', 'click', () => {
+      const insp = document.getElementById('inspector');
+      if (!insp) return;
+      setInspectorClosed_(!insp.classList.contains('closed'));
+    });
+    safeAdd('btn-view', 'click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleToolbarMenu_('view');
+    });
+    safeAdd('btn-lanes', 'click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleToolbarMenu_('lane');
+    });
+    safeAdd('inp-lane-w', 'change', (e) => actions.setLaneWidth(e.target.value));
+    safeAdd('inp-asset-w', 'change', (e) => actions.setAssetColWidth(e.target.value));
+    safeAdd('btn-save-view', 'click', actions.saveViewSettings);
+    safeAdd('btn-save-lane', 'click', actions.saveLaneSettings);
+    safeAdd('btn-settings', 'click', () => {
+      closeToolbarMenus_();
+      setSettingsModalOpen_(true);
+    });
+    safeAdd('btn-settings-close', 'click', () => setSettingsModalOpen_(false));
+    safeAdd('btn-save-sched-cfg', 'click', actions.saveScheduleConfig);
+    safeAdd('btn-rename-sched-save', 'click', actions.renameSchedFromSettings);
+    safeAdd('sched-rename-input', 'keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        actions.renameSchedFromSettings();
+      }
+    });
+    safeAdd('btn-close-insp', 'click', () => setInspectorClosed_(true));
     safeAdd('tab-edit', 'click', () => ui.switchTab('edit'));
     safeAdd('tab-list', 'click', () => ui.switchTab('list'));
     safeAdd('btn-auto', 'click', actions.autoCreate);
     safeAdd('btn-new', 'click', actions.newCard);
     safeAdd('inp-filter', 'input', ui.renderCardList);
     safeAdd('sched-switch', 'change', (e) => actions.switchSched(e.target.value));
-    safeAdd('btn-lanes', 'click', (e) => {
-      const m = document.getElementById('lane-menu-popup');
-      if (!m) return;
-      const rect = e.target.getBoundingClientRect();
-      m.style.top = (rect.bottom + window.scrollY + 4) + 'px';
-      m.style.left = (rect.left + window.scrollX) + 'px';
-      m.classList.toggle('show');
-    });
-    safeAdd('sched-name-display', 'click', actions.renameSched);
     safeAdd('grid-canvas', 'dragover', (e) => { e.preventDefault(); });
     safeAdd('grid-canvas', 'drop', handleCanvasDrop_);
+    safeAdd('grid-canvas', 'mousedown', (e) => {
+      if (e.button !== 0) return;
+      pickGapFromCanvasEvent_(e);
+    });
+    safeAdd('grid-canvas', 'click', (e) => {
+      if (e.button !== 0) return;
+      pickGapFromCanvasEvent_(e);
+    });
+    if (els.settingsModal) {
+      els.settingsModal.addEventListener('click', (e) => {
+        if (e.target === els.settingsModal) setSettingsModalOpen_(false);
+      });
+    }
+    document.addEventListener('keydown', (e) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && state.gapSelection) {
+        if (isTypingElement_(e.target)) return;
+        e.preventDefault();
+        actions.closeSelectedGap();
+        return;
+      }
+      if (e.key === 'Escape') {
+        closeToolbarMenus_();
+        setSettingsModalOpen_(false);
+        actions.clearGapSelection();
+        actions.clearAssetCellSelection({ skipRender: true });
+        ui.renderInspector();
+      }
+    });
+    document.addEventListener('click', (e) => {
+      const inToolbarPopup = !!(e.target && e.target.closest && e.target.closest('.toolbar-group'));
+      if (!inToolbarPopup) closeToolbarMenus_();
+    });
+    initInspectorResizer_();
+    const insp = document.getElementById('inspector');
+    if (insp) setInspectorClosed_(insp.classList.contains('closed'));
   }
 
   return { actions, ui, state, render, bindEvents };
