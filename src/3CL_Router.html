@@ -44,7 +44,10 @@
         } catch (e) { }
 
         try {
-          return location.origin + location.pathname;
+          var p = String(location.pathname || '');
+          if (/\/userCodeAppPanel\b/i.test(p)) return location.origin + '/exec';
+          if (/\/exec\b/i.test(p)) return location.origin + p;
+          return location.origin + p;
         } catch (e) {
           console.error('[MOTK][Router] resolveBaseUrl failed', e);
           return '';

@@ -1174,13 +1174,27 @@
             });
             STATE.presets = filtered;
             filtered.forEach(function (p) {
+              var pid = String(p.pageId || p.id || p.page_id || p.pid || "").trim();
+              var label = String(p.pageName || p.name || p.title || pid || "").trim();
+              if (!pid) return;
+              if (!label) label = pid;
               var o = document.createElement("option");
-              o.value = p.id;
-              o.textContent = p.name || p.id;
+              o.value = pid;
+              o.textContent = label;
+              o.dataset.pageId = pid;
+              o.dataset.pageName = label;
+              if (p.pageType) o.dataset.pageType = String(p.pageType);
+              if (p.entity) o.dataset.entity = String(p.entity);
               sel.appendChild(o);
             });
+            if (!sel.options.length) {
+              var opt = document.createElement("option");
+              opt.textContent = "No presets";
+              opt.disabled = true;
+              sel.appendChild(opt);
+            }
           }
-        } catch (e) { console.warn("[DetailV2] Failed to sync presets", e); }
+        } catch (e) { console.warn("[Detail] Failed to sync presets", e); }
         
         if (STATE.currentPreset && Array.from(sel.options).some(function(o){ return o.value===STATE.currentPreset; })) {
            sel.value = STATE.currentPreset;
@@ -1195,47 +1209,40 @@
       }
       
       async function loadLayoutAndApply(presetNameOrId) {
-        setLoading(true);
-        showStatus("Loading layout...");
+        var layouts = [];
         try {
-            var layout = null;
-            var isId = presetNameOrId && /^pg_/.test(presetNameOrId);
-            
-            if (isId) {
-               try {
-                 var res = await tryCall(["gsLoadPageConfig", "sv_loadPageConfig"], { pageId: presetNameOrId });
-                 if (res && res.layout) {
-                   layout = res.layout; 
-                 } else if (res && res.config && res.config.layout) {
-                   layout = res.config.layout;
-                 } else if (Array.isArray(res)) {
-                   layout = res;
-                 }
-               } catch(_) {}
-            } else {
-               var key = presetNameOrId ? ('preset:' + presetNameOrId) : 'global';
-               try { var raw = localStorage.getItem(storageKey(key)); if (raw) layout = JSON.parse(raw); } catch (_) { }
-            }
+          var raw = localStorage.getItem("MOTK_DETAIL_LAYOUTS_V2");
+          if (raw) layouts = JSON.parse(raw);
+        } catch (e) { console.warn("Layout storage parse error", e); }
 
-            if (layout && Array.isArray(layout) && layout.length) {
-              STATE.layout = layout;
-              buildFromLayout();
-              showStatus("Layout loaded");
-              if (isId) {
-                  updateUrlState(presetNameOrId);
-                  STATE.currentPreset = presetNameOrId;
-                  var sel = $("#presetSelect"); if (sel) sel.value = presetNameOrId;
-              }
-            } else {
-              console.warn("[DetailV2] No layout found for:", presetNameOrId);
-              document.getElementById("grid").innerHTML = "";
-              showStatus("No layout loaded");
-            }
-        } catch(err) {
-            console.error(err);
-            showStatus("Load Error", true);
-        } finally {
-            setLoading(false);
+        var preset = null;
+        if (presetNameOrId) {
+          preset = layouts.find(function (l) { return l.name === presetNameOrId || l.id === presetNameOrId; });
+        }
+        if (!preset && Array.isArray(STATE.presets)) {
+          preset = STATE.presets.find(function (p) {
+            return (p && (p.id === presetNameOrId || p.pageId === presetNameOrId || p.name === presetNameOrId || p.pageName === presetNameOrId));
+          });
+          if (!preset && presetNameOrId == null && STATE.presets.length) preset = STATE.presets[0];
+        }
+
+        var layout = null;
+        if (preset && Array.isArray(preset.layout)) layout = preset.layout;
+        else if (preset && preset.config && Array.isArray(preset.config.layout)) layout = preset.config.layout;
+        else if (preset && preset.config && typeof preset.config.layout === "string") {
+          try { layout = JSON.parse(preset.config.layout); } catch (_) { layout = null; }
+        }
+
+        if (layout && Array.isArray(layout)) {
+          STATE.layout = JSON.parse(JSON.stringify(layout));
+          var presetId = (preset && (preset.pageId || preset.id)) ? String(preset.pageId || preset.id) : "";
+          var presetLabel = (preset && (preset.pageName || preset.name || preset.pageId || preset.id)) ? String(preset.pageName || preset.name || preset.pageId || preset.id) : "";
+          STATE.currentPreset = presetId || presetLabel || "";
+          showStatus("Loaded: " + (presetLabel || STATE.currentPreset || "preset"));
+          try { buildFromLayout(); } catch (e) { console.error("[Detail] Build from preset failed:", e); showError("Layout build failed."); }
+        } else {
+          console.warn("[Detail] No layout found for:", presetNameOrId);
+          showError("No layout found for: " + String(presetNameOrId || ""));
         }
       }
       
@@ -1320,7 +1327,22 @@ function exportLayoutFromDOM() {
 
       /* ===== 13.9 Layout builders ===== */
       function setDefaultLayout() {
-        STATE.layout = [];
+        console.log("[Detail] Generating default layout...");
+        var hasView = false;
+        try {
+          if (STATE.fieldsMeta) {
+            var keys = Object.keys(STATE.fieldsMeta);
+            for (var i = 0; i < keys.length; i++) {
+              var m = STATE.fieldsMeta[keys[i]] || {};
+              if (String(m.type || "").toLowerCase() === "versions") { hasView = true; break; }
+            }
+          }
+        } catch (_) { }
+        var viewType = hasView ? "shotview" : "table";
+        STATE.layout = [
+          { key: "def_view", title: "View", type: viewType, x: 0, y: 0, w: 5, h: 8, fields: [], thwpx: 100 },
+          { key: "def_info", title: "Basic Info", type: "table", x: 5, y: 0, w: 7, h: 12, fields: [], thwpx: 100 }
+        ];
       }
       function buildFromLayout() {
         var grid = $("#grid"); grid.innerHTML = "";
@@ -1328,7 +1350,7 @@ function exportLayoutFromDOM() {
         STATE.layout.forEach(function (c) {
           try {
             grid.appendChild(createCard(c));
-          } catch (e) { console.error("[DetailV2] createCard failed for", c, e); }
+          } catch (e) { console.error("[Detail] createCard failed for", c, e); }
         });
         requestAnimationFrame(function () {
           if (window.FieldsAPI && typeof FieldsAPI.hydrateLinks === "function") {
@@ -1350,20 +1372,22 @@ function exportLayoutFromDOM() {
           try {
             var meta = STATE.fieldsMeta || {};
             var fids = Object.keys(meta);
+            var entKey = String(STATE.entity || "").toLowerCase();
             for (var i = 0; i < fids.length; i++) {
               var fid = fids[i];
               var m = meta[fid] || resolveFieldMeta_(fid) || {};
-              var s = String(m.name || m.label || m.field_name || "").toLowerCase();
-              if (s.indexOf("shotview") >= 0) return fid;
+              var t = String(m.type || "").toLowerCase();
+              var e = String(m.entity || m.entityName || m.entity_key || m.entityKey || "").toLowerCase();
+              if (t === "versions" && (!e || e === entKey)) return fid;
             }
           } catch (_) { }
           try {
             if (window.SchemaResolver && SchemaResolver.getFidsByType) {
-              var list = SchemaResolver.getFidsByType('shot', 'shotview');
+              var list = SchemaResolver.getFidsByType(STATE.entity, 'versions');
               if (list && list.length) return list[0];
             }
           } catch (_) { }
-          try { showError("Missing shotview field in Fields meta."); } catch (_) { }
+          try { showError("Missing versions field in Fields meta."); } catch (_) { }
           return "";
         }
 
@@ -1379,6 +1403,15 @@ function exportLayoutFromDOM() {
             var meta = resolveFieldMeta_(fid);
             var type = (meta && meta.type) ? String(meta.type).trim().toLowerCase() : "versions";
             var val = (STATE.row && STATE.row[fid] != null) ? STATE.row[fid] : "";
+            if ((val == null || val === "") && STATE.row) {
+              var labelKey = (STATE.labels && STATE.labels[fid]) ? String(STATE.labels[fid]) : "";
+              if (!labelKey && meta) { labelKey = String(meta.name || meta.label || meta.field_name || ""); }
+              if (labelKey && STATE.row[labelKey] != null) val = STATE.row[labelKey];
+              if ((val == null || val === "") && labelKey) {
+                var lowerKey = labelKey.toLowerCase();
+                if (STATE.row[lowerKey] != null) val = STATE.row[lowerKey];
+              }
+            }
 
             var node = FieldsAPI.renderCellByField({
               fid: fid,
@@ -1513,7 +1546,7 @@ function exportLayoutFromDOM() {
                 FieldsAPI.hydrateLinks(card, { entity: STATE.entity, row: STATE.row, labels: STATE.labels });
               }
             } catch (err) {
-              console.error("[DetailV2] Card reload failed", err);
+              console.error("[Detail] Card reload failed", err);
             }
           });
 
@@ -1593,7 +1626,7 @@ function exportLayoutFromDOM() {
               var meta = resolveFieldMeta_(fid);
               var ftype = meta && meta.type ? String(meta.type).trim().toLowerCase() : "";
               if (!ftype) {
-                console.warn("[DetailV2] Missing Fields meta for fid=" + fid + " (type undefined).");
+                console.warn("[Detail] Missing Fields meta for fid=" + fid + " (type undefined).");
               }
               if (ftype) td.setAttribute("data-type", ftype);
               
@@ -1621,7 +1654,7 @@ function exportLayoutFromDOM() {
                      editable: !!(meta && meta.editable === true)
                    });
                  } catch (err) {
-                  console.error("[DetailV2] renderCellByField error", err);
+                  console.error("[Detail] renderCellByField error", err);
                   node = null;
                 }
               }
@@ -1824,7 +1857,7 @@ function exportLayoutFromDOM() {
                     var meta = _resolveFieldMetaWithFallback_(fid);
                     var ftype = meta && meta.type ? String(meta.type).trim().toLowerCase() : "";
                     if (!ftype) {
-                      console.warn("[DetailV2] Missing Fields meta for fid=" + fid + " (type undefined).");
+                      console.warn("[Detail] Missing Fields meta for fid=" + fid + " (type undefined).");
                     }
                     if (ftype) td.setAttribute("data-type", ftype);
                     var val = (STATE.row && STATE.row[fid]) ? STATE.row[fid] : "";
@@ -1847,7 +1880,7 @@ function exportLayoutFromDOM() {
                               editable: !!(meta && meta.editable === true)
                             });
                           } catch (err) {
-                           console.error("[DetailV2] renderCellByField error", err);
+                           console.error("[Detail] renderCellByField error", err);
                            node = null;
                          }
                     }
@@ -1915,7 +1948,16 @@ function exportLayoutFromDOM() {
         var row = STATE.rows[index], map = {}, labels = {};
         if (row && Array.isArray(STATE.ids)) {
           for (var i = 0; i < STATE.ids.length; i++) map[STATE.ids[i]] = row[i];
-          for (var j = 0; j < STATE.ids.length; j++) labels[STATE.ids[j]] = String(STATE.header[j] || STATE.ids[j]);
+          for (var j = 0; j < STATE.ids.length; j++) {
+            var fid = STATE.ids[j];
+            var label = String(STATE.header[j] || fid || "");
+            labels[fid] = label;
+            if (label) {
+              if (map[label] == null) map[label] = row[j];
+              var lower = label.toLowerCase();
+              if (lower && map[lower] == null) map[lower] = row[j];
+            }
+          }
         }
         STATE.row = map; STATE.labels = labels;
         ensurePageKey();
@@ -1929,8 +1971,7 @@ function exportLayoutFromDOM() {
             document.title = entLabel + ' | ' + recordTitle; 
         }
         setupPrevNext();
-        if (!STATE.layout || !STATE.layout.length) setDefaultLayout();
-        buildFromLayout();
+        if (STATE.layout && STATE.layout.length) buildFromLayout();
         ensureToolbarVisible();
         refreshHorizontalScroll();
         if (pushUrl) {
@@ -1983,7 +2024,7 @@ function exportLayoutFromDOM() {
       
       /* ===== 13.17 Init / Error ===== */
       function showError(msg) {
-        console.error("[DetailV2] " + msg);
+        console.error("[Detail] " + msg);
         var box = document.getElementById("error");
         if (!box) return;
         box.textContent = msg; box.style.display = "block";
@@ -2069,8 +2110,7 @@ function exportLayoutFromDOM() {
               if (STATE.presets && STATE.presets.length > 0) {
                   await loadLayoutAndApply(STATE.presets[0].id);
               } else {
-                  document.getElementById("grid").innerHTML = "";
-                  showStatus("No layout found");
+                  showError("No detail layouts found for entity=" + String(STATE.entity || ""));
               }
 
               // Canonicalize URL: remove `pid` if present.
@@ -2331,7 +2371,7 @@ function exportLayoutFromDOM() {
         try {
           bindToolbar(); bindSaveUI(); bindSaveModal(); bindCardsModal(); bindFieldModal();
           ensureToolbarVisible(); refreshHorizontalScroll();
-        } catch (e) { console.error("[DetailV2] toolbar / UI binding error", e); }
+        } catch (e) { console.error("[Detail] toolbar / UI binding error", e); }
         init().catch(function (err) { showError(err && err.message ? err.message : String(err)); });
       });
 
