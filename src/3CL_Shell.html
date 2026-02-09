@@ -1,0 +1,294 @@
+<!doctype html>
+<html>
+
+<head>
+  <base target="_top" />
+  <meta charset="utf-8" />
+  <!-- ===== 0. Early console capture + optional noise suppression (opt-in) ===== -->
+  <script>
+    (function () {
+      if (window.__MOTK_EARLY_CONSOLE_TAP_INSTALLED__) return;
+      window.__MOTK_EARLY_CONSOLE_TAP_INSTALLED__ = true;
+
+      var MAX_ITEMS = 2000;
+      var KEY = "motk_console_buf";
+      var LEGACY_KEY = "motk:console:buffer:v1";
+
+      (function initQuietConsoleOptIn() {
+        try {
+          var qs = new URLSearchParams(location.search || "");
+          var byQuery = qs.get("quiet_console") === "1";
+          var byLocal = localStorage.getItem("motk_quiet_console") === "1";
+          if (byQuery || byLocal) window.__MOTK_QUIET_CONSOLE__ = true;
+        } catch (_) { }
+      })();
+
+      function isQuietConsoleEnabled() {
+        return window.__MOTK_QUIET_CONSOLE__ === true;
+      }
+
+      function shouldSuppressConsoleNoise(argsLike) {
+        if (!isQuietConsoleEnabled()) return false;
+        try {
+          var args = Array.prototype.slice.call(argsLike || []);
+          var msg = "";
+          for (var i = 0; i < args.length; i++) {
+            var a = args[i];
+            if (typeof a === "string") msg += " " + a;
+            else if (a && typeof a.message === "string") msg += " " + a.message;
+          }
+          msg = msg.trim().replace(/^%c+/g, "");
+          if (!msg) return false;
+
+          var m = msg.toLowerCase();
+          if (m.indexOf("dropping postmessage..") >= 0) return true;
+          if (m.indexOf("ses removing unpermitted intrinsics") >= 0) return true;
+          if (m.indexOf("unrecognized feature:") >= 0) return true;
+          if (m.indexOf("an iframe which has both allow-scripts and allow-same-origin") >= 0) return true;
+          if (m.indexOf("cdn.tailwindcss.com should not be used in production") >= 0) return true;
+
+          return false;
+        } catch (_) {
+          return false;
+        }
+      }
+
+      function safeToText(x) {
+        try {
+          if (x === null) return "null";
+          if (x === undefined) return "undefined";
+          if (typeof x === "string") return x;
+          if (typeof x === "number" || typeof x === "boolean") return String(x);
+          if (x instanceof Error) return (x.name || "Error") + ": " + (x.message || "");
+          if (typeof x === "object") return JSON.stringify(x);
+          return String(x);
+        } catch (_) {
+          return "[unserializable]";
+        }
+      }
+
+      function loadBuf() {
+        try {
+          var raw = localStorage.getItem(KEY);
+          if (!raw) raw = sessionStorage.getItem(LEGACY_KEY);
+          if (!raw) return [];
+          var arr = JSON.parse(raw);
+          return Array.isArray(arr) ? arr : [];
+        } catch (_) {
+          return [];
+        }
+      }
+
+      function saveBuf(arr) {
+        try { localStorage.setItem(KEY, JSON.stringify(arr)); } catch (_) { }
+        try { sessionStorage.setItem(LEGACY_KEY, JSON.stringify(arr)); } catch (_) { }
+      }
+
+      function push(level, args) {
+        var buf = loadBuf();
+        buf.push({
+          t: Date.now(),
+          level: level,
+          args: Array.prototype.slice.call(args || []).map(safeToText)
+        });
+        while (buf.length > MAX_ITEMS) buf.shift();
+        saveBuf(buf);
+      }
+
+      function wrap(level) {
+        var origFn = console[level];
+        if (typeof origFn !== "function") return;
+        console[level] = function () {
+          if (shouldSuppressConsoleNoise(arguments)) return;
+          push(level, arguments);
+          try {
+            return origFn.apply(console, arguments);
+          } catch (_) { }
+        };
+      }
+
+      ["log", "info", "warn", "error", "debug"].forEach(wrap);
+
+      window.__MOTK_CONSOLE_EXPORT__ = function exportMotkConsole() {
+        return loadBuf();
+      };
+    })();
+  </script>
+  <title>MOTKsheets G-Viewer</title>
+  <?!= include('3CL_CommonStyles'); ?>
+</head>
+
+<?
+// TAKE294: Ensure scriptUrl is always resolvable (including userCodeAppPanel/OAuth contexts).
+// Prefer provided scriptUrl; fallback to ScriptApp service URL.
+var __SCRIPT_URL__ = (function () {
+  var su = (typeof scriptUrl !== 'undefined' ? scriptUrl : '');
+  su = String(su || '').trim();
+  if (!su) su = String(ScriptApp.getService().getUrl() || '').trim();
+  return su;
+})();
+var __SCRIPT_URL_EXEC__ = String(ScriptApp.getService().getUrl() || '').trim();
+?>
+<body data-nav-page="<?= page ?>" data-nav-entity="<?= entity ?>">
+  <!-- ===== 1.gnav ===== -->
+  <nav id="gNav" class="gnavi" aria-label="Global Navigation">
+    <span class="logo">MOTK</span>
+    <a class="mi" data-page="Dashboard" href="<?= __SCRIPT_URL__ ?>?page=Dashboard">Dashboard</a>
+    <a class="mi" data-page="Settings" href="<?= __SCRIPT_URL__ ?>?page=Settings" target="_blank" rel="noopener">Settings</a>
+    <span class="spacer"></span>
+    <a class="mi debug" data-page="DebugPanelPage" href="<?= __SCRIPT_URL__ ?>?page=DebugPanelPage" target="_blank"
+      title="Debug Panel">
+      &#x1F41E; Debug
+    </a>
+  </nav>
+  <!-- ===== 1.End ===== -->
+
+  <!-- ===== 2.pnav ===== -->
+  <? var __MOTK_SHELL_CFG__ = { quietConsole: false }; ?>
+  <? var __PNAVI_ITEMS__ = (function () {
+    var base = String(__SCRIPT_URL__ || '').trim();
+    function parseMetaBool(v) {
+      var s = String(v == null ? '' : v).trim().toLowerCase();
+      if (!s) return false;
+      return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+    }
+    function makeHref(path) {
+      if (!path) return '';
+      var p = String(path);
+      if (/^https?:\/\//i.test(p)) return p;
+      if (p.charAt(0) === '?') return base + p;
+      if (p.indexOf('p=') >= 0 || p.indexOf('page=') >= 0) return base + '?' + p;
+      return base + '?p=' + encodeURIComponent(p);
+    }
+    function normalizeItem(it) {
+      if (!it) return null;
+      var id = String(it.id || '').trim();
+      if (!id) return null;
+      var label = String(it.label || id);
+      var enabled = (it.enabled === false) ? false : true;
+      var href = String(it.href || it.url || '').trim();
+      var page = String(it.page || '').trim();
+      var entity = String(it.entity || '').trim();
+      var target = String(it.target || '').trim();
+      if (!href) {
+        if (id === 'shots') { href = base + '?p=table&e=shots'; page = page || 'Shots'; entity = entity || 'shot'; }
+        else if (id === 'assets') { href = base + '?p=table&e=assets'; page = page || 'Assets'; entity = entity || 'asset'; }
+        else if (id === 'tasks') { href = base + '?p=table&e=tasks'; page = page || 'Tasks'; entity = entity || 'task'; }
+        else if (id === 'members') { href = base + '?p=table&e=members'; page = page || 'ProjectMembers'; entity = entity || 'member'; }
+        else if (id === 'users') { href = base + '?p=table&e=users'; page = page || 'Users'; entity = entity || 'user'; }
+        else if (id === 'schedule') { href = base + '?p=schedule'; page = page || 'Schedule'; target = '_blank'; }
+        else { href = makeHref(id); }
+      } else {
+        href = makeHref(href);
+      }
+      if (id === 'schedule') target = '_blank';
+      return { id: id, label: label, href: href, enabled: enabled, page: page, entity: entity, target: target };
+    }
+    var defaults = [
+      { id: 'shots', label: 'Shots', href: base + '?p=table&e=shots', page: 'Shots', entity: 'shot', enabled: true },
+      { id: 'assets', label: 'Assets', href: base + '?p=table&e=assets', page: 'Assets', entity: 'asset', enabled: true },
+      { id: 'tasks', label: 'Tasks', href: base + '?p=table&e=tasks', page: 'Tasks', entity: 'task', enabled: true },
+      { id: 'members', label: 'Members', href: base + '?p=table&e=members', page: 'ProjectMembers', entity: 'member', enabled: true },
+      { id: 'users', label: 'Users', href: base + '?p=table&e=users', page: 'Users', entity: 'user', enabled: true },
+      { id: 'schedule', label: 'Schedule', href: base + '?p=schedule', page: 'Schedule', enabled: true, target: '_blank' }
+    ];
+    try {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var sh = ss ? ss.getSheetByName('project_meta') : null;
+      if (sh && typeof _sv_readProjectMeta_ === 'function') {
+        var meta = _sv_readProjectMeta_(sh) || {};
+        try {
+          var quietRaw = meta['ui_quiet_console'];
+          if (quietRaw === undefined || quietRaw === null || quietRaw === '') quietRaw = meta['ui.quiet_console'];
+          if (quietRaw === undefined || quietRaw === null || quietRaw === '') quietRaw = meta['uiQuietConsole'];
+          __MOTK_SHELL_CFG__.quietConsole = parseMetaBool(quietRaw);
+        } catch (_) { }
+        var raw = meta['pnavi.config.json'] || meta['pnavi.config'] || '';
+        if (raw) {
+          var cfg = JSON.parse(String(raw));
+          if (cfg && Array.isArray(cfg.items)) {
+            var out = [];
+            for (var i = 0; i < cfg.items.length; i++) {
+              var item = normalizeItem(cfg.items[i]);
+              if (item) out.push(item);
+            }
+            if (out.length) return out;
+          }
+        }
+      }
+    } catch (_) { }
+    return defaults;
+  })(); ?>
+  <nav id="pNav" aria-label="Entity Navigation">
+    <? for (var i = 0; i < __PNAVI_ITEMS__.length; i++) {
+      var it = __PNAVI_ITEMS__[i];
+      if (it.enabled === false) continue; ?>
+      <a data-page="<?= it.page || '' ?>"<? if (it.entity) { ?> data-entity="<?= it.entity ?>"<? } ?> href="<?= it.href ?>"<? if (it.target) { ?> target="<?= it.target ?>" rel="noopener"<? } ?>><?= it.label ?></a>
+    <? } ?>
+  </nav>
+  <!-- ===== 2.End ===== -->
+  <?!= include('3CL_Router'); ?>
+
+  <main id="main-content">
+    <div class="loader">Loading...</div>
+  </main>
+
+  <!-- Console tap/filter moved to <head> for earliest interception. -->
+
+  <!-- ===== 4. Data bootstrapping ===== -->
+  <script>
+    const PAGE = "<?= page ?>";
+
+    // Bridge scriptUrl to all Router/Renderer consumers
+    (function () {
+      var url = "<?= __SCRIPT_URL__ ?>";
+
+      // Safety fallback (avoid /userCodeAppPanel becoming the base)
+      if (!url) {
+        url = window.__SCRIPT_URL__ || window.SCRIPT_URL || '';
+        if (!url) {
+          var p = String(location.pathname || '');
+          if (/\/userCodeAppPanel\b/i.test(p)) url = location.origin + '/exec';
+          else url = location.origin + p;
+        }
+      }
+
+      window.__SCRIPT_URL_SERVER__ = "<?= scriptUrl ?>";
+      window.__SCRIPT_URL__ = url;
+      window.SCRIPT_URL = url;
+      window.scriptUrl = url;
+
+      console.log("[MOTK][Shell] SCRIPT URL bridge set:", url);
+      try {
+        if (window.__MOTK_BOOT__ && typeof window.__MOTK_BOOT__.updateContext === 'function') {
+          window.__MOTK_BOOT__.updateContext({
+            scriptUrlBridge: url,
+            pageHint: (typeof PAGE !== 'undefined') ? PAGE : '',
+            entityHint: (document.body && document.body.dataset && (document.body.dataset.navEntity || document.body.dataset.entity)) || ''
+          });
+        }
+      } catch (_) { }
+    })();
+
+    const raw = JSON.parse(<?= dataJson ?>);
+    window.__VIEW_CTX = (raw && raw.viewCtx) ? raw.viewCtx : {};
+    window.__ALL_DATA = (raw && raw.data) ? raw.data : {};
+    window.__SERVER_CONFIG = (raw && raw.config) ? raw.config : {};
+
+    console.log("[MOTK][Shell] Bootstrapped view context:", window.__VIEW_CTX);
+  </script>
+
+
+  <script src="<?= __SCRIPT_URL_EXEC__ ?>?action=app-bundle"></script>
+
+  <?!= include('3CL_Table'); ?>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const loader = document.querySelector('.loader');
+      if (loader) loader.style.display = 'none';
+    });
+  </script>
+</body>
+
+</html>
