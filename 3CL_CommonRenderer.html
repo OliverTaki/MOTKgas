@@ -441,19 +441,37 @@
     }
 
     function handleSchemaSig_(sig) {
-      if (!sig) return;
-      var key = "MOTK_FIELDS_SCHEMA_SIG_V1";
-      var prev = "";
-      try { prev = localStorage.getItem(key) || ""; } catch (_) { prev = ""; }
-      if (prev !== sig) {
-        try { localStorage.setItem(key, sig); } catch (_) { }
-        // Clear schema caches but avoid full reload to prevent whiteout; allow caller to refetch incrementally.
-        clearSchemaCaches_("schemaSig mismatch");
-      }
+      // TAKE228: schemaSig handling disabled (dumb pipe)
+      return { action: "no_change" };
     }
 
     var APPDATA_CACHE_KEY = "MOTK_APPDATA_CACHE_V1";
     var APPDATA_REFRESH_INFLIGHT = false;
+    var APPDATA_REQ_SEQ = 0;
+    var APPDATA_INFLIGHT_PROMISE = null;
+    var APPDATA_INFLIGHT_META = null;
+    var APPDATA_LAST_REQ = null;
+    var APPDATA_LAST_RES = null;
+
+    function buildAppDataFingerprint_(res) {
+      try {
+        var ft = res && res.fieldTypes ? res.fieldTypes : null;
+        var ents = ft && typeof ft === "object" ? Object.keys(ft || {}) : [];
+        var fieldTypesKeys = 0;
+        if (ft && ents.length) {
+          ents.forEach(function (e) {
+            try { fieldTypesKeys += Object.keys(ft[e] || {}).length; } catch (_) { }
+          });
+        }
+        var appDataTs = (res && (res.ts || res.updatedAt)) ? String(res.ts || res.updatedAt) : "";
+        var meta = (res && res.meta && typeof res.meta === "object") ? res.meta : {};
+        var projectId = meta.project_id ? String(meta.project_id) : "";
+        var timezone = meta.timezone ? String(meta.timezone) : "";
+        return { fieldTypesKeys: fieldTypesKeys, entitiesCount: ents.length, appDataTs: appDataTs, projectId: projectId, timezone: timezone };
+      } catch (_) {
+        return { fieldTypesKeys: 0, entitiesCount: 0, appDataTs: "", projectId: "", timezone: "" };
+      }
+    }
 
     function readAppDataCache_() {
       try {
@@ -467,23 +485,51 @@
       }
     }
 
+    function hasFieldTypes_(ft) {
+      try {
+        if (!ft || typeof ft !== "object") return false;
+        var ents = Object.keys(ft || {});
+        if (!ents.length) return false;
+        for (var i = 0; i < ents.length; i++) {
+          var ent = ents[i];
+          var map = ft[ent];
+          if (map && typeof map === "object" && Object.keys(map).length) return true;
+        }
+        return false;
+      } catch (_) {
+        return false;
+      }
+    }
+
     function writeAppDataCache_(res) {
       try {
         var payload = {
           updatedAt: Date.now(),
           schemaSig: res && res.schemaSig ? String(res.schemaSig) : "",
           fieldTypes: res && res.fieldTypes ? res.fieldTypes : null,
-          linkMaps: res && res.linkMaps ? res.linkMaps : null
+          linkMaps: res && res.linkMaps ? res.linkMaps : null,
+          projectId: (res && res.meta && res.meta.project_id) ? String(res.meta.project_id) : ""
         };
         localStorage.setItem(APPDATA_CACHE_KEY, JSON.stringify(payload));
       } catch (_) { }
     }
 
-    function applyAppData_(res) {
+    function applyAppData_(res, ctx) {
+      var decision = { action: "no_sig" };
       try {
-        if (res && res.fieldTypes) window.FIELD_TYPES = res.fieldTypes;
+        if (res && res.schemaSig) {
+          decision = handleSchemaSig_(String(res.schemaSig), ctx || {});
+          if (decision && decision.action === "deferred") {
+            return { applied: false, decision: decision };
+          }
+        }
+        if (res && res.fieldTypes) {
+          var allowOverwrite = !window.FIELD_TYPES || !Object.keys(window.FIELD_TYPES || {}).length;
+          if (hasFieldTypes_(res.fieldTypes) || allowOverwrite) {
+            window.FIELD_TYPES = res.fieldTypes;
+          }
+        }
         if (res && res.fieldTypesDiag) window.__MOTK_FIELD_TYPES_DIAG__ = res.fieldTypesDiag;
-        if (res && res.schemaSig) handleSchemaSig_(String(res.schemaSig));
         if (res && res.linkMaps) {
           window.LINK_MAPS = Object.assign({ assets: {}, shots: {}, tasks: {}, users: {}, members: {} }, window.LINK_MAPS || {});
           ["assets", "shots", "tasks", "users", "members"].forEach(function (k) {
@@ -491,37 +537,89 @@
             Object.assign(window.LINK_MAPS[k], res.linkMaps[k] || {});
           });
         }
+        if (res && res.meta && typeof res.meta === "object") {
+          window.__MOTK_PROJECT_META__ = res.meta;
+          if (res.meta.project_id) {
+            window.__MOTK_PROJECT_ID__ = String(res.meta.project_id);
+            try { localStorage.setItem("MOTK_PROJECT_ID_V1", String(res.meta.project_id)); } catch (_) { }
+          }
+        }
       } catch (_) { }
+      return { applied: true, decision: decision };
     }
 
-    function requestAppData_(done) {
+    function requestAppData_(reason, done) {
+      var cb = (typeof done === "function") ? done : null;
+      var why = String(reason || "unspecified");
+      if (APPDATA_INFLIGHT_PROMISE) {
+        var joinId = APPDATA_INFLIGHT_META ? APPDATA_INFLIGHT_META.reqId : "";
+        console.info("[TAKE220][APPDATA] singleflight join reqId=" + joinId + " reason=" + why);
+        APPDATA_INFLIGHT_PROMISE.then(function (res) { if (cb) cb(res || null); });
+        return APPDATA_INFLIGHT_PROMISE;
+      }
       try {
         if (!(window.google && google.script && google.script.run && typeof google.script.run.dp_loadAppData === "function")) {
-          done(null);
-          return;
+          if (cb) cb(null);
+          return Promise.resolve(null);
         }
-        google.script.run
-          .withSuccessHandler(function (res) {
-            try {
-              if (res) {
-                res.source = res.source || "network";
-                window.__MOTK_FIELD_TYPES_SOURCE__ = res.source;
-              }
-            } catch (_) { }
-            try { applyAppData_(res || null); } catch (_) { }
-            try { if (res) writeAppDataCache_(res); } catch (_) { }
-            done(res || null);
-          })
-          .withFailureHandler(function () { done(null); })
-          .dp_loadAppData();
+        var seq = ++APPDATA_REQ_SEQ;
+        var reqId = "ad_" + seq + "_" + Date.now();
+        var t0 = (window.performance && typeof performance.now === "function") ? performance.now() : Date.now();
+        APPDATA_INFLIGHT_META = { reqId: reqId, reason: why, t0: t0, seq: seq };
+        APPDATA_LAST_REQ = APPDATA_INFLIGHT_META;
+        console.info("[TAKE220][APPDATA] singleflight leader reqId=" + reqId + " reason=" + why);
+        console.info("[TAKE220][APPDATA] start seq=" + seq + " reqId=" + reqId + " reason=" + why);
+
+        APPDATA_INFLIGHT_PROMISE = new Promise(function (resolve) {
+          google.script.run
+            .withSuccessHandler(function (res) {
+              var t1 = (window.performance && typeof performance.now === "function") ? performance.now() : Date.now();
+              var elapsed = Math.round(t1 - t0);
+              var schemaSig = (res && res.schemaSig) ? String(res.schemaSig) : "";
+              var fp = buildAppDataFingerprint_(res || null);
+              try {
+                if (res) {
+                  res.source = res.source || "network";
+                  window.__MOTK_FIELD_TYPES_SOURCE__ = res.source;
+                }
+              } catch (_) { }
+              var applyRes = null;
+              try { applyRes = applyAppData_(res || null, { reqId: reqId, reason: why, fingerprint: fp }); } catch (_) { applyRes = null; }
+              try { if (res && (!applyRes || applyRes.applied !== false)) writeAppDataCache_(res); } catch (_) { }
+              var applied = !(applyRes && applyRes.applied === false);
+              var applyDecision = (applyRes && applyRes.decision && applyRes.decision.action) ? applyRes.decision.action : (applied ? "applied" : "ignored_stale");
+              APPDATA_LAST_RES = { reqId: reqId, reason: why, elapsed_ms: elapsed, schemaSig: schemaSig, applied: applied, fingerprint: fp };
+              try { window.__MOTK_LAST_APPDATA_REQ__ = APPDATA_LAST_RES; } catch (_) { }
+              console.info("[TAKE220][APPDATA] end seq=" + seq + " reqId=" + reqId + " reason=" + why + " elapsed_ms=" + elapsed + " returnedSchemaSig=" + schemaSig + " applyDecision=" + applyDecision + " fp=ftKeys:" + fp.fieldTypesKeys + " ents:" + fp.entitiesCount + " ts:" + fp.appDataTs);
+              resolve(res || null);
+            })
+            .withFailureHandler(function () {
+              var t1 = (window.performance && typeof performance.now === "function") ? performance.now() : Date.now();
+              var elapsed = Math.round(t1 - t0);
+              APPDATA_LAST_RES = { reqId: reqId, reason: why, elapsed_ms: elapsed, schemaSig: "", applied: false, error: "request_failed" };
+              try { window.__MOTK_LAST_APPDATA_REQ__ = APPDATA_LAST_RES; } catch (_) { }
+              console.info("[TAKE220][APPDATA] end seq=" + seq + " reqId=" + reqId + " reason=" + why + " elapsed_ms=" + elapsed + " returnedSchemaSig= applied=false");
+              resolve(null);
+            })
+            .dp_loadAppData();
+        }).finally(function () {
+          APPDATA_INFLIGHT_PROMISE = null;
+          APPDATA_INFLIGHT_META = null;
+        });
+
+        APPDATA_INFLIGHT_PROMISE.then(function (res) { if (cb) cb(res || null); });
+        return APPDATA_INFLIGHT_PROMISE;
       } catch (_) {
-        done(null);
+        if (cb) cb(null);
+        return Promise.resolve(null);
       }
     }
 
     function ensureAppDataLoaded(reason) {
       if (window.__MOTK_APPDATA_PROMISE__) return window.__MOTK_APPDATA_PROMISE__;
-      var hasFieldTypes = window.FIELD_TYPES && Object.keys(window.FIELD_TYPES).length;
+      var why = String(reason || "unspecified");
+      console.info("[TAKE220][APPDATA] ensure reason=" + why);
+      var hasFieldTypes = hasFieldTypes_(window.FIELD_TYPES || {});
       var hasLinkMaps = window.LINK_MAPS && ["assets", "shots", "tasks", "users", "members"].some(function (k) {
         return window.LINK_MAPS[k] && Object.keys(window.LINK_MAPS[k]).length;
       });
@@ -531,17 +629,16 @@
       }
 
       var cached = readAppDataCache_();
-      if (cached && cached.fieldTypes && cached.linkMaps) {
-        applyAppData_(cached);
-        if (cached.schemaSig) handleSchemaSig_(String(cached.schemaSig));
+      if (cached && hasFieldTypes_(cached.fieldTypes || {}) && cached.linkMaps) {
+        applyAppData_(cached, { reqId: "cache", reason: "cache_first" });
+        if (cached.schemaSig) handleSchemaSig_(String(cached.schemaSig), { reqId: "cache", reason: "cache_first" });
         window.__MOTK_FIELD_TYPES_SOURCE__ = "cache";
         if (!APPDATA_REFRESH_INFLIGHT) {
           APPDATA_REFRESH_INFLIGHT = true;
-          requestAppData_(function (res) {
+          console.info("[TAKE220][APPDATA] refresh_scheduled reason=background_refresh");
+          requestAppData_("background_refresh", function (res) {
             APPDATA_REFRESH_INFLIGHT = false;
-            if (res) {
-              window.__MOTK_FIELD_TYPES_SOURCE__ = "network";
-            }
+            if (res) window.__MOTK_FIELD_TYPES_SOURCE__ = "network";
           });
         }
         window.__MOTK_APPDATA_PROMISE__ = Promise.resolve({ ok: true, cached: true, source: "cache" });
@@ -549,7 +646,7 @@
       }
 
       window.__MOTK_APPDATA_PROMISE__ = new Promise(function (resolve) {
-        requestAppData_(function (res) {
+        requestAppData_(why || "cold_start", function (res) {
           if (res && !res.source) res.source = "network";
           if (res) window.__MOTK_FIELD_TYPES_SOURCE__ = "network";
           resolve(res || null);

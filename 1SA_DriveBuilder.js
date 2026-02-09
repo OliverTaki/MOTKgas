@@ -16,8 +16,41 @@ const ENTITY_ROOTS = {
   misc:    '04misc',    deleted: '05deleted'
 };
 const ALL_ROOT_NAMES = ['01shots','02assets','03tasks','04misc','05deleted'];
-const ID_LABEL   = { shot:'Shot ID', asset:'Asset ID', task:'Task ID' };
-const CODE_LABEL = { shot:'ShotCode', asset:'AssetName', task:'' };
+function _db_normLabel_(s){
+  return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function inferCoreFieldLabel_(sh, entity, kind){
+  var vals = sh.getRange(2, 7, sh.getLastRow() - 1, 1).getValues();
+  var labels = {};
+  for (var i=0;i<vals.length;i++){
+    var cell = vals[i][0]; if (!cell) continue;
+    var p = cell.split('|'); if (p.length < 9) continue;
+    if (p[1] !== entity) continue;
+    var lab = String(p[2] || '').trim();
+    if (!lab) continue;
+    labels[lab] = (labels[lab] || 0) + 1;
+  }
+  var keys = Object.keys(labels);
+  if (!keys.length) return null;
+
+  var idCandidates = keys.filter(function(k){
+    return /(^| )id$/i.test(_db_normLabel_(k));
+  });
+
+  if (kind === 'id') {
+    if (idCandidates.length) return idCandidates.sort(function(a,b){ return a.length - b.length; })[0];
+    return null;
+  }
+
+  var nonId = keys.filter(function(k){ return idCandidates.indexOf(k) === -1; });
+  var disp = nonId.filter(function(k){
+    return /(code|name|title|label)/i.test(_db_normLabel_(k));
+  });
+  if (disp.length) return disp.sort(function(a,b){ return a.length - b.length; })[0];
+  if (nonId.length) return nonId.sort(function(a,b){ return a.length - b.length; })[0];
+  return null;
+}
 
 function getHostSpreadsheet_(){
   var id = PropertiesService.getScriptProperties().getProperty('HOST_SS_ID');
@@ -83,7 +116,10 @@ function ensureEntityFolder(meta,entity,id,code){
 function diffEntityFolders(entity, meta){
   meta = meta || getProjectMeta();
   var ss  = getHostSpreadsheet_();
-  var hubIds = getCoreArray_(ss.getSheetByName('DataHub'), entity, ID_LABEL[entity]);
+  var dh = ss.getSheetByName('DataHub');
+  var idLabel = inferCoreFieldLabel_(dh, entity, 'id');
+  if (!idLabel) throw new Error('Cannot infer ID label for entity: ' + entity);
+  var hubIds = getCoreArray_(dh, entity, idLabel);
   var driveNames = listEntityFolderNames(entity, meta).map(function(o){ return (o.name||'').split('__')[0]; });
   var missing=[], existing=[];
   hubIds.forEach(function(id){
@@ -97,8 +133,12 @@ function diffEntityFolders(entity, meta){
 function fixMissingEntityFolders(entity, limit){
   var diff = diffEntityFolders(entity);
   var ss  = getHostSpreadsheet_();
-  var codes = getCoreArray_(ss.getSheetByName('DataHub'), entity, CODE_LABEL[entity]);
-  var ids   = getCoreArray_(ss.getSheetByName('DataHub'), entity, ID_LABEL[entity]);
+  var dh = ss.getSheetByName('DataHub');
+  var idLabel = inferCoreFieldLabel_(dh, entity, 'id');
+  if (!idLabel) throw new Error('Cannot infer ID label for entity: ' + entity);
+  var dispLabel = inferCoreFieldLabel_(dh, entity, 'display');
+  var codes = dispLabel ? getCoreArray_(dh, entity, dispLabel) : [];
+  var ids   = getCoreArray_(dh, entity, idLabel);
 
   var created=0;
   limit = limit||diff.missing.length;
@@ -179,8 +219,12 @@ function getProjectMeta(){
 /** 一括同期（生成系のみ） */
 function syncEntityFoldersSafe(entity, limit) {
   var ss = getHostSpreadsheet_();
-  var ids   = getCoreArray_(ss.getSheetByName('DataHub'), entity, ID_LABEL[entity]);
-  var codes = CODE_LABEL[entity] ? getCoreArray_(ss.getSheetByName('DataHub'), entity, CODE_LABEL[entity]) : [];
+  var dh = ss.getSheetByName('DataHub');
+  var idLabel = inferCoreFieldLabel_(dh, entity, 'id');
+  if (!idLabel) throw new Error('Cannot infer ID label for entity: ' + entity);
+  var dispLabel = inferCoreFieldLabel_(dh, entity, 'display');
+  var ids = getCoreArray_(dh, entity, idLabel);
+  var codes = dispLabel ? getCoreArray_(dh, entity, dispLabel) : [];
 
   var roots = getOrCreateProjectRoots(getProjectMeta());
   var originalsRoot = DriveApp.getFolderById(roots.originalsId);
@@ -282,4 +326,3 @@ function TEST_drive_write_min(){
   tmp.setTrashed(true);
   Logger.log('trashed');
 }
-
