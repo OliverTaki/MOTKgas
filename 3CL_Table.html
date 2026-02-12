@@ -1540,6 +1540,21 @@
 
         var idIdx = indexOf(nextFieldIds, resolveIdFieldId_());
         if (idIdx < 0 && nextFieldIds.length) idIdx = 0;
+        var entityKeyForRows = canonEntityKey_(state.sheetName || (p && p.entity) || '', '');
+        if (entityKeyForRows === 'sched' && idIdx >= 0 && nextRows.length) {
+          var filteredSchedRows = nextRows.filter(function (row) {
+            return !!String(row && row[idIdx] || '').trim();
+          });
+          if (filteredSchedRows.length !== nextRows.length) {
+            try {
+              console.warn('[MOTK][Table] filtered blank sched rows', {
+                before: nextRows.length,
+                after: filteredSchedRows.length
+              });
+            } catch (_) { }
+            nextRows = filteredSchedRows;
+          }
+        }
         var nextRowsById = {};
         if (idIdx >= 0 && nextRows.length) {
           for (var ri = 0; ri < nextRows.length; ri++) {
@@ -1625,6 +1640,9 @@
 
         var total = Number(p.total);
         var nextTotal = (isFinite(total) && total >= 0) ? total : nextRows.length;
+        if (entityKeyForRows === 'sched') {
+          nextTotal = nextRows.length;
+        }
         var nextVersion = incomingVersion || (state.__TABLE_VERSION__ + 1);
 
         state.fieldIds = nextFieldIds;

@@ -506,6 +506,7 @@ window.app = (function() {
     gapSelection: null,
     assetCellSelection: null,
     multiSelection: [],
+    multiAnchorCardId: null,
     dragPreview: null,
     suppressCanvasPickUntil: 0,
     requestedSchedId: '',
@@ -1124,6 +1125,41 @@ window.app = (function() {
     if (idx >= 0) next.splice(idx, 1);
     else next.push(key);
     state.multiSelection = next;
+  }
+
+  function getLaneSortedCardIds_(laneId) {
+    var key = String(laneId || '');
+    if (!key) return [];
+    return Object.values(state.cards || {})
+      .filter(function (c) {
+        return !!c &&
+          String(c.laneId || '') === key &&
+          isFinite(Number(c.start)) &&
+          isFinite(Number(c.end));
+      })
+      .sort(function (a, b) {
+        if (Number(a.start) !== Number(b.start)) return Number(a.start) - Number(b.start);
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      })
+      .map(function (c) { return String(c.id || ''); })
+      .filter(Boolean);
+  }
+
+  function buildLaneRangeSelection_(anchorId, targetId) {
+    var aId = String(anchorId || '').trim();
+    var tId = String(targetId || '').trim();
+    if (!aId || !tId || !state.cards[aId] || !state.cards[tId]) return [];
+    var aLane = String(state.cards[aId].laneId || '');
+    var tLane = String(state.cards[tId].laneId || '');
+    if (!aLane || aLane === 'unassigned' || aLane !== tLane) return [];
+    var ordered = getLaneSortedCardIds_(aLane);
+    if (!ordered.length) return [];
+    var ai = ordered.indexOf(aId);
+    var ti = ordered.indexOf(tId);
+    if (ai < 0 || ti < 0) return [];
+    var lo = Math.min(ai, ti);
+    var hi = Math.max(ai, ti);
+    return ordered.slice(lo, hi + 1);
   }
 
   function getCardLengthSlots_(card) {
@@ -2576,6 +2612,7 @@ window.app = (function() {
       state.selection = null;
       state.gapSelection = null;
       state.multiSelection = [];
+      state.multiAnchorCardId = null;
       state.assetCellSelection = {
         dateVal: String(selection.dateVal || ''),
         rawStart: Math.max(1, Math.round(Number(selection.rawStart))),
@@ -2604,6 +2641,7 @@ window.app = (function() {
       state.selection = null;
       state.assetCellSelection = null;
       state.multiSelection = [];
+      state.multiAnchorCardId = null;
       state.gapSelection = {
         laneId: String(gap.laneId),
         fromSlot: Math.max(1, Math.round(Number(gap.fromSlot))),
@@ -2652,14 +2690,34 @@ window.app = (function() {
     clearMultiSelection: () => {
       if (!state.multiSelection || !state.multiSelection.length) return;
       state.multiSelection = [];
+      state.multiAnchorCardId = null;
       render.grid();
       ui.renderCardList();
     },
 
-    toggleMultiSelection: (id) => {
+    toggleMultiSelection: (id, opts = {}) => {
       const key = String(id || '').trim();
       if (!key || !state.cards[key]) return;
-      toggleMultiSelection_(key);
+      const keepContiguous = opts.contiguous !== false;
+      const shiftKey = !!opts.shiftKey;
+      const anchorId = String(state.multiAnchorCardId || state.selection || key).trim();
+      let next = [];
+      if (keepContiguous) {
+        next = buildLaneRangeSelection_(anchorId, key);
+      }
+      if (!next.length) {
+        toggleMultiSelection_(key);
+        next = normalizeCardIds_(state.multiSelection || []);
+      } else {
+        state.multiSelection = normalizeCardIds_(next);
+      }
+      if (!state.multiSelection.length) {
+        state.multiAnchorCardId = null;
+      } else if (!state.multiAnchorCardId || !state.cards[state.multiAnchorCardId]) {
+        state.multiAnchorCardId = key;
+      } else if (!shiftKey && keepContiguous) {
+        state.multiAnchorCardId = anchorId || key;
+      }
       if (!state.multiSelection.length) {
         state.selection = key;
       } else if (state.multiSelection.indexOf(String(state.selection || '')) < 0) {
@@ -2673,7 +2731,10 @@ window.app = (function() {
     selectCard: (id, opts = {}) => {
       const key = String(id);
       if (!state.cards[key]) return;
-      if (opts && opts.clearMulti) state.multiSelection = [];
+      if (opts && opts.clearMulti) {
+        state.multiSelection = [];
+        state.multiAnchorCardId = null;
+      }
       state.gapSelection = null;
       state.assetCellSelection = null;
       if (String(state.selection || '') !== key) clearInspectorTimers_();
@@ -2894,6 +2955,7 @@ window.app = (function() {
       ids.forEach(function (cid) { actions.commit(cid, 'update'); });
       state.selection = ids[0];
       state.multiSelection = ids.slice();
+      state.multiAnchorCardId = ids[0];
       ui.renderInspector();
       queueAssetInspectorRefresh_();
     },
@@ -4212,7 +4274,7 @@ window.app = (function() {
     if (!isResizing && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       e.stopPropagation();
-      actions.toggleMultiSelection(card.id);
+      actions.toggleMultiSelection(card.id, { shiftKey: !!e.shiftKey, contiguous: true });
       actions.selectCard(card.id, { focus: false });
       state.suppressCanvasPickUntil = Date.now() + 250;
       return;
