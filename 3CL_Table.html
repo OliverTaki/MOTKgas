@@ -3696,6 +3696,19 @@ window.applyData = applyData;
           return !!window.__MOTK_TABLE_INLINE_EDIT_BOUND;
         };
 
+        // Enforce new-tab open for schedule index links even if browser/frame rewrites target handling.
+        tableWrap.addEventListener("click", function(ev) {
+          try {
+            var a = ev.target && ev.target.closest ? ev.target.closest('a[data-sched-open-newtab="1"]') : null;
+            if (!a) return;
+            if (ev.defaultPrevented) return;
+            if (ev.button !== 0) return;
+            if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+            ev.preventDefault();
+            window.open(a.href, '_blank', 'noopener');
+          } catch (_) { }
+        }, true);
+
         function logInlineEditSkip_(reason, detail) {
           var bucket = window.__MOTK_INLINE_EDIT_LOG__ = window.__MOTK_INLINE_EDIT_LOG__ || {};
           var now = Date.now();
@@ -4529,7 +4542,7 @@ window.applyData = applyData;
         function isNodeWithAnchor_(n) {
           try {
             if (!n) return false;
-            if (n.nodeType === 1) {
+            if (n.nodeType === 1 || n.nodeType === 11) {
               if (n.tagName && String(n.tagName).toLowerCase() === 'a') return true;
               return !!(n.querySelector && n.querySelector('a'));
             }
@@ -4540,13 +4553,16 @@ window.applyData = applyData;
         function retargetNodeAnchors_(n, href, target) {
           try {
             if (!n || !href) return;
-            if (n.nodeType !== 1) return;
-            var tag = (n.tagName || '').toLowerCase();
-            if (tag === 'a') {
-              n.href = href;
-              if (target) {
-                n.target = target;
-                n.rel = 'noopener';
+            if (n.nodeType !== 1 && n.nodeType !== 11) return;
+            if (n.nodeType === 1) {
+              var tag = (n.tagName || '').toLowerCase();
+              if (tag === 'a') {
+                n.href = href;
+                if (target) {
+                  n.target = target;
+                  n.rel = 'noopener';
+                  n.setAttribute('data-sched-open-newtab', '1');
+                }
               }
             }
             if (n.querySelectorAll) {
@@ -4556,6 +4572,7 @@ window.applyData = applyData;
                 if (target) {
                   anchors[ai].target = target;
                   anchors[ai].rel = 'noopener';
+                  anchors[ai].setAttribute('data-sched-open-newtab', '1');
                 }
               }
             }
@@ -4745,6 +4762,7 @@ window.applyData = applyData;
                     a2s.href = schedHref;
                     a2s.target = '_blank';
                     a2s.rel = 'noopener';
+                    a2s.setAttribute('data-sched-open-newtab', '1');
                     a2s.appendChild(node);
                     node = a2s;
                   }
@@ -5437,7 +5455,7 @@ window.applyData = applyData;
         // Use Router URL builders; sched should open in a new tab.
         var url = Router.buildEntityUrl(ent, pid);
         var target = (ent === 'sched' || ent === 'schedule' || ent === 'scheds' || ent === 'schedules')
-          ? ' target="_blank" rel="noopener"'
+          ? ' target="_blank" rel="noopener" data-sched-open-newtab="1"'
           : '';
         return '<a href="' + escapeHTML(url) + '"' + target + ' title="' + escapeHTML(pid) + '">' + escapeHTML(label) + '</a>';
       }
