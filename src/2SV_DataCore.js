@@ -450,12 +450,14 @@ function _normalizeEntityParams_(params, options) {
   function canonEntityKey(raw) {
     var key = String(raw || '').trim().toLowerCase();
     if (!key) return '';
+    key = key.replace(/[^\w]+/g, '_');
     if (key === 'shots' || key === 'shot') return 'shot';
     if (key === 'assets' || key === 'asset') return 'asset';
     if (key === 'tasks' || key === 'task') return 'task';
     if (key === 'users' || key === 'user') return 'user';
-    if (key === 'projectmembers' || key === 'projectmember' || key === 'members' || key === 'member') return 'member';
+    if (key === 'projectmembers' || key === 'projectmember' || key === 'project_members' || key === 'members' || key === 'member' || key === 'memder' || key === 'memders') return 'member';
     if (key === 'pages' || key === 'page') return 'page';
+    if (key === 'scheds' || key === 'sched' || key === 'schedules' || key === 'schedule') return 'sched';
     return key;
   }
 
@@ -468,7 +470,8 @@ function _normalizeEntityParams_(params, options) {
     task: 'Tasks',
     member: 'ProjectMembers',
     user: 'Users',
-    page: 'Pages'
+    page: 'Pages',
+    sched: 'Scheds'
   };
   var sheetName = sheetNameMap[entityKey] || 'Shots';
 
@@ -786,6 +789,69 @@ function _reindexRowsToRequested_(ids, header, rows, requested) {
   return { ids: newIds, header: newHeader, rows: newRows };
 }
 
+function _sanitizeFieldIdColumns_(ids, header, rows) {
+  ids = Array.isArray(ids) ? ids : [];
+  header = Array.isArray(header) ? header : [];
+  rows = Array.isArray(rows) ? rows : [];
+
+  var maxLen = Math.max(ids.length, header.length);
+  var keep = [];
+  var outIds = [];
+  var seen = {};
+  var droppedEmpty = 0;
+  var droppedDup = 0;
+
+  for (var i = 0; i < maxLen; i++) {
+    var fid = (i < ids.length && ids[i] != null) ? String(ids[i]).trim() : '';
+    if (!fid) {
+      droppedEmpty++;
+      continue;
+    }
+    if (seen[fid]) {
+      droppedDup++;
+      continue;
+    }
+    seen[fid] = true;
+    keep.push(i);
+    outIds.push(fid);
+  }
+
+  if (!keep.length) {
+    return {
+      ids: [],
+      header: [],
+      rows: rows.map(function () { return []; }),
+      droppedEmpty: droppedEmpty,
+      droppedDup: droppedDup
+    };
+  }
+
+  var outHeader = [];
+  for (var h = 0; h < keep.length; h++) {
+    var idx = keep[h];
+    var label = (idx < header.length && header[idx] != null) ? String(header[idx]).trim() : '';
+    outHeader.push(label || outIds[h] || '');
+  }
+
+  var outRows = rows.map(function (row) {
+    var src = Array.isArray(row) ? row : [];
+    var out = [];
+    for (var j = 0; j < keep.length; j++) {
+      var colIdx = keep[j];
+      out.push(colIdx < src.length ? src[colIdx] : '');
+    }
+    return out;
+  });
+
+  return {
+    ids: outIds,
+    header: outHeader,
+    rows: outRows,
+    droppedEmpty: droppedEmpty,
+    droppedDup: droppedDup
+  };
+}
+
 function _listRowsPageCore_(params, ctx) {
   params = params || {};
   var t0 = Date.now();
@@ -800,6 +866,10 @@ function _listRowsPageCore_(params, ctx) {
   var ids = data.ids || [];
   var header = data.header || [];
   var rows = data.rows || [];
+  var sanitized = _sanitizeFieldIdColumns_(ids, header, rows);
+  ids = sanitized.ids;
+  header = sanitized.header;
+  rows = sanitized.rows;
   var workingRows = rows.slice();
 
   var tFilterStart = Date.now();
@@ -820,19 +890,7 @@ function _listRowsPageCore_(params, ctx) {
   var sliced = workingRows.slice(start, end);
 
   var tPruneStart = Date.now();
-  var trimmed = _pruneEmptyColumns_(ids, header, sliced);
-  ids = trimmed.ids;
-  header = trimmed.header;
-  sliced = trimmed.rows;
-  var tPruneDone = Date.now();
-
-  var requestedFields = Array.isArray(params && params.requestedFields) ? params.requestedFields.map(function (f) { return String(f || "").trim(); }).filter(Boolean) : [];
-  if (requestedFields.length) {
-    var reindexed = _reindexRowsToRequested_(ids, header, sliced, requestedFields);
-    ids = reindexed.ids;
-    header = reindexed.header;
-    sliced = reindexed.rows;
-  }
+  var tPruneDone = tPruneStart;
   var result = {
     ids: ids,
     header: header,
@@ -856,52 +914,40 @@ function _listRowsPageCore_(params, ctx) {
     data_read_ms: tReadDone - tReadStart,
     filter_ms: tFilterDone - tFilterStart,
     sort_ms: tSortDone - tSortStart,
-    field_select_ms: tPruneDone - tPruneStart,
+    field_select_ms: 0,
     openSpreadsheet_ms: (ctx && ctx.openSpreadsheet_ms) || 0,
     readDataHub_ms: (ctx && ctx.timing && ctx.timing.readDataHub_ms) || 0,
     readEntitySheet_ms: (ctx && ctx.timing && ctx.timing.readEntitySheet_ms) || 0,
-    buildRows_ms: (tEnd - tPruneStart)
+    buildRows_ms: (tEnd - tSortDone)
   };
   result.diag = result.diag || {};
   result.diag.timing = timing;
+  result.diag.dataSourceUsed = "datacore";
+  result.diag.contract = {
+    droppedEmptyFieldIds: sanitized.droppedEmpty || 0,
+    droppedDuplicateFieldIds: sanitized.droppedDup || 0,
+    returnedFieldIds: ids.length
+  };
+  result.dataSourceUsed = "datacore";
   return result;
 }
 
-function sv_listRowsPage(entity, options) {
-  if (entity && typeof entity === "object" && !Array.isArray(entity)) {
-    return _sv_listRowsPageLegacyFromPayload_(entity);
+function sv_listRowsPage(payload, options) {
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    var ent = payload.sheetName || payload.entity || payload.e || payload.entityName || "";
+    var norm = _normalizeEntityParams_(ent, payload);
+    var pObj = Object.assign({}, payload, norm);
+    pObj.entity = norm.entity;
+    pObj.sheet = norm.sheet;
+    return _listRowsPageCore_(pObj);
   }
-  var p = _normalizeEntityParams_(entity, options);
+  var p = _normalizeEntityParams_(payload, options);
   return _listRowsPageCore_(p);
 }
 
-function _sv_listRowsPageLegacyFromPayload_(payload, ctx) {
-  payload = payload || {};
-  var ent = payload.sheetName || payload.entity || payload.e || payload.entityName || "";
-  var norm = _normalizeEntityParams_(ent, payload);
-  var p = Object.assign({}, payload, norm);
-  p.entity = norm.entity;
-  p.sheet = norm.sheet;
-  var ctxLocal = ctx || {};
-  ctxLocal.forceEntity = true;
-  var res = _listRowsPageCore_(p, ctxLocal);
-  if (res && typeof res === "object") {
-    res.source = "legacy";
-    var modeInfo = _tablePickDataMode_(payload || {});
-    var inferred = (modeInfo && modeInfo.reason) ? modeInfo.reason : "";
-    if (inferred === "plain-paging") inferred = "";
-    res.sourceReason = res.sourceReason || inferred || "legacy-wrapper";
-    res.mode = "legacy";
-    res.modeReason = res.sourceReason || res.modeReason || "legacy-wrapper";
-    res.dataSourceUsed = "legacy";
-    res.diag = res.diag || {};
-    res.diag.mode = res.mode;
-    res.diag.modeReason = res.modeReason;
-    res.diag.dataSourceUsed = res.dataSourceUsed;
-    res.diag.listRowsFn = "_listRowsPageCore_";
-  }
-  return res;
-}
+// Compatibility wrappers (route to legacy core)
+function sv_listRowsPage_v3(p) { return sv_listRowsPage(p); }
+function sv_listRowsPage_v2(p) { return sv_listRowsPage(p); }
 
 function sv_getFieldValuesBatch_v1(payload) {
   try {
@@ -984,10 +1030,13 @@ function _parseOptions_(v) {
   return s.split(/[\n\r|,]+/).map(function (t) { return String(t).trim(); }).filter(Boolean);
 }
 
+function _fidPrefix_() { return 'f' + 'i_'; }
+
 function _isFid_(v) {
   var s = String(v == null ? "" : v).trim().toLowerCase();
-  if (!s || s.indexOf("fi_") !== 0) return false;
-  var rest = s.slice(3);
+  var pre = _fidPrefix_();
+  if (!s || s.indexOf(pre) !== 0) return false;
+  var rest = s.slice(pre.length);
   if (!rest) return false;
   for (var i = 0; i < rest.length; i++) {
     var ch = rest.charCodeAt(i);
@@ -999,7 +1048,7 @@ function _isFid_(v) {
 function _fidNum_(v) {
   if (!_isFid_(v)) return null;
   var s = String(v).trim().toLowerCase();
-  var rest = s.slice(3);
+  var rest = s.slice(_fidPrefix_().length);
   var n = parseInt(rest, 10);
   return isNaN(n) ? null : n;
 }
@@ -1007,11 +1056,11 @@ function _fidNum_(v) {
 function _formatFid_(num) {
   var n = parseInt(num, 10);
   if (!isFinite(n) || n < 0) n = 0;
-  return "fi_" + String(n).padStart(4, "0");
+  return _fidPrefix_() + String(n).padStart(4, "0");
 }
 
 function _entityToSheet_(entity) {
-  var m = { "shot": "Shots", "asset": "Assets", "task": "Tasks", "member": "ProjectMembers", "user": "Users", "page": "Pages" };
+  var m = { "shot": "Shots", "asset": "Assets", "task": "Tasks", "member": "ProjectMembers", "user": "Users", "page": "Pages", "sched": "Scheds" };
   var key = _norm_(entity);
   if (!m[key]) throw new Error("Unknown entity: " + entity);
   return m[key];
@@ -1024,6 +1073,7 @@ function _idPrefixToEntity_(idValue) {
   if (/^us_\d+/.test(idValue)) return "user";
   if (/^mb_\d+/.test(idValue)) return "member";
   if (/^pg_\d+/.test(idValue)) return "page";
+  if (/^sched_\d+/.test(idValue)) return "sched";
   return null;
 }
 
@@ -1065,7 +1115,7 @@ function _readFields_() {
   function _looksLikeEntity_(v) {
     var raw = String(v || "").trim(); if (!raw) return false;
     var ent = _normalizeEntityParams_({ entity: raw }).entity;
-    return ent === "shot" || ent === "asset" || ent === "task" || ent === "member" || ent === "user" || ent === "page";
+    return ent === "shot" || ent === "asset" || ent === "task" || ent === "member" || ent === "user" || ent === "page" || ent === "sched";
   }
   function _looksLikeType_(v) {
     var t = String(v || "").trim().toLowerCase(); if (!t) return false;
@@ -1119,13 +1169,14 @@ var __SCHEMA_CACHE_SIG__ = "";
 function _schemaNormalizeEntity_(entity) {
   var key = String(entity || "").trim().toLowerCase();
   if (!key) return "";
+  key = key.replace(/[^\w]+/g, "_");
   if (key === "shots") return "shot";
   if (key === "assets") return "asset";
   if (key === "tasks") return "task";
   if (key === "users") return "user";
-  if (key === "projectmembers" || key === "projectmember" || key === "members") return "member";
+  if (key === "projectmembers" || key === "projectmember" || key === "project_members" || key === "members" || key === "memder" || key === "memders") return "member";
   if (key === "pages") return "page";
-  if (key === "schedules" || key === "schedule") return "sched";
+  if (key === "scheds" || key === "sched" || key === "schedules" || key === "schedule") return "sched";
   if (key === "cards") return "card";
   return key;
 }
@@ -1182,22 +1233,18 @@ function _schemaBuild_() {
 }
 
 function _schemaGet_() {
-  var sig = "";
-  try { sig = _buildFieldsSchemaSig_(); } catch (_) { sig = ""; }
-  if (__SCHEMA_CACHE__ && (!sig || __SCHEMA_CACHE_SIG__ === sig)) return __SCHEMA_CACHE__;
-  var cacheKey = sig ? ("motk:schema:" + sig) : "motk:schema:latest";
+  if (__SCHEMA_CACHE__) return __SCHEMA_CACHE__;
+  var cacheKey = "motk:schema:latest";
   try {
     var cache = CacheService.getScriptCache();
     var cached = cache.get(cacheKey);
     if (cached) {
       __SCHEMA_CACHE__ = JSON.parse(cached);
-      __SCHEMA_CACHE_SIG__ = sig;
       return __SCHEMA_CACHE__;
     }
   } catch (_) { }
   var schema = _schemaBuild_();
   __SCHEMA_CACHE__ = schema;
-  __SCHEMA_CACHE_SIG__ = sig;
   try {
     var cache2 = CacheService.getScriptCache();
     cache2.put(cacheKey, JSON.stringify(schema), 21600);
@@ -1721,6 +1768,36 @@ function getFieldTypesWithDiag_(entity) {
   try { return _buildFieldTypes_(entity); } catch (e) { return { types: {}, diag: { missingFieldMetaByEntity: {} } }; }
 }
 
+function sv_debugFieldsByFid(fids) {
+  try {
+    var list = Array.isArray(fids) ? fids.slice() : [];
+    if (!list.length) {
+      list = ["fi_0003", "fi_0004", "fi_0005", "fi_0006", "fi_0007", "fi_0013", "fi_0066"];
+    }
+    var rows = _readFields_();
+    var byFid = {};
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i] || {};
+      var fid = String(r.field_id || '').trim();
+      if (!fid) continue;
+      if (!byFid[fid]) byFid[fid] = [];
+      byFid[fid].push({
+        field_id: fid,
+        entity: String(r.entity || '').trim(),
+        type: String(r.type || '').trim(),
+        label: String(r.label || r.name || '').trim()
+      });
+    }
+    var out = list.map(function (fid) {
+      var hits = byFid[fid] || [];
+      return { fid: fid, found: hits.length > 0, count: hits.length, rows: hits };
+    });
+    return { ok: true, totalFields: rows.length, results: out };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message ? e.message : e) };
+  }
+}
+
 function _fieldsHeaderIndex_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sh = ssheet_("Fields") || ss.getSheetByName("Fields");
@@ -1755,6 +1832,21 @@ function _fieldsHeaderIndex_() {
 function ssheet_(name) {
   var ss = SpreadsheetApp.getActiveSpreadsheet(); if (!ss) return null;
   var raw = String(name || "").trim(); if (!raw) return null;
+  var ent = _schemaNormalizeEntity_(raw);
+  var entToSheet = {
+    shot: "Shots",
+    asset: "Assets",
+    task: "Tasks",
+    member: "ProjectMembers",
+    user: "Users",
+    page: "Pages",
+    sched: "Scheds",
+    card: "SchedCards"
+  };
+  if (entToSheet[ent]) {
+    var mapped = ss.getSheetByName(entToSheet[ent]);
+    if (mapped) return mapped;
+  }
   var direct = ss.getSheetByName(raw); if (direct) return direct;
   var cap = raw.charAt(0).toUpperCase() + raw.slice(1);
   var capSheet = ss.getSheetByName(cap); if (capSheet) return capSheet;
@@ -1782,7 +1874,306 @@ function newFid_() {
   } finally { try { lock.releaseLock(); } catch (e) { } }
 }
 
-function applyFieldToEntityHeader_(entityKey, fid, label) {
+function _normalizeFieldTypeForSheetFormat_(fieldType) {
+  var t = String(fieldType || "").trim().toLowerCase();
+  if (t === "field_type") return "";
+  if (t === "thubnails") t = "thumbnails";
+  return t;
+}
+
+function _parseSelectOptionsForSheetFormat_(optionsRaw) {
+  if (Array.isArray(optionsRaw)) {
+    return optionsRaw
+      .map(function (v) { return String(v == null ? "" : v).trim(); })
+      .filter(function (v) { return !!v; });
+  }
+  var s = String(optionsRaw == null ? "" : optionsRaw).trim();
+  if (!s) return [];
+  return s
+    .split(/[|\n,;]+/)
+    .map(function (v) { return String(v || "").trim(); })
+    .filter(function (v) { return !!v; });
+}
+
+function _mergeSelectOptionsStable_(declared, discovered) {
+  var out = [];
+  var seen = {};
+  function addList(list) {
+    for (var i = 0; i < list.length; i++) {
+      var v = String(list[i] == null ? "" : list[i]).trim();
+      if (!v) continue;
+      var key = v.toLowerCase();
+      if (seen[key]) continue;
+      seen[key] = true;
+      out.push(v);
+    }
+  }
+  addList(Array.isArray(declared) ? declared : []);
+  addList(Array.isArray(discovered) ? discovered : []);
+  return out;
+}
+
+function _collectSelectOptionsFromSheetColumn_(sh, col) {
+  if (!sh || !col || col < 1) return [];
+  var lastRow = sh.getLastRow();
+  if (lastRow < 3) return [];
+  var vals = sh.getRange(3, col, lastRow - 2, 1).getDisplayValues();
+  var out = [];
+  var seen = {};
+  for (var i = 0; i < vals.length; i++) {
+    var v = String(vals[i][0] == null ? "" : vals[i][0]).trim();
+    if (!v) continue;
+    var key = v.toLowerCase();
+    if (seen[key]) continue;
+    seen[key] = true;
+    out.push(v);
+  }
+  return out;
+}
+
+function _arrayShallowEqual_(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (String(a[i]) !== String(b[i])) return false;
+  }
+  return true;
+}
+
+function _syncFieldsOptionsForFieldId_(entityKey, fid, options) {
+  try {
+    var info = _fieldsHeaderIndex_();
+    if (!info || !info.sh || !info.cols) return { ok: false, reason: "fields_sheet_missing" };
+    if (info.cols.field_id == null) return { ok: false, reason: "missing_field_id_col" };
+    if (info.cols.entity == null) return { ok: false, reason: "missing_entity_col" };
+    if (info.cols.options == null) {
+      var newIdx = info.sh.getLastColumn();
+      info.sh.getRange(1, newIdx + 1).setValue("options");
+      info.cols.options = newIdx;
+      info.lastCol = newIdx + 1;
+    }
+    var lastRow = info.sh.getLastRow();
+    if (lastRow < 2) return { ok: false, reason: "no_rows" };
+    var rowCount = lastRow - 1;
+    var colSpan = Math.max(info.lastCol, info.cols.options + 1, info.cols.entity + 1, info.cols.field_id + 1);
+    var rows = info.sh.getRange(2, 1, rowCount, colSpan).getValues();
+    var entNorm = _schemaNormalizeEntity_(entityKey);
+    var targetFid = String(fid || "").trim();
+    var hit = -1;
+    var fallback = -1;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i] || [];
+      var rf = String(row[info.cols.field_id] || "").trim();
+      if (rf !== targetFid) continue;
+      if (fallback < 0) fallback = i + 2;
+      var re = _schemaNormalizeEntity_(row[info.cols.entity] || "");
+      if (re === entNorm) {
+        hit = i + 2;
+        break;
+      }
+    }
+    var rowIndex = hit > 0 ? hit : fallback;
+    if (rowIndex < 2) return { ok: false, reason: "field_row_not_found" };
+    var nextOptions = Array.isArray(options) ? options : [];
+    var nextText = nextOptions.join("|");
+    var current = String(info.sh.getRange(rowIndex, info.cols.options + 1).getValue() || "").trim();
+    if (current === nextText) return { ok: true, updated: false, row: rowIndex };
+    info.sh.getRange(rowIndex, info.cols.options + 1).setValue(nextText);
+    return { ok: true, updated: true, row: rowIndex };
+  } catch (e) {
+    return { ok: false, reason: String(e && e.message ? e.message : e) };
+  }
+}
+
+function _buildLocalDateFromYmd_(y, m, d) {
+  var yy = Number(y), mm = Number(m), dd = Number(d);
+  if (!isFinite(yy) || !isFinite(mm) || !isFinite(dd)) return null;
+  var dt = new Date(yy, mm - 1, dd);
+  if (isNaN(dt.getTime())) return null;
+  if (dt.getFullYear() !== yy || dt.getMonth() !== (mm - 1) || dt.getDate() !== dd) return null;
+  return dt;
+}
+
+function _extractYmdFromText_(s) {
+  var t = String(s || "").trim();
+  if (!t) return null;
+  var iso = t.match(/^(\d{4})-(\d{2})-(\d{2})T/);
+  if (iso) return _buildLocalDateFromYmd_(iso[1], iso[2], iso[3]);
+  var ymd = t.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:[ T].*)?$/);
+  if (ymd) return _buildLocalDateFromYmd_(ymd[1], ymd[2], ymd[3]);
+  return null;
+}
+
+function _normalizeDateCellValue_(raw) {
+  if (raw === null || raw === undefined || raw === "") return null;
+  if (raw instanceof Date) {
+    if (isNaN(raw.getTime())) return null;
+    return _buildLocalDateFromYmd_(raw.getFullYear(), raw.getMonth() + 1, raw.getDate());
+  }
+  if (typeof raw === "number" && isFinite(raw)) {
+    var dtNum = _serialToDate_(raw);
+    if (!dtNum || isNaN(dtNum.getTime())) return null;
+    return _buildLocalDateFromYmd_(dtNum.getUTCFullYear(), dtNum.getUTCMonth() + 1, dtNum.getUTCDate());
+  }
+  if (typeof raw === "string") {
+    var parsedDirect = _extractYmdFromText_(raw);
+    if (parsedDirect) return parsedDirect;
+    var parsed = _parseDate_(raw);
+    if (!parsed || isNaN(parsed.getTime())) return null;
+    var ymdByTz = Utilities.formatDate(parsed, Session.getScriptTimeZone(), "yyyy/MM/dd").split("/");
+    return _buildLocalDateFromYmd_(ymdByTz[0], ymdByTz[1], ymdByTz[2]);
+  }
+  return null;
+}
+
+function _sameYmdLocal_(a, b) {
+  if (!(a instanceof Date) || !(b instanceof Date)) return false;
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function _coerceCheckboxCellValue_(raw) {
+  if (raw === null || raw === undefined || raw === "") return { ok: false };
+  if (typeof raw === "boolean") return { ok: true, value: raw };
+  if (typeof raw === "number" && isFinite(raw)) {
+    if (raw === 1) return { ok: true, value: true };
+    if (raw === 0) return { ok: true, value: false };
+    return { ok: false };
+  }
+  if (raw instanceof Date) return { ok: false };
+  var s = String(raw).trim().toLowerCase();
+  if (!s) return { ok: false };
+  if (s.charCodeAt && s.charCodeAt(0) === 0x2713) return { ok: true, value: true };
+  if (s === "true" || s === "1" || s === "yes" || s === "on" || s === "y" || s === "ok" || s === "checked" || s === "check") return { ok: true, value: true };
+  if (s === "false" || s === "0" || s === "no" || s === "off" || s === "n" || s === "unchecked" || s === "uncheck") return { ok: true, value: false };
+  return { ok: false };
+}
+
+function _normalizeCheckboxColumnValues_(sh, col) {
+  if (!sh || !col || col < 1) return { changed: 0, scanned: 0 };
+  var lastRow = sh.getLastRow();
+  if (lastRow < 3) return { changed: 0, scanned: 0 };
+  var rowCount = lastRow - 2;
+  var rg = sh.getRange(3, col, rowCount, 1);
+  var vals = rg.getValues();
+  var changed = 0;
+  for (var i = 0; i < vals.length; i++) {
+    var raw = vals[i][0];
+    var coerced = _coerceCheckboxCellValue_(raw);
+    if (!coerced.ok) continue;
+    if (typeof raw === "boolean" && raw === coerced.value) continue;
+    vals[i][0] = coerced.value;
+    changed++;
+  }
+  if (changed > 0) rg.setValues(vals);
+  return { changed: changed, scanned: rowCount };
+}
+
+function _normalizeDateColumnValues_(sh, col) {
+  if (!sh || !col || col < 1) return { changed: 0, scanned: 0 };
+  var lastRow = sh.getLastRow();
+  if (lastRow < 3) return { changed: 0, scanned: 0 };
+  var rowCount = lastRow - 2;
+  var rg = sh.getRange(3, col, rowCount, 1);
+  var vals = rg.getValues();
+  var changed = 0;
+  for (var i = 0; i < vals.length; i++) {
+    var raw = vals[i][0];
+    var normalized = _normalizeDateCellValue_(raw);
+    if (!normalized) continue;
+    if (raw instanceof Date && _sameYmdLocal_(raw, normalized)) continue;
+    vals[i][0] = normalized;
+    changed++;
+  }
+  if (changed > 0) rg.setValues(vals);
+  return { changed: changed, scanned: rowCount };
+}
+
+function _lookupFieldMetaForSheetFormat_(entityKey, fid) {
+  var out = { type: "", options: [] };
+  try {
+    var entNorm = _schemaNormalizeEntity_(entityKey);
+    var targetFid = String(fid || "").trim();
+    var rows = _readFields_();
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i] || {};
+      if (String(r.field_id || "").trim() !== targetFid) continue;
+      var rowEnt = _schemaNormalizeEntity_(r.entity);
+      if (rowEnt && entNorm && rowEnt !== entNorm) continue;
+      out.type = _normalizeFieldTypeForSheetFormat_(r.type || "");
+      out.options = _parseSelectOptionsForSheetFormat_(r.options);
+      return out;
+    }
+    for (var j = 0; j < rows.length; j++) {
+      var r2 = rows[j] || {};
+      if (String(r2.field_id || "").trim() !== targetFid) continue;
+      out.type = _normalizeFieldTypeForSheetFormat_(r2.type || "");
+      out.options = _parseSelectOptionsForSheetFormat_(r2.options);
+      return out;
+    }
+  } catch (_) { }
+  return out;
+}
+
+function applyFieldColumnFormat_(entityKey, fid, fieldType, optionsRaw) {
+  var ent = _normalizeEntityParams_({ entity: entityKey || "" }).entity;
+  var targetFid = String(fid || "").trim();
+  if (!ent || !targetFid) return { ok: false, reason: "invalid_args" };
+
+  var sh = ssheet_(ent);
+  if (!sh) return { ok: false, reason: "missing_sheet", entity: ent };
+  var lastCol = sh.getLastColumn();
+  if (lastCol < 1) return { ok: false, reason: "empty_sheet", entity: ent };
+
+  var headerFids = sh.getRange(1, 1, 1, lastCol).getValues()[0] || [];
+  var idx = headerFids.indexOf(targetFid);
+  if (idx < 0) return { ok: false, reason: "field_not_in_sheet", entity: ent, fieldId: targetFid };
+
+  var type = _normalizeFieldTypeForSheetFormat_(fieldType);
+  var optionsDeclared = _parseSelectOptionsForSheetFormat_(optionsRaw);
+  var options = optionsDeclared.slice();
+  if (!type || (type === "select" && !options.length)) {
+    var meta = _lookupFieldMetaForSheetFormat_(ent, targetFid);
+    if (!type && meta.type) type = meta.type;
+    if (!options.length && meta.options && meta.options.length) options = meta.options;
+  }
+  if (!type) type = "text";
+
+  var rowStart = 3;
+  var rowCount = Math.max(1, sh.getMaxRows() - 2);
+  var rg = sh.getRange(rowStart, idx + 1, rowCount, 1);
+
+  try { rg.clearDataValidations(); } catch (_) { }
+  if (type === "checkbox") {
+    var cbNorm = _normalizeCheckboxColumnValues_(sh, idx + 1);
+    var dvCb = SpreadsheetApp.newDataValidation().requireCheckbox().setAllowInvalid(true).build();
+    rg.setDataValidation(dvCb);
+    return { ok: true, entity: ent, fieldId: targetFid, type: type, col: idx + 1, mode: "checkbox", normalized: cbNorm };
+  }
+  if (type === "date") {
+    var dtNorm = _normalizeDateColumnValues_(sh, idx + 1);
+    rg.setNumberFormat("yyyy/mm/dd");
+    return { ok: true, entity: ent, fieldId: targetFid, type: type, col: idx + 1, mode: "date", normalized: dtNorm };
+  }
+  if (type === "select") {
+    var discovered = _collectSelectOptionsFromSheetColumn_(sh, idx + 1);
+    var merged = _mergeSelectOptionsStable_(options, discovered);
+    if (!_arrayShallowEqual_(merged, optionsDeclared)) {
+      _syncFieldsOptionsForFieldId_(ent, targetFid, merged);
+    }
+    if (!merged.length) merged = options.slice();
+    if (merged.length) {
+      var dvSel = SpreadsheetApp.newDataValidation().requireValueInList(merged, true).setAllowInvalid(true).build();
+      rg.setDataValidation(dvSel);
+    }
+    rg.setNumberFormat("@");
+    return { ok: true, entity: ent, fieldId: targetFid, type: type, col: idx + 1, mode: "select", optionCount: merged.length };
+  }
+
+  rg.setNumberFormat("@");
+  return { ok: true, entity: ent, fieldId: targetFid, type: type, col: idx + 1, mode: "text" };
+}
+
+function applyFieldToEntityHeader_(entityKey, fid, label, fieldType, optionsRaw) {
   var sh = ssheet_(entityKey);
   if (!sh) throw new Error("Entity sheet not found: " + entityKey);
   var lastCol = sh.getLastColumn();
@@ -1793,13 +2184,15 @@ function applyFieldToEntityHeader_(entityKey, fid, label) {
     var col = idx + 1;
     var curLabel = sh.getRange(2, col).getValue();
     if (!curLabel) sh.getRange(2, col).setValue(_sanitizeCellValue_(label || fid, "entityHeaderLabel"));
-    return { ok: true, existed: true, col: col };
+    var fmt0 = applyFieldColumnFormat_(entityKey, fid, fieldType, optionsRaw);
+    return { ok: true, existed: true, col: col, format: fmt0 };
   }
   sh.insertColumnAfter(lastCol);
   var colNew = lastCol + 1;
   sh.getRange(1, colNew).setValue(_sanitizeCellValue_(fid, "entityHeaderFieldId"));
   sh.getRange(2, colNew).setValue(_sanitizeCellValue_(label || fid, "entityHeaderLabel"));
-  return { ok: true, existed: false, col: colNew };
+  var fmt = applyFieldColumnFormat_(entityKey, fid, fieldType, optionsRaw);
+  return { ok: true, existed: false, col: colNew, format: fmt };
 }
 
 function _findFirstEmptyFieldsRow_(sh, cols, scanLimit) {
@@ -1906,7 +2299,7 @@ function sv_fieldsAdd_v1(payload) {
     var applyInfo = null;
     var entSheet = null;
     try {
-      applyInfo = applyFieldToEntityHeader_(ent, fid, label);
+      applyInfo = applyFieldToEntityHeader_(ent, fid, label, type, options);
       entSheet = ssheet_(ent);
       if (!entSheet) throw new Error("Entity sheet not found after apply: " + ent);
       var hRow = entSheet.getRange(1, 1, 1, entSheet.getLastColumn()).getValues()[0];
@@ -1926,7 +2319,7 @@ function sv_fieldsAdd_v1(payload) {
     var schemaRefreshed = false;
     try {
       schemaRefreshed = !!hubRefreshSchema(ent);
-      schemaSig = _buildFieldsSchemaSig_();
+      schemaSig = "";
     } catch (e) {
       try { if (applyInfo && applyInfo.existed === false && applyInfo.col) entSheet.deleteColumn(applyInfo.col); } catch (_) { }
       try { clearWrittenCols_(); } catch (_) { }
@@ -1977,7 +2370,7 @@ function sv_fieldsSoftDelete_v1(payload) {
     if (cols.active == null) { sh.getRange(1, lastCol + 1).setValue("active"); cols.active = lastCol; lastCol += 1; }
     sh.getRange(rowIndex, cols.active + 1).setValue("FALSE");
     if (cols.editable != null) sh.getRange(rowIndex, cols.editable + 1).setValue("FALSE");
-    var schemaSig = _buildFieldsSchemaSig_();
+    var schemaSig = "";
     return { ok: true, fieldId: fid, schemaSig: schemaSig };
   } catch (e) {
     return { ok: false, error: String(e && e.message || e) };
@@ -1986,52 +2379,266 @@ function sv_fieldsSoftDelete_v1(payload) {
   }
 }
 
-function _buildFieldsSchemaSig_() {
+function sv_fieldsReapplyFormats_v1(payload) {
+  payload = payload || {};
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (!ss) return "";
-    var fieldsSh = ss.getSheetByName("Fields");
-    if (!fieldsSh) return "";
-    var lastCol = fieldsSh.getLastColumn();
-    var headerRow = lastCol ? fieldsSh.getRange(1, 1, 1, lastCol).getValues()[0] : [];
-    var header = headerRow.map(function (x) { return x != null ? String(x).trim() : ""; });
+    var targetEntity = String(payload.entity || "").trim().toLowerCase();
     var rows = _readFields_();
-    var rowTokens = rows.map(function (r) {
-      var ent = String(r.entity || "").trim().toLowerCase();
+    var applied = 0;
+    var skipped = 0;
+    var errors = [];
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i] || {};
       var fid = String(r.field_id || "").trim();
-      var type = String(r.type || "").trim().toLowerCase();
-      var editable = _normBool_(r.editable);
-      var required = _normBool_(r.required);
-      var isCore = _normBool_(r.isCore);
-      return [ent, fid, type, editable ? "1" : "0", required ? "1" : "0", isCore ? "1" : "0"].join("|");
-    });
-    var entities = ["shot", "asset", "task", "member", "user", "page"];
-    var headerByEntity = {};
-    for (var i = 0; i < entities.length; i++) {
-      var entKey = entities[i];
-      var headerInfo = _getEntityHeaderFieldIds_(entKey);
-      headerByEntity[entKey] = headerInfo.fieldIds || [];
+      var ent = String(r.entity || "").trim();
+      var active = _normBool_(r.active);
+      if (!fid || !ent) { skipped++; continue; }
+      if (targetEntity && _schemaNormalizeEntity_(ent) !== _schemaNormalizeEntity_(targetEntity)) { skipped++; continue; }
+      if (String(r.active || "").trim() !== "" && !active) { skipped++; continue; }
+      try {
+        applyFieldColumnFormat_(ent, fid, r.type, r.options);
+        applied++;
+      } catch (e) {
+        errors.push({ fieldId: fid, entity: ent, error: String(e && e.message ? e.message : e) });
+      }
     }
-    var version = "";
-    try { version = ScriptApp.getService().getUrl(); } catch (_) { version = ""; }
-    var payload = { fieldsHeader: header, fieldsRows: rowTokens, entityHeaders: headerByEntity, version: version };
-    return _hubSha1Hex_(JSON.stringify(payload));
-  } catch (_) { return ""; }
+    return {
+      ok: errors.length === 0,
+      applied: applied,
+      skipped: skipped,
+      errors: errors,
+      entity: targetEntity || ""
+    };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message ? e.message : e) };
+  }
 }
 
 function dp_debugPing() {
   return { ok: true, ts: new Date().toISOString() };
 }
 
+function _orig_normName_(s) {
+  return String(s || "").trim().toLowerCase().replace(/[\s_\-]+/g, "");
+}
+
+function _orig_extractDriveId_(url) {
+  var m = String(url || "").match(/[-\w]{25,}/);
+  return m ? m[0] : "";
+}
+
+function _orig_countIter_(it, limit) {
+  var c = 0;
+  while (it && it.hasNext()) {
+    it.next();
+    c++;
+    if (limit && c >= limit) break;
+  }
+  return c;
+}
+
+function _orig_findByNames_(parent, names, steps, stage) {
+  for (var i = 0; i < names.length; i++) {
+    var name = names[i];
+    if (!name) continue;
+    try {
+      var it = parent.getFoldersByName(name);
+      var first = null;
+      var count = 0;
+      while (it.hasNext()) {
+        var f = it.next();
+        if (!first) first = f;
+        count++;
+        if (count >= 50) break;
+      }
+      steps.push({ stage: stage, strategy: "byName", name: name, count: count });
+      if (first) return first;
+    } catch (e) {
+      steps.push({ stage: stage, strategy: "byName", name: name, error: String(e && e.message ? e.message : e) });
+    }
+  }
+  return null;
+}
+
+function _orig_findByNormalized_(parent, targetNorms, steps, stage) {
+  var found = null;
+  var matches = [];
+  try {
+    var it = parent.getFolders();
+    while (it.hasNext()) {
+      var f = it.next();
+      var nm = f.getName();
+      var n = _orig_normName_(nm);
+      for (var i = 0; i < targetNorms.length; i++) {
+        if (n === targetNorms[i]) {
+          matches.push(nm);
+          if (!found) found = f;
+          break;
+        }
+      }
+    }
+    steps.push({ stage: stage, strategy: "normalizedExact", targets: targetNorms, matches: matches.slice(0, 10), count: matches.length });
+  } catch (e) {
+    steps.push({ stage: stage, strategy: "normalizedExact", error: String(e && e.message ? e.message : e) });
+  }
+  return found;
+}
+
+function _orig_findByContains_(parent, idNorm, nameNorm, steps, stage) {
+  var found = null;
+  var matches = [];
+  try {
+    var it = parent.getFolders();
+    while (it.hasNext()) {
+      var f = it.next();
+      var nm = f.getName();
+      var n = _orig_normName_(nm);
+      var ok = false;
+      if (idNorm && n.indexOf(idNorm) >= 0) ok = true;
+      if (nameNorm && n.indexOf(nameNorm) >= 0) ok = true;
+      if (ok) {
+        matches.push(nm);
+        if (!found) found = f;
+      }
+    }
+    steps.push({ stage: stage, strategy: "normalizedContains", idNorm: idNorm, nameNorm: nameNorm, matches: matches.slice(0, 10), count: matches.length });
+  } catch (e) {
+    steps.push({ stage: stage, strategy: "normalizedContains", error: String(e && e.message ? e.message : e) });
+  }
+  return found;
+}
+
+function _orig_buildLeafCandidates_(id, name) {
+  var idStr = String(id || "").trim();
+  var nameStr = String(name || "").trim();
+  var out = [];
+  function add(v) {
+    if (!v) return;
+    if (out.indexOf(v) < 0) out.push(v);
+  }
+  if (idStr && nameStr) {
+    add(idStr + "__ " + nameStr);
+    add(idStr + "__" + nameStr);
+    add(idStr + "_" + nameStr);
+    add(idStr + " - " + nameStr);
+  }
+  if (idStr) add(idStr);
+  return out;
+}
+
 function dp_traceOriginals(arg) {
   try {
     var payload = arg || {};
+    var entity = String(payload.entity || "shot").trim();
+    var id = String(payload.id || "").trim();
+    var steps = [];
+    var meta = {};
+    try {
+      if (typeof _sv_getMeta_ === "function") meta = _sv_getMeta_({});
+      else if (typeof _sv_readProjectMeta_ === "function") meta = _sv_readProjectMeta_();
+    } catch (_) { }
+
+    var rootUrl = String(meta.originals_root_url || meta.originalsRootUrl || meta.originals_root_id || meta.originalsRootId || "");
+    var rootId = _orig_extractDriveId_(rootUrl);
+    steps.push({ name: "ProjectMetaRoot", originals_root_url: rootUrl || "", rootId: rootId || "" });
+
+    var sampleName = "";
+    try {
+      var lm = typeof sv_getLinkMaps === "function" ? sv_getLinkMaps() : {};
+      if (lm && lm.shots && lm.shots[id]) sampleName = String(lm.shots[id]);
+    } catch (_) { }
+    steps.push({ name: "EntitySample", entity: entity, id: id, name: sampleName });
+
+    var rootFolder = null;
+    if (rootId) {
+      try {
+        rootFolder = DriveApp.getFolderById(rootId);
+        steps.push({ name: "RootFolder", ok: true, id: rootId });
+      } catch (e) {
+        steps.push({ name: "RootFolder", ok: false, id: rootId, error: String(e && e.message ? e.message : e) });
+      }
+    } else {
+      steps.push({ name: "RootFolder", ok: false, error: "originals_root_url missing or invalid" });
+    }
+
+    var finalUrl = "";
+    var found = false;
+    var detailSteps = [];
+
+    if (rootFolder) {
+      var ent = String(entity || "").toLowerCase();
+      var entBase = ent;
+      if (entBase.slice(-1) === "s") entBase = entBase.slice(0, -1);
+      var entPlural = entBase + "s";
+      var interCandidates = [
+        "01" + entPlural,
+        "01_" + entPlural,
+        entPlural,
+        entBase
+      ];
+
+      var inter = _orig_findByNames_(rootFolder, interCandidates, detailSteps, "intermediate");
+      if (!inter) {
+        var normTargets = interCandidates.map(_orig_normName_);
+        inter = _orig_findByNormalized_(rootFolder, normTargets, detailSteps, "intermediate");
+      }
+      if (!inter) {
+        var idNorm = _orig_normName_(id);
+        var nameNorm = _orig_normName_(sampleName);
+        inter = _orig_findByContains_(rootFolder, idNorm, nameNorm, detailSteps, "intermediate");
+      }
+
+      if (inter) {
+        var leafCandidates = _orig_buildLeafCandidates_(id, sampleName);
+        var leaf = _orig_findByNames_(inter, leafCandidates, detailSteps, "leaf");
+        if (!leaf) {
+          var leafNormTargets = leafCandidates.map(_orig_normName_);
+          leaf = _orig_findByNormalized_(inter, leafNormTargets, detailSteps, "leaf");
+        }
+        if (!leaf) {
+          var idNorm2 = _orig_normName_(id);
+          var nameNorm2 = _orig_normName_(sampleName);
+          leaf = _orig_findByContains_(inter, idNorm2, nameNorm2, detailSteps, "leaf");
+        }
+        if (leaf) {
+          finalUrl = leaf.getUrl();
+          found = true;
+        } else {
+          found = false;
+          detailSteps.push({ stage: "leaf", strategy: "missing", fallbackUrl: inter.getUrl() });
+        }
+      }
+    }
+
+    // Optional server resolver trace
+    var serverRes = null;
+    try {
+      if (typeof sv_getOriginalsFolderUrl === "function") {
+        serverRes = sv_getOriginalsFolderUrl({ entity: entity, id: id, allowFallback: true });
+      }
+    } catch (e) {
+      serverRes = { error: String(e && e.message ? e.message : e) };
+    }
+    steps.push({ name: "ServerAPIs", result: serverRes });
+
+    var dbRes = null;
+    try {
+      if (typeof DB_getOriginalsFolderUrl === "function") {
+        dbRes = DB_getOriginalsFolderUrl({ entity: entity, id: id });
+      }
+    } catch (e2) {
+      dbRes = { error: String(e2 && e2.message ? e2.message : e2) };
+    }
+    steps.push({ name: "DriveBuilder", result: dbRes || "not called" });
+
+    steps.push({ name: "LookupSteps", detail: detailSteps });
+
     return {
       ok: true,
       input: payload,
-      steps: [],
-      finalUrl: "",
-      found: false,
+      steps: steps,
+      finalUrl: finalUrl || "",
+      found: found,
       ts: new Date().toISOString()
     };
   } catch (e) {
@@ -2045,7 +2652,7 @@ function dp_loadAppData() {
     var ftRes = getFieldTypesWithDiag_();
     var fieldTypes = ftRes.types || {};
     var fieldTypesDiag = ftRes.diag || {};
-    var schemaSig = _buildFieldsSchemaSig_();
+    var schemaSig = "";
     var meta = typeof _sv_getMeta_ === 'function' ? _sv_getMeta_({}) : {};
     var counts = { assets: Object.keys(linkMaps.assets || {}).length, shots: Object.keys(linkMaps.shots || {}).length, tasks: Object.keys(linkMaps.tasks || {}).length, users: Object.keys(linkMaps.users || {}).length, members: Object.keys(linkMaps.members || {}).length };
     var fieldKeys = Object.keys(fieldTypes).reduce(function (acc, ent) { return acc + Object.keys(fieldTypes[ent] || {}).length; }, 0);
@@ -2066,743 +2673,428 @@ function dp_loadAppData() {
   }
 }
 
-function hubGetSlice(entity, offset, limit, ctx) {
-  var e = String(entity || "").trim().toLowerCase();
-  var off = Number(offset);
-  var lim = Number(limit);
-  if (!e) throw new Error("hubGetSlice: entity is required");
-  if (!isFinite(off) || off < 0 || Math.floor(off) !== off) throw new Error("hubGetSlice: offset must be an integer >= 0");
-  if (!isFinite(lim) || lim <= 0 || Math.floor(lim) !== lim) throw new Error("hubGetSlice: limit must be an integer > 0");
-  var ss = _getActiveSpreadsheetFromCtx_(ctx);
-  if (!ss) throw new Error("hubGetSlice: no active spreadsheet (bound script expected)");
-  var schema = _hubEnsureSchema_(ss, e);
-  var hub = ss.getSheetByName("DataHub_Core");
-  if (!hub) throw new Error("hubGetSlice: sheet 'DataHub_Core' not found");
-  var startRow = 3 + off;
-  var maxRows = hub.getMaxRows();
-  if (startRow > maxRows) return [];
-  var safeLimit = Math.min(lim, maxRows - startRow + 1);
-  if (safeLimit <= 0) return [];
-  var tReadStart = Date.now();
-  var values = hub.getRange(startRow, schema.startCol, safeLimit, schema.fieldCount).getValues();
-  _addTiming_(ctx, 'readDataHub_ms', Date.now() - tReadStart);
-  return values;
-}
 
-function hubGetSchema(entity, ctx) {
-  var e = String(entity || "").trim().toLowerCase();
-  if (!e) throw new Error("hubGetSchema: entity is required");
-  var ss = _getActiveSpreadsheetFromCtx_(ctx);
-  if (!ss) throw new Error("hubGetSchema: no active spreadsheet (bound script expected)");
-  var schema = _hubEnsureSchema_(ss, e);
-  if (schema && (schema.colCount == null)) schema.colCount = schema.fieldCount;
-  return schema;
-}
+function sv_getRecord(entity, id) {
+  var rid = String(id || "").trim();
+  var ent = String(entity || "").trim();
+  if (!rid || !ent) return null;
 
-function hubRefreshSchema(entityOpt) {
+  var conf = _normalizeEntityParams_({ entity: ent });
+  var entKey = conf.entity;
+  var sheetName = _entityToSheet_(entKey);
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss) throw new Error("hubRefreshSchema: no active spreadsheet (bound script expected)");
-  var entities = _hubEntityList_();
-  if (entityOpt) {
-    var one = String(entityOpt).trim().toLowerCase();
-    if (entities.indexOf(one) < 0) throw new Error("hubRefreshSchema: unsupported entity: " + one);
-    entities = [one];
-  }
-  var fieldsSh = ss.getSheetByName("Fields");
-  if (!fieldsSh) throw new Error("hubRefreshSchema: sheet 'Fields' not found");
-  var hub = ss.getSheetByName("DataHub_Core");
-  if (!hub) throw new Error("hubRefreshSchema: sheet 'DataHub_Core' not found");
-  var cache = _hubGetOrInitCache_(ss);
-  var header = _hubReadHeaderRow_(hub);
-  var colByFid = {};
-  for (var c = 0; c < header.length; c++) {
-    var fid = header[c];
-    if (fid) colByFid[String(fid).trim()] = c + 1;
-  }
-  var expectedByEntity = _hubReadExpectedCoreFieldIds_(fieldsSh);
-  var nowIso = new Date().toISOString();
-  var existing = _hubReadCacheIndex_(cache);
-  entities.forEach(function (e) {
-    var expected = expectedByEntity[e] || [];
-    if (!expected.length) {
-      _hubUpsertCacheRow_(cache, existing, e, 0, 0, "", nowIso, _hubSha1Hex_(""));
-      return;
+  var sh = ss.getSheetByName(sheetName);
+  if (!sh) return { ok: false, error: "sheet_not_found", entity: entKey, sheet: sheetName };
+
+  var lastCol = sh.getLastColumn();
+  var lastRow = sh.getLastRow();
+  if (lastCol < 1 || lastRow < 3) return null;
+
+  // 1. Read Schema Rows (Row 1 = IDs, Row 2 = Labels)
+  var metaRange = sh.getRange(1, 1, 2, lastCol).getValues();
+  var ids = metaRange[0].map(String);
+  var labels = metaRange[1].map(String);
+
+  // 2. Find ID Column (schema-driven)
+  var idFid = "";
+  try { idFid = schemaGetIdFid(entKey); } catch (_) { idFid = ""; }
+  var idColIdx = idFid ? ids.indexOf(idFid) : -1;
+  if (idColIdx < 0) {
+    for (var i = 0; i < ids.length; i++) {
+      var v = String(ids[i] || "").trim();
+      if (v) { idColIdx = i; break; }
     }
-    var startCol = colByFid[expected[0]];
-    if (!startCol) {
-      throw new Error("hubRefreshSchema: header mismatch. Missing first field_id in DataHub_Core row1: " + expected[0] + " (entity=" + e + ")");
+  }
+  if (idColIdx < 0) idColIdx = 0;
+
+  // 3. Find Row (TextFinder)
+  var finder = sh.getRange(3, idColIdx + 1, lastRow - 2, 1).createTextFinder(rid).matchEntireCell(true);
+  var result = finder.findNext();
+  if (!result) return { ok: false, reason: "not_found", entity: entKey, id: rid };
+  var rowNum = result.getRow();
+  var rowData = sh.getRange(rowNum, 1, 1, lastCol).getValues()[0];
+
+  // 4. Construct Object
+  var obj = {};
+  for (var c = 0; c < rowData.length; c++) {
+    var val = rowData[c];
+    if (val instanceof Date) { val = _formatDateYmd_(val); }
+    else { val = String(val); }
+
+    // Map by Field ID
+    var fid = String(ids[c] || "").trim();
+    if (fid) obj[fid] = val;
+
+    // Map by Label (Polyfill for Detail View)
+    var label = String(labels[c] || "").trim();
+    if (label && label !== fid) {
+      obj[label] = val;
+      obj[label.toLowerCase()] = val;
     }
-    for (var i = 0; i < expected.length; i++) {
-      var fid = expected[i];
-      var col = colByFid[fid];
-      if (!col) throw new Error("hubRefreshSchema: header mismatch. Missing field_id in DataHub_Core row1: " + fid + " (entity=" + e + ")");
-      if (col !== startCol + i) {
-        throw new Error("hubRefreshSchema: header mismatch. Non-contiguous or reordered field_ids for entity=" + e + ". expected fid=" + fid + " at col=" + (startCol + i) + " but found col=" + col);
+  }
+  obj.id = rid;
+  obj.ID = rid;
+  obj.entity = entKey;
+  return obj;
+}
+
+function sv_getRecord_v2(payload) {
+  return sv_getRecord(payload.entity, payload.id);
+}
+
+var _UNDO_CACHE_SHEET_NAME_ = 'Cache';
+var _UNDO_CACHE_MAX_ROWS_DEFAULT_ = 1000;
+var _UNDO_CACHE_HEADERS_ = [
+  'log_id',
+  'ts',
+  'actor',
+  'scope',
+  'action',
+  'target_sheet',
+  'entity',
+  'target_id',
+  'status',
+  'before_json',
+  'after_json',
+  'inverse_json',
+  'note',
+  'undo_of'
+];
+
+function _undo_nowIso_() {
+  return new Date().toISOString();
+}
+
+function _undo_toJson_(value) {
+  try { return JSON.stringify(value == null ? null : value); } catch (_) { return '{}'; }
+}
+
+function _undo_parseJson_(text, fallback) {
+  try { return JSON.parse(String(text || '')); } catch (_) { return fallback; }
+}
+
+function _undo_getActor_(hint) {
+  var actor = String(hint || '').trim();
+  if (actor) return actor;
+  try {
+    actor = String(Session.getActiveUser().getEmail() || '').trim();
+    if (actor) return actor;
+  } catch (_) {}
+  try {
+    actor = String(Session.getEffectiveUser().getEmail() || '').trim();
+    if (actor) return actor;
+  } catch (_) {}
+  return 'unknown';
+}
+
+function _undo_getCacheMaxRows_() {
+  var maxRows = _UNDO_CACHE_MAX_ROWS_DEFAULT_;
+  try {
+    var ss = SpreadsheetApp.getActive();
+    if (!ss) return maxRows;
+    var sh = ss.getSheetByName('project_meta') || ss.getSheetByName('ProjectMeta');
+    if (!sh) return maxRows;
+    var lastRow = sh.getLastRow();
+    if (lastRow < 2) return maxRows;
+    var values = sh.getRange(1, 1, lastRow, Math.max(2, sh.getLastColumn())).getValues();
+    for (var r = 0; r < values.length; r++) {
+      var key = String(values[r][0] || '').trim().toLowerCase();
+      if (!key) continue;
+      if (key === 'undo.cache.max_rows' || key === 'undo_cache_max_rows') {
+        var n = Number(values[r][1]);
+        if (isFinite(n) && n >= 100 && n <= 5000) return Math.floor(n);
       }
     }
-    var csv = expected.join(",");
-    var hash = _hubSha1Hex_(csv);
-    _hubUpsertCacheRow_(cache, existing, e, startCol, expected.length, csv, nowIso, hash);
-  });
-  return true;
+  } catch (_) {}
+  return maxRows;
 }
 
-function hubRefreshAllSchemas() {
-  var entities = ["shot", "asset", "task", "member", "user"];
-  var results = [];
-  for (var i = 0; i < entities.length; i++) {
-    var e = entities[i];
-    try {
-      var r = hubRefreshSchema(e);
-      results.push({ entity: e, ok: true, result: r });
-    } catch (err) {
-      results.push({ entity: e, ok: false, error: String(err), stack: err && err.stack ? String(err.stack) : "" });
-    }
-  }
-  var allOk = true;
-  for (var j = 0; j < results.length; j++) if (!results[j].ok) allOk = false;
-  return { ok: allOk, results: results, at: new Date().toISOString() };
-}
-
-function dp_diag_hubSchemaCache_v1() {
+function _undo_getCacheSheet_() {
   var ss = SpreadsheetApp.getActive();
-  var core = ss.getSheetByName("DataHub_Core");
-  if (!core) return { ok: false, error: "DataHub_Core sheet not found" };
-  var lastCol = core.getLastColumn();
-  var header = core.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
-  var entities = ["shot", "asset", "task", "member", "user"];
-  var checks = [];
-  var mismatches = [];
-  for (var i = 0; i < entities.length; i++) {
-    var e = entities[i];
-    try {
-      var schema = hubGetSchema(e);
-      var start0 = (schema.startCol || 1) - 1;
-      var end0 = start0 + (schema.colCount || 0);
-      var headerSlice = header.slice(start0, end0);
-      var same = JSON.stringify(headerSlice) === JSON.stringify(schema.fieldIds || []);
-      var item = { entity: e, ok: !!same, startCol: schema.startCol, colCount: schema.colCount, fieldIdsFromCache: schema.fieldIds || [], fieldIdsFromHeader: headerSlice };
-      checks.push(item);
-      if (!same) mismatches.push(item);
-    } catch (err) {
-      var bad = { entity: e, ok: false, error: String(err), stack: err && err.stack ? String(err.stack) : "" };
-      checks.push(bad);
-      mismatches.push(bad);
-    }
-  }
-  return { ok: mismatches.length === 0, mismatches: mismatches, checks: checks, at: new Date().toISOString() };
-}
-
-function test_hubRefreshAndGet() {
-  hubRefreshSchema();
-  var entities = _hubEntityList_();
-  entities.forEach(function (e) {
-    try {
-      var s = hubGetSchema(e);
-      var rows = hubGetSlice(e, 0, 1);
-      var r = rows.length;
-      var c = r ? rows[0].length : 0;
-    } catch (err) { }
-  });
-}
-
-function _hubEntityList_() { return ["shot", "asset", "task", "member", "user"]; }
-
-function _hubEnsureSchema_(ss, entity) {
-  var cache = _hubGetOrInitCache_(ss);
-  var schema = _hubReadSchemaFromCache_(cache, entity);
-  var fieldsSh = ss.getSheetByName("Fields");
-  if (!fieldsSh) throw new Error("_hubEnsureSchema_: sheet 'Fields' not found");
-  var expectedByEntity = _hubReadExpectedCoreFieldIds_(fieldsSh);
-  var expected = expectedByEntity[entity] || [];
-  var expectedCsv = expected.join(",");
-  var expectedHash = _hubSha1Hex_(expectedCsv);
-  var needsRefresh = false;
-  var refreshReason = "";
-  if (!schema || schema.schemaHash !== expectedHash) {
-    needsRefresh = true;
-    refreshReason = schema ? "hash-mismatch" : "missing-cache";
-  } else if (expected.length) {
-    var hub = ss.getSheetByName("DataHub_Core");
-    if (!hub) throw new Error("_hubEnsureSchema_: sheet 'DataHub_Core' not found");
-    var header = _hubReadHeaderRow_(hub);
-    var colByFid = {};
-    for (var c = 0; c < header.length; c++) {
-      var fid = header[c];
-      if (fid) colByFid[String(fid).trim()] = c + 1;
-    }
-    var expectedStartCol = colByFid[expected[0]] || 0;
-    var layoutOk = true;
-    if (!expectedStartCol) layoutOk = false;
-    if (schema.startCol !== expectedStartCol) layoutOk = false;
-    if (schema.fieldCount !== expected.length) layoutOk = false;
-    if (expectedStartCol) {
-      var slice = header.slice(expectedStartCol - 1, expectedStartCol - 1 + expected.length);
-      if (slice.length !== expected.length) layoutOk = false;
-      for (var i = 0; i < expected.length && layoutOk; i++) {
-        if (String(slice[i] || "").trim() !== String(expected[i] || "").trim()) layoutOk = false;
-      }
-    }
-    if (!layoutOk) {
-      needsRefresh = true;
-      refreshReason = "layout-mismatch";
-    }
-  }
-  if (needsRefresh) {
-    hubRefreshSchema(entity);
-    schema = _hubReadSchemaFromCache_(cache, entity);
-    if (schema) {
-      schema._refreshed = true;
-      schema._refreshReason = refreshReason;
-    }
-  }
-  if (!schema) throw new Error("_hubEnsureSchema_: schema not found after refresh (entity=" + entity + ")");
-  if (!expected.length) {
-    if (schema && (schema.colCount == null)) schema.colCount = schema.fieldCount;
-    return schema;
-  }
-  if (schema.schemaHash !== expectedHash) {
-    throw new Error("_hubEnsureSchema_: schema hash mismatch after refresh (entity=" + entity + ")");
-  }
-  if (schema.fieldCount !== expected.length) {
-    throw new Error("_hubEnsureSchema_: fieldCount mismatch after refresh (entity=" + entity + ")");
-  }
-  if (schema && (schema.colCount == null)) schema.colCount = schema.fieldCount;
-  return schema;
-}
-
-function _hubGetOrInitCache_(ss) {
-  var sh = ss.getSheetByName("Cache") || ss.getSheetByName("DataHub_Core cache");
-  if (!sh) throw new Error("Cache sheet not found. Expected sheet name: 'Cache'");
-  if (sh.getLastRow() === 0) {
-    sh.getRange(1, 1, 1, 6).setValues([["Entity", "StartCol", "FieldCount", "FieldIds", "UpdatedAt", "SchemaHash"]]);
-  } else {
-    var h = sh.getRange(1, 1, 1, 6).getValues()[0];
-    if (String(h[0] || "").trim().toLowerCase() !== "entity") {
-      sh.getRange(1, 1, 1, 6).setValues([["Entity", "StartCol", "FieldCount", "FieldIds", "UpdatedAt", "SchemaHash"]]);
-    }
-  }
+  if (!ss) throw new Error('Spreadsheet not available');
+  var sh = ss.getSheetByName(_UNDO_CACHE_SHEET_NAME_);
+  if (!sh) sh = ss.insertSheet(_UNDO_CACHE_SHEET_NAME_);
   return sh;
 }
 
-function _hubReadCacheIndex_(cacheSh) {
-  var lastRow = cacheSh.getLastRow();
-  var idx = {};
-  if (lastRow < 2) return idx;
-  var vals = cacheSh.getRange(2, 1, lastRow - 1, 1).getValues();
-  for (var i = 0; i < vals.length; i++) {
-    var e = String(vals[i][0] || "").trim().toLowerCase();
-    if (e) idx[e] = i + 2;
+function _undo_ensureHeader_(sh) {
+  if (!sh) return;
+  var lastRow = sh.getLastRow();
+  if (lastRow < 1) {
+    sh.getRange(1, 1, 1, _UNDO_CACHE_HEADERS_.length).setValues([_UNDO_CACHE_HEADERS_]);
+    return;
   }
-  return idx;
-}
-
-function _hubUpsertCacheRow_(cacheSh, indexMap, entity, startCol, fieldCount, fieldIdsCsv, updatedAtIso, schemaHash) {
-  var row = indexMap[entity];
-  if (!row) {
-    row = cacheSh.getLastRow() + 1;
-    indexMap[entity] = row;
+  var row1 = sh.getRange(1, 1, 1, _UNDO_CACHE_HEADERS_.length).getValues()[0] || [];
+  if (String(row1[0] || '').trim().toLowerCase() !== 'log_id') {
+    sh.insertRows(1, 1);
+    sh.getRange(1, 1, 1, _UNDO_CACHE_HEADERS_.length).setValues([_UNDO_CACHE_HEADERS_]);
   }
-  cacheSh.getRange(row, 1, 1, 6).setValues([[entity, startCol, fieldCount, fieldIdsCsv, updatedAtIso, schemaHash]]);
 }
 
-function _hubReadSchemaFromCache_(cacheSh, entity) {
-  var idx = _hubReadCacheIndex_(cacheSh);
-  var row = idx[entity];
-  if (!row) return null;
-  var v = cacheSh.getRange(row, 1, 1, 6).getValues()[0];
-  var csv = String(v[3] || "");
-  var fieldIds = csv ? csv.split(",").map(function (s) { return String(s).trim(); }).filter(Boolean) : [];
-  return {
-    entity: String(v[0] || "").trim().toLowerCase(),
-    startCol: Number(v[1]) || 0,
-    fieldCount: Number(v[2]) || 0,
-    colCount: Number(v[2]) || 0,
-    fieldIds: fieldIds,
-    updatedAt: String(v[4] || ""),
-    schemaHash: String(v[5] || "")
-  };
-}
-
-function _hubReadHeaderRow_(hubSh) {
-  var lastCol = hubSh.getLastColumn();
-  if (lastCol < 1) return [];
-  var row = hubSh.getRange(1, 1, 1, lastCol).getValues()[0];
-  for (var i = 0; i < row.length; i++) {
-    row[i] = row[i] ? String(row[i]).trim() : "";
+function _undo_trim_(sh, maxRows) {
+  if (!sh) return;
+  var cap = Number(maxRows);
+  if (!isFinite(cap) || cap < 100) cap = _UNDO_CACHE_MAX_ROWS_DEFAULT_;
+  var lastRow = sh.getLastRow();
+  var keepLastRow = cap + 1;
+  if (lastRow > keepLastRow) {
+    sh.deleteRows(keepLastRow + 1, lastRow - keepLastRow);
   }
-  return row;
 }
 
-function _hubReadDisplayRow_(hubSheet) {
-  var lastCol = hubSheet.getLastColumn();
-  if (!lastCol) return [];
-  var row2 = hubSheet.getRange(2, 1, 1, lastCol).getValues()[0] || [];
-  return row2.map(function (x) { return x ? String(x).trim() : ""; });
+function _undo_appendLog_(entry) {
+  var e = entry || {};
+  var sh = _undo_getCacheSheet_();
+  _undo_ensureHeader_(sh);
+  var logId = String(e.logId || ('undo_' + Date.now() + '_' + Math.floor(Math.random() * 1000000)));
+  var row = [
+    logId,
+    String(e.ts || _undo_nowIso_()),
+    _undo_getActor_(e.actor),
+    String(e.scope || ''),
+    String(e.action || ''),
+    String(e.targetSheet || ''),
+    String(e.entity || ''),
+    String(e.targetId || ''),
+    String(e.status || 'applied'),
+    _undo_toJson_(e.before),
+    _undo_toJson_(e.after),
+    _undo_toJson_(e.inverse),
+    String(e.note || ''),
+    String(e.undoOf || '')
+  ];
+  sh.insertRows(2, 1);
+  sh.getRange(2, 1, 1, row.length).setValues([row]);
+  _undo_trim_(sh, _undo_getCacheMaxRows_());
+  return { ok: true, logId: logId, row: 2 };
 }
 
-function hubGetDisplayNames(entity, schemaOpt, ctx) {
-  var ss = _getActiveSpreadsheetFromCtx_(ctx);
-  var hub = ss.getSheetByName("DataHub_Core");
-  if (!hub) throw new Error("hubGetDisplayNames: sheet 'DataHub_Core' not found");
-  var schema = schemaOpt || hubGetSchema(entity, ctx);
-  if (!schema || !schema.startCol || !schema.fieldCount) return [];
-  var tReadStart = Date.now();
-  var row2 = hub.getRange(2, schema.startCol, 1, schema.fieldCount).getValues()[0] || [];
-  _addTiming_(ctx, 'readDataHub_ms', Date.now() - tReadStart);
-  return row2.map(function (x) { return x ? String(x).trim() : ""; });
-}
-
-function _hubReadExpectedCoreFieldIds_(fieldsSh) {
-  if (!fieldsSh) return {};
-  var rows = _readFields_();
-  var out = {};
-  for (var i = 0; i < rows.length; i++) {
-    var r = rows[i] || {};
-    var entRaw = String(r.entity || "").trim();
-    if (!entRaw) continue;
-    var entKey = _normalizeEntityParams_({ entity: entRaw }).entity;
-    var fid = String(r.field_id || "").trim();
-    if (!fid) continue;
-    if (!_normBool_(r.isCore)) continue;
-    if (!out[entKey]) out[entKey] = [];
-    out[entKey].push(fid);
+function _undo_readLogs_(limit) {
+  var out = [];
+  var sh = _undo_getCacheSheet_();
+  _undo_ensureHeader_(sh);
+  var lastRow = sh.getLastRow();
+  if (lastRow < 2) return out;
+  var n = Number(limit);
+  if (!isFinite(n) || n < 1) n = 300;
+  var endRow = Math.min(lastRow, n + 1);
+  var values = sh.getRange(2, 1, endRow - 1, _UNDO_CACHE_HEADERS_.length).getValues();
+  for (var i = 0; i < values.length; i++) {
+    var rowNum = i + 2;
+    var v = values[i] || [];
+    out.push({
+      row: rowNum,
+      logId: String(v[0] || ''),
+      ts: String(v[1] || ''),
+      actor: String(v[2] || ''),
+      scope: String(v[3] || ''),
+      action: String(v[4] || ''),
+      targetSheet: String(v[5] || ''),
+      entity: String(v[6] || ''),
+      targetId: String(v[7] || ''),
+      status: String(v[8] || ''),
+      before: _undo_parseJson_(v[9], {}),
+      after: _undo_parseJson_(v[10], {}),
+      inverse: _undo_parseJson_(v[11], {}),
+      note: String(v[12] || ''),
+      undoOf: String(v[13] || '')
+    });
   }
   return out;
 }
 
-function _hubSha1Hex_(s) {
-  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_1, s, Utilities.Charset.UTF_8);
-  var hex = [];
-  for (var i = 0; i < bytes.length; i++) {
-    var v = (bytes[i] + 256) % 256;
-    hex.push((v < 16 ? "0" : "") + v.toString(16));
-  }
-  return hex.join("");
+function _undo_markUndone_(row, actor) {
+  var sh = _undo_getCacheSheet_();
+  if (!row || row < 2) return;
+  sh.getRange(row, 9).setValue('undone');
+  sh.getRange(row, 13).setValue('undone by ' + _undo_getActor_(actor) + ' @ ' + _undo_nowIso_());
 }
 
-function _sv_listRowsPageHub_(payload, ctx) {
-  payload = payload || {};
-  var t0 = Date.now();
-  var tSchemaStart = t0;
-  var ent = payload.sheetName || payload.entity || payload.e || payload.entityName || "";
-  var p = _normalizeEntityParams_(ent, payload);
-  var ss = _getActiveSpreadsheetFromCtx_(ctx);
-  // FIX: p.sheetName was undefined because _normalizeEntityParams_ returns p.sheet
-  var sheet = ss ? ss.getSheetByName(p.sheet) : null;
-  if (!sheet) {
-    var names = ss ? ss.getSheets().map(function (s) { return s.getName(); }) : [];
-    throw new Error("Missing entity sheet: " + p.sheet + " (entity=" + p.entity + "). Available: " + names.join(", "));
+function _undo_applySheetCellsInverse_(inverse) {
+  var inv = inverse || {};
+  var sheetName = String(inv.sheet || '').trim();
+  if (!sheetName) return { ok: false, error: 'inverse sheet missing' };
+  var ss = SpreadsheetApp.getActive();
+  var sh = ss ? ss.getSheetByName(sheetName) : null;
+  if (!sh) return { ok: false, error: 'inverse sheet not found: ' + sheetName };
+  var changes = Array.isArray(inv.changes) ? inv.changes : [];
+  for (var i = 0; i < changes.length; i++) {
+    var c = changes[i] || {};
+    var row = Number(c.row);
+    var col = Number(c.col);
+    if (!isFinite(row) || !isFinite(col) || row < 1 || col < 1) continue;
+    sh.getRange(row, col).setValue(c.value);
   }
-  var schema = hubGetSchema(p.entity, ctx);
-  var tSchemaDone = Date.now();
-  var fieldIds = Array.isArray(schema && schema.fieldIds) ? schema.fieldIds : [];
-  var displayNames = hubGetDisplayNames(p.entity, schema, ctx);
-  var requested = [];
-  if (Array.isArray(payload.requestedFields)) requested = payload.requestedFields;
-  else if (Array.isArray(payload.fieldIds)) requested = payload.fieldIds;
-  else if (Array.isArray(payload.fields)) requested = payload.fields;
-  requested = requested.map(function (x) { return String(x || '').trim(); }).filter(Boolean);
-  var missingFieldIds = requested.filter(function (fid) { return fieldIds.indexOf(fid) < 0; });
-  var tRowsStart = Date.now();
-  function hasNonEmptyFilters_(fgs) {
-    if (!Array.isArray(fgs)) return false;
-    for (var i = 0; i < fgs.length; i++) {
-      var g = fgs[i] || {};
-      var rules = Array.isArray(g.rules) ? g.rules : [];
-      for (var j = 0; j < rules.length; j++) {
-        var r = rules[j] || {};
-        if (!r.id || !r.op) continue;
-        if (r.op === "isempty" || r.op === "isnotempty") return true;
-        if (Array.isArray(r.values) && r.values.length) return true;
-        if (Object.prototype.hasOwnProperty.call(r, "value")) {
-          if (r.value === 0 || r.value === false) return true;
-          if (r.value != null && String(r.value).trim().length) return true;
-        }
-      }
-    }
-    return false;
-  }
-  var hasSort = Array.isArray(payload.sort) && payload.sort.some(function (s) { return s && String(s.id || '').trim(); });
-  var hasFilters = hasNonEmptyFilters_(payload.filterGroups);
-  if (hasSort || hasFilters) {
-    var corePayload = Object.assign({}, payload, {
-      entity: p.entity,
-      sheet: p.sheet,
-      sheetName: p.sheet,
-      offset: p.offset,
-      limit: p.limit,
-      filterGroups: Array.isArray(payload.filterGroups) ? payload.filterGroups : [],
-      groupCombine: (payload.groupCombine === 'any') ? 'any' : 'all',
-      sort: Array.isArray(payload.sort) ? payload.sort : [],
-      requestedFields: requested.slice()
-    });
-    var missingSortIds = [];
-    if (hasSort && fieldIds && fieldIds.length) {
-      for (var si = 0; si < corePayload.sort.length; si++) {
-        var sid = String(corePayload.sort[si] && corePayload.sort[si].id || "").trim();
-        if (sid && fieldIds.indexOf(sid) < 0) missingSortIds.push(sid);
-      }
-    }
-    var coreRes = _listRowsPageCore_(corePayload, ctx) || {};
-    coreRes.mode = "hub";
-    coreRes.modeReason = hasSort ? "hub-sort" : "hub-filter";
-    coreRes.source = "hub";
-    coreRes.dataSourceUsed = coreRes.dataSourceUsed || "hub";
-    coreRes.diag = coreRes.diag || {};
-    coreRes.diag.mode = coreRes.mode;
-    coreRes.diag.modeReason = coreRes.modeReason;
-    coreRes.diag.dataSourceUsed = coreRes.dataSourceUsed;
-    coreRes.diag.listRowsFn = "_sv_listRowsPageHub_:core";
-    coreRes.diag.sortRequestedCount = Array.isArray(corePayload.sort) ? corePayload.sort.length : 0;
-    if (missingSortIds.length) coreRes.diag.sortBlockedReason = "missing-field";
-    coreRes.diag.missingSortFieldIds = missingSortIds;
-    if (Array.isArray(coreRes.presentFieldIds)) coreRes.diag.presentFieldIds = coreRes.presentFieldIds;
-    coreRes.diag.requestedFieldIds = requested.slice();
-    if (coreRes.meta && coreRes.meta.fieldIdsHash) coreRes.diag.fieldIdsHash = coreRes.meta.fieldIdsHash;
-    return coreRes;
-  }
-  var rows = hubGetSlice(p.entity, p.offset, p.limit, ctx);
-  if (!Array.isArray(rows)) rows = [];
-  var tRowsDone = Date.now();
-  var tTotalStart = Date.now();
-  var total = _hubGetTotalFromEntitySheet_(p.sheet, ctx);
-  var tTotalDone = Date.now();
-  var needsRefresh = false;
-  if (total > 0) {
-    if (!rows.length) {
-      needsRefresh = true;
-    } else {
-      var map = _idAndLabelCols_(p.entity, fieldIds);
-      var idName = map && map.idName ? String(map.idName) : "";
-      var idIdx = idName ? fieldIds.indexOf(idName) : -1;
-      if (idIdx < 0) idIdx = 0;
-      var idVal = "";
-      for (var r = 0; r < rows.length; r++) {
-        var row = rows[r];
-        if (!row || !row.length) continue;
-        var rowHasAny = row.some(function (v) { return String(v || "").trim(); });
-        if (!rowHasAny) continue;
-        idVal = row[idIdx];
-        break;
-      }
-      if (!String(idVal || "").trim()) needsRefresh = true;
-    }
-  }
-  if (needsRefresh) {
-    try { hubRefreshSchema(p.entity); } catch (err) { throw new Error("hubRefreshSchema failed after empty slice (entity=" + p.entity + "): " + String(err)); }
-    schema = hubGetSchema(p.entity);
-    fieldIds = Array.isArray(schema && schema.fieldIds) ? schema.fieldIds : [];
-    displayNames = hubGetDisplayNames(p.entity, schema);
-    rows = hubGetSlice(p.entity, p.offset, p.limit);
-    if (!Array.isArray(rows)) rows = [];
-    tRowsDone = Date.now();
-    missingFieldIds = requested.filter(function (fid) { return fieldIds.indexOf(fid) < 0; });
-  }
-  var tFieldsStart = Date.now();
-  var ftypes = getFieldTypes(p.entity);
-  var byId = (ftypes && ftypes[p.entity]) ? ftypes[p.entity] : {};
-  var columns = fieldIds.map(function (fid, i) {
-    fid = String(fid || "");
-    var m = byId[fid] || {};
-    var dn = (displayNames && displayNames[i]) ? displayNames[i] : "";
-    return {
-      id: fid,
-      fieldId: fid,
-      fid: fid,
-      label: (dn || m.label || fid),
-      type: (m.type || "text"),
-      editable: !!m.editable
-    };
-  });
-
-  // When client requested a specific field order, reindex ids/rows/header/columns to that order to avoid hash mismatch.
-  if (requested.length) {
-    var headerFromCols = columns.map(function (c) { return c.label || c.name || c.id || c.fid || ""; });
-    var reindexed = _reindexRowsToRequested_(fieldIds, headerFromCols, rows, requested);
-    fieldIds = reindexed.ids;
-    rows = reindexed.rows;
-    headerFromCols = reindexed.header;
-    var colByFid = {};
-    for (var ci = 0; ci < columns.length; ci++) {
-      var cc = columns[ci] || {};
-      var cfid = String(cc.fid || cc.id || "").trim();
-      if (cfid && !colByFid[cfid]) colByFid[cfid] = cc;
-    }
-    columns = fieldIds.map(function (fidReq, idx) {
-      var col = colByFid[fidReq] ? Object.assign({}, colByFid[fidReq]) : { id: fidReq, fid: fidReq, label: fidReq };
-      if (!col.label) col.label = headerFromCols[idx] || fidReq;
-      if (!col.name) col.name = col.label;
-      return col;
-    });
-  }
-
-  var tFieldsDone = Date.now();
-  var schemaRefreshed = !!(schema && schema._refreshed);
-  var schemaRefreshReason = (schema && schema._refreshReason) ? String(schema._refreshReason) : "";
-  var tEnd = Date.now();
-  var timing = {
-    total_ms: tEnd - t0,
-    schema_ms: tSchemaDone - tSchemaStart,
-    rows_ms: tRowsDone - tRowsStart,
-    total_count_ms: tTotalDone - tTotalStart,
-    field_select_ms: tFieldsDone - tFieldsStart,
-    link_maps_ms: 0,
-    payload_ms: tEnd - tFieldsDone,
-    openSpreadsheet_ms: (ctx && ctx.openSpreadsheet_ms) || 0,
-    readDataHub_ms: (ctx && ctx.timing && ctx.timing.readDataHub_ms) || 0,
-    readEntitySheet_ms: (ctx && ctx.timing && ctx.timing.readEntitySheet_ms) || 0,
-    buildRows_ms: tEnd - tFieldsStart,
-    applyFilters_ms: 0,
-    applySort_ms: 0,
-    buildLinkMaps_ms: 0,
-    cacheGet_ms: 0,
-    cacheSet_ms: 0,
-    stringify_ms: 0
-  };
-  return {
-    ok: true,
-    source: "hub",
-    sourceReason: "plain-paging",
-    entity: p.entity,
-    sheetName: p.sheet, // fix return val too
-    offset: p.offset,
-    limit: p.limit,
-    page: p.page,
-    total: total,
-    ids: fieldIds.slice(),
-    rows: rows,
-    columns: columns,
-    header: columns.map(function (c) { return c.label; }),
-    presentFieldIds: fieldIds.slice(),
-    missingFieldIds: missingFieldIds.slice(),
-    dataSourceUsed: "hub",
-    diag: {
-      entity: p.entity,
-      sheetName: p.sheet,
-      pageId: payload.pageId || '',
-      requestedFieldIds: requested.slice(),
-      presentFieldIds: fieldIds.slice(),
-      missingFieldIds: missingFieldIds.slice(),
-      missingCount: missingFieldIds.length,
-      dataSourceUsed: "hub",
-      schemaRefreshed: schemaRefreshed,
-      schemaRefreshReason: schemaRefreshReason,
-      timing: timing,
-      fieldIdsHash: requested.length ? requested.join("|") : fieldIds.join("|")
-    },
-    schemaHash: schema && schema.schemaHash ? String(schema.schemaHash) : "",
-    meta: {
-      fieldIdsHash: (requested.length ? requested.join("|") : fieldIds).join("|"),
-      schemaHash: schema && schema.schemaHash ? String(schema.schemaHash) : "",
-      colsKey: fieldIds.join("|")
-    },
-    schemaUpdatedAt: schema && schema.updatedAt ? String(schema.updatedAt) : "",
-    schemaRefreshed: schemaRefreshed,
-    schemaRefreshReason: schemaRefreshReason
-  };
+  return { ok: true };
 }
 
-function _hubGetTotalFromEntitySheet_(sheetName, ctx) {
+function _undo_applyInverse_(inverse, opts) {
+  var inv = inverse || {};
+  var kind = String(inv.kind || '').trim();
+  var options = opts || {};
+  if (kind === 'setRecord') {
+    var resSet = sv_setRecord_v2(inv.entity, inv.id, inv.patch || {}, { __skipUndoLog: true, actor: options.actor || '' });
+    return { ok: !!(resSet && resSet.ok), result: resSet };
+  }
+  if (kind === 'scheduler_commit') {
+    var payload = inv.payload && typeof inv.payload === 'object' ? inv.payload : {};
+    payload.__skipUndoLog = true;
+    var raw = sv_scheduler_commit_v2(JSON.stringify(payload));
+    var res = _undo_parseJson_(raw, {});
+    return { ok: !!(res && res.ok), result: res };
+  }
+  if (kind === 'sheet_cells') {
+    return _undo_applySheetCellsInverse_(inv);
+  }
+  return { ok: false, error: 'Unsupported inverse kind: ' + kind };
+}
+
+function _undo_isRecordConflict_(log) {
+  if (!log || String(log.scope || '') !== 'record') return false;
+  var after = log.after && typeof log.after === 'object' ? log.after : {};
+  var keys = Object.keys(after);
+  if (!keys.length) return false;
+  var cur = sv_getRecord(log.entity, log.targetId);
+  if (!cur || typeof cur !== 'object') return true;
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    var expected = String(after[k] == null ? '' : after[k]);
+    var actual = String(cur[k] == null ? '' : cur[k]);
+    if (expected !== actual) return true;
+  }
+  return false;
+}
+
+function sv_undo_last_v2(reqPayload) {
   try {
-    var ss = _getActiveSpreadsheetFromCtx_(ctx);
-    if (!ss) return 0;
-    var sh = ss.getSheetByName(sheetName);
-    if (!sh) {
-      // Case-insensitive match
-      var target = String(sheetName || "").toLowerCase();
-      var sheets = ss.getSheets();
-      for (var i = 0; i < sheets.length; i++) {
-        var nm = String(sheets[i].getName() || "");
-        if (nm.toLowerCase() === target) { sh = sheets[i]; break; }
-      }
-      // Simple plural/singular fallback if still missing
-      if (!sh) {
-        var fallback = (target === "shot") ? "shots" :
-          (target === "asset") ? "assets" :
-          (target === "task") ? "tasks" :
-          (target === "member") ? "projectmembers" :
-          (target === "user") ? "users" : "";
-        if (fallback) {
-          for (var j = 0; j < sheets.length; j++) {
-            var nm2 = String(sheets[j].getName() || "");
-            if (nm2.toLowerCase() === fallback) { sh = sheets[j]; break; }
-          }
-        }
-      }
-      if (!sh) return 0;
-    }
-    var tReadStart = Date.now();
-    var last = sh.getLastRow();
-    _addTiming_(ctx, 'readEntitySheet_ms', Date.now() - tReadStart);
-    return Math.max(0, Number(last || 0) - 2);
-  } catch (e) { return 0; }
-}
+    var req = reqPayload;
+    if (typeof reqPayload === 'string') req = _undo_parseJson_(reqPayload, {});
+    req = req || {};
+    var scope = String(req.scope || 'all').trim().toLowerCase();
+    var admin = !!req.admin;
+    var actor = _undo_getActor_(req.actor);
+    var force = (req.force === true);
+    if (scope === 'scheduler' && req.force == null) force = true;
 
-function sv_listRowsPage_v3(payload) {
-  payload = payload || {};
-  var t0 = Date.now();
-  var ctx = { timing: {}, openSpreadsheet_ms: 0, openSpreadsheet_calls: 0 };
-  var modeInfo = _tablePickDataMode_(payload);
-  var mode = (modeInfo && modeInfo.mode) ? modeInfo.mode : modeInfo;
-  var modeReason = (modeInfo && modeInfo.reason) ? modeInfo.reason : "";
-  if (mode === "legacy" && !modeReason) {
-    modeReason = (payload.pageId || payload.pid) ? "legacy-default" : "missing-pageId";
-  }
-  var requestedDataSource = String((payload.requestedDataSource || payload.dataSource || payload.dataSourcePreferred || payload.dataSourceHint || "") || "");
-  var entRaw = payload.sheetName || payload.entity || payload.e || payload.entityName || "";
-  var norm = _normalizeEntityParams_(entRaw, payload);
+    var logs = _undo_readLogs_(500);
+    var picked = null;
+    for (var i = 0; i < logs.length; i++) {
+      var row = logs[i];
+      if (String(row.status || '') !== 'applied') continue;
+      if (scope !== 'all' && scope && String(row.scope || '').toLowerCase() !== scope) continue;
+      if (!admin && String(row.actor || '') !== actor) continue;
+      picked = row;
+      break;
+    }
+    if (!picked) {
+      return JSON.stringify({ ok: false, error: 'No undo target', scope: scope, actor: actor, admin: admin });
+    }
 
-  function buildListRowsDiag_(res) {
-    var timing = (res && res.diag && res.diag.timing) ? res.diag.timing : (ctx && ctx.timing ? ctx.timing : {});
-    var totalMs = (timing && typeof timing.total_ms === "number") ? timing.total_ms : (Date.now() - t0);
-    var missing = (res && res.diag && Array.isArray(res.diag.missingFieldIds)) ? res.diag.missingFieldIds : [];
-    var requestedCount = (res && res.diag && Array.isArray(res.diag.requestedFieldIds)) ? res.diag.requestedFieldIds.length : 0;
-    var diag = res && res.diag ? res.diag : {};
-    var dataSourceUsed = String(diag.dataSourceUsed || res.dataSourceUsed || res.source || "");
-    var modeValue = String(res.mode || diag.mode || mode || "");
-    if (!modeValue) {
-      modeValue = (String(dataSourceUsed || "").toLowerCase() === "legacy") ? "legacy" : mode;
+    if (!force && _undo_isRecordConflict_(picked)) {
+      return JSON.stringify({
+        ok: false,
+        error: 'Conflict detected; use force/admin undo',
+        code: 'UNDO_CONFLICT',
+        logId: picked.logId
+      });
     }
-    var modeReasonValue = String(res.modeReason || diag.modeReason || modeReason || (modeValue === "legacy" ? "legacy-default" : ""));
-    return {
-      requestedDataSource: requestedDataSource,
-      selectedDataSource: dataSourceUsed,
-      mode: modeValue || (mode === "legacy" ? "legacy" : "hub"),
-      modeReason: modeReasonValue,
-      requestedFieldsCount: requestedCount,
-      missingFieldIds: missing,
-      driveCalls: 0,
-      openSpreadsheet_calls: Number(ctx && ctx.openSpreadsheet_calls) || 0,
-      source: dataSourceUsed,
-      server_total_ms: Number(totalMs || 0),
-      timings: {
-        openSpreadsheet_ms: Number(ctx && ctx.openSpreadsheet_ms) || 0,
-        readDataHub_ms: Number(timing.readDataHub_ms || 0),
-        readEntitySheet_ms: Number(timing.readEntitySheet_ms || 0),
-        buildRows_ms: Number(timing.buildRows_ms || timing.field_select_ms || 0),
-        applyFilters_ms: Number(timing.applyFilters_ms || timing.filter_ms || 0),
-        applySort_ms: Number(timing.applySort_ms || timing.sort_ms || 0),
-        buildLinkMaps_ms: Number(timing.buildLinkMaps_ms || 0),
-        cacheGet_ms: Number(timing.cacheGet_ms || 0),
-        cacheSet_ms: Number(timing.cacheSet_ms || 0),
-        stringify_ms: Number(timing.stringify_ms || 0),
-        total_ms: Number(totalMs || 0)
-      }
-    };
-  }
 
-  try {
-    __MOTK_REQ_SS__ = _getActiveSpreadsheetFromCtx_(ctx);
-    if (mode === "hub") {
-      var hubRes = _sv_listRowsPageHub_(payload, ctx) || {};
-      hubRes.entityNormalized = norm.entity;
-      hubRes.diag = hubRes.diag || {};
-      hubRes.diag.mode = mode;
-      hubRes.diag.modeReason = modeReason;
-      if (!hubRes.diag.timing) hubRes.diag.timing = {};
-      if (typeof hubRes.diag.timing.total_ms !== "number") {
-        hubRes.diag.timing.total_ms = Date.now() - t0;
-      }
-      hubRes.diag.source = hubRes.dataSourceUsed || hubRes.diag.dataSourceUsed || "";
-      hubRes.diag.server_total_ms = Number(hubRes.diag.timing.total_ms || (Date.now() - t0));
-      hubRes.mode = mode;
-      hubRes.source = mode;
-      if (!hubRes.dataSourceUsed || String(hubRes.dataSourceUsed).toLowerCase().indexOf("hub") === 0) {
-        hubRes.dataSourceUsed = "DataHub";
-      }
-      if (hubRes.diag && hubRes.diag.missingCount > 0 && payload.allowPartialHub !== true) {
-        var legacyRes = _sv_listRowsPageLegacyFromPayload_(payload, ctx) || {};
-        legacyRes.entityNormalized = norm.entity;
-        legacyRes.diag = legacyRes.diag || {};
-        legacyRes.diag.entity = norm.entity;
-        legacyRes.diag.pageId = payload.pageId || payload.pid || '';
-        legacyRes.diag.requestedFieldIds = hubRes.diag.requestedFieldIds || [];
-        legacyRes.diag.presentFieldIds = Array.isArray(legacyRes.ids) ? legacyRes.ids.slice() : (Array.isArray(legacyRes.columns) ? legacyRes.columns.map(function (c) { return c && (c.fid || c.fieldId || c.id); }) : []);
-        legacyRes.diag.missingFieldIds = hubRes.diag.missingFieldIds || [];
-        legacyRes.diag.missingCount = hubRes.diag.missingCount || 0;
-        legacyRes.diag.dataSourceUsed = "legacy-fallback";
-        legacyRes.diag.mode = mode;
-        legacyRes.diag.modeReason = "hub-missing-fields";
-        legacyRes.diag.listRowsFn = "_sv_listRowsPageLegacyFromPayload_";
-        if (!legacyRes.diag.timing) legacyRes.diag.timing = {};
-        if (typeof legacyRes.diag.timing.total_ms !== "number") {
-          legacyRes.diag.timing.total_ms = Date.now() - t0;
-        }
-        legacyRes.diag.source = legacyRes.dataSourceUsed || legacyRes.diag.dataSourceUsed || "";
-        legacyRes.diag.server_total_ms = Number(legacyRes.diag.timing.total_ms || (Date.now() - t0));
-        legacyRes.diag.listRows = buildListRowsDiag_(legacyRes);
-        legacyRes.presentFieldIds = legacyRes.diag.presentFieldIds;
-        legacyRes.missingFieldIds = legacyRes.diag.missingFieldIds;
-        legacyRes.dataSourceUsed = legacyRes.diag.dataSourceUsed;
-        legacyRes.mode = "legacy";
-        legacyRes.modeReason = legacyRes.diag.modeReason || legacyRes.modeReason || modeReason || "";
-        legacyRes.dataSourceUsed = legacyRes.dataSourceUsed || legacyRes.diag.dataSourceUsed || "";
-        legacyRes.source = "legacy";
-        return legacyRes;
-      }
-      if (hubRes.diag && hubRes.diag.missingCount > 0 && payload.allowPartialHub === true) {
-        hubRes.diag.dataSourceUsed = "DataHub";
-        hubRes.dataSourceUsed = "DataHub";
-      }
-      hubRes.diag.listRowsFn = "_sv_listRowsPageHub_";
-      hubRes.diag.listRows = buildListRowsDiag_(hubRes);
-      hubRes.mode = mode;
-      hubRes.modeReason = hubRes.diag.modeReason || modeReason || "";
-      hubRes.dataSourceUsed = hubRes.dataSourceUsed || hubRes.diag.dataSourceUsed || "DataHub";
-      return hubRes;
+    var applied = _undo_applyInverse_(picked.inverse, { actor: actor, force: force, undoOf: picked.logId });
+    if (!applied || !applied.ok) {
+      return JSON.stringify({
+        ok: false,
+        error: (applied && applied.error) ? applied.error : 'Undo apply failed',
+        result: applied && applied.result ? applied.result : null,
+        logId: picked.logId
+      });
     }
-    var legacy = _sv_listRowsPageLegacyFromPayload_(payload, ctx) || {};
-    legacy.entityNormalized = norm.entity;
-    legacy.diag = legacy.diag || {};
-    legacy.diag.entity = norm.entity;
-    legacy.diag.pageId = payload.pageId || payload.pid || '';
-    legacy.diag.dataSourceUsed = "legacy";
-    legacy.diag.mode = "legacy";
-    legacy.diag.modeReason = legacy.diag.modeReason || legacy.modeReason || modeReason;
-    legacy.diag.listRowsFn = "_sv_listRowsPageLegacyFromPayload_";
-    if (!legacy.diag.timing) legacy.diag.timing = {};
-    if (typeof legacy.diag.timing.total_ms !== "number") {
-      legacy.diag.timing.total_ms = Date.now() - t0;
-    }
-    legacy.diag.source = legacy.dataSourceUsed || legacy.diag.dataSourceUsed || "";
-    legacy.diag.server_total_ms = Number(legacy.diag.timing.total_ms || (Date.now() - t0));
-    legacy.diag.listRows = buildListRowsDiag_(legacy);
-    legacy.diag.presentFieldIds = Array.isArray(legacy.ids) ? legacy.ids.slice() : (Array.isArray(legacy.columns) ? legacy.columns.map(function (c) { return c && (c.fid || c.fieldId || c.id); }) : []);
-    legacy.diag.missingFieldIds = [];
-    legacy.diag.missingCount = 0;
-    legacy.presentFieldIds = legacy.diag.presentFieldIds;
-    legacy.missingFieldIds = legacy.diag.missingFieldIds;
-    legacy.dataSourceUsed = legacy.diag.dataSourceUsed || "legacy";
-    legacy.mode = "legacy";
-    legacy.modeReason = legacy.diag.modeReason || legacy.modeReason || modeReason || "";
-    legacy.source = "legacy";
-    return legacy;
-  } finally {
-    __MOTK_REQ_SS__ = null;
+
+    _undo_markUndone_(picked.row, actor);
+    _undo_appendLog_({
+      ts: _undo_nowIso_(),
+      actor: actor,
+      scope: picked.scope,
+      action: 'undo',
+      targetSheet: picked.targetSheet,
+      entity: picked.entity,
+      targetId: picked.targetId,
+      status: 'applied',
+      before: picked.after,
+      after: picked.before,
+      inverse: picked.inverse,
+      note: force ? 'undo(force)' : 'undo(safe)',
+      undoOf: picked.logId
+    });
+
+    return JSON.stringify({
+      ok: true,
+      undone: {
+        logId: picked.logId,
+        scope: picked.scope,
+        action: picked.action,
+        targetId: picked.targetId
+      }
+    });
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
   }
 }
 
-function sv_getRecord_v2(entity, id) {
-  if (!entity || !id) { return { ok: true, note: "sv_getRecord_v2 present", ts: new Date().toISOString() }; }
-  return dp_getEntityRecord(entity, id);
-}
-function sv_getRecord(entity, id) { return sv_getRecord_v2(entity, id); }
 function sv_setRecord_v2(entity, id, patch, options) {
   if (!entity || !id || !patch) { return { ok: true, note: "sv_setRecord_v2 present", ts: new Date().toISOString() }; }
   try {
-    if (patch && typeof patch === "object") {
-      Object.keys(patch).forEach(function (k) {
-        var v = patch[k];
+    var opts = (options && typeof options === 'object') ? options : {};
+    var skipUndoLog = !!opts.__skipUndoLog;
+    var actorHint = opts.actor;
+    var sourcePatch = (patch && typeof patch === 'object') ? patch : {};
+    var cleanPatch = {};
+    Object.keys(sourcePatch).forEach(function (k) {
+      var v = sourcePatch[k];
         if (v instanceof Date) { patch[k] = isNaN(v.getTime()) ? "" : v.toISOString().slice(0, 10); }
-        else if (typeof v === "string") { patch[k] = v.trim(); }
-      });
+      else if (typeof v === "string") { patch[k] = v.trim(); }
+      else patch[k] = v;
+      cleanPatch[k] = patch[k];
+    });
+
+    var beforeRecord = null;
+    var beforePatch = {};
+    if (!skipUndoLog) {
+      beforeRecord = sv_getRecord(entity, id);
+      if (beforeRecord && typeof beforeRecord === 'object') {
+        Object.keys(cleanPatch).forEach(function (k) {
+          beforePatch[k] = beforeRecord.hasOwnProperty(k) ? beforeRecord[k] : '';
+        });
+      }
     }
-    var res = dp_updateEntityRecord(entity, id, patch, options);
+
+    var res = dp_updateEntityRecord(entity, id, cleanPatch, opts);
     if (res && typeof res === "object") {
       res.ok = (res.ok === true);
       if (!res.errorCode && res.ok === false && res.error) res.errorCode = "INLINE_EDIT_FAILED";
     }
+
+    if (!skipUndoLog && res && res.ok) {
+      _undo_appendLog_({
+        ts: _undo_nowIso_(),
+        actor: actorHint,
+        scope: 'record',
+        action: 'update',
+        targetSheet: _entityToSheet_(entity),
+        entity: String(entity || ''),
+        targetId: String(id || ''),
+        status: 'applied',
+        before: beforePatch,
+        after: cleanPatch,
+        inverse: {
+          kind: 'setRecord',
+          entity: String(entity || ''),
+          id: String(id || ''),
+          patch: beforePatch
+        },
+        note: 'sv_setRecord_v2'
+      });
+    }
+
     return res;
   } catch (e) {
     return { ok: false, error: String(e && e.message || e), errorCode: "INLINE_EDIT_EXCEPTION" };
@@ -2810,191 +3102,34 @@ function sv_setRecord_v2(entity, id, patch, options) {
 }
 function sv_setRecord(entity, id, patch, options) { return sv_setRecord_v2(entity, id, patch, options); }
 
-function sv_queryTable_v3(entity, query, sort, offset, limit) {
+function sv_queryTable(entity, query, sort, offset, limit) {
   try {
     var opts = null;
     if (query && typeof query === "object" && !Array.isArray(query)) { opts = query; }
     else if (typeof query === "string" && query.trim()) { try { opts = JSON.parse(query); } catch (_) { opts = null; } }
     opts = opts || {};
     var ent = entity || opts.entity || opts.sheetName || opts.sheet || opts.entityName || "";
-    if (!ent) { return { ok: true, note: "sv_queryTable_v3 present", ts: new Date().toISOString(), rows: [], total: 0 }; }
+    if (!ent) { return { ok: false, error: "MISSING_ENTITY", rows: [], total: 0 }; }
     var per = Number(opts.perPage || limit || 100); if (!isFinite(per) || per < 1) per = 100;
     var page = Number(opts.page || 1); if (!isFinite(page) || page < 1) page = 1;
     var off = (opts.offset != null) ? Number(opts.offset) : Number(offset || 0);
     if (!isFinite(off) || off < 0) off = (page - 1) * per;
-    var pid = opts.pid || opts.pageId || "pg_default";
     var filterGroups = Array.isArray(opts.filterGroups) ? opts.filterGroups : [];
     var groupCombine = (opts.groupCombine === "any") ? "any" : "all";
     var requestedFields = Array.isArray(opts.fieldIds) ? opts.fieldIds : (Array.isArray(opts.fields) ? opts.fields : []);
-    var payload = { entity: ent, sheetName: ent, pageId: pid, offset: off, limit: per, filterGroups: filterGroups, groupCombine: groupCombine, requestedFields: requestedFields };
-    var res = sv_listRowsPage_v3(payload);
-    if (res && typeof res === "object") { res.ok = true; res.entity = ent; res.pageId = pid; }
+    var payload = { entity: ent, sheetName: ent, offset: off, limit: per, filterGroups: filterGroups, groupCombine: groupCombine, requestedFields: requestedFields };
+    var res = sv_listRowsPage(payload);
+    if (res && typeof res === "object") { res.ok = true; res.entity = ent; }
     return res;
   } catch (e) {
     return { ok: false, error: String(e && e.message || e), rows: [], total: 0 };
   }
 }
-function sv_queryTable(entity, query, sort, offset, limit) { return sv_queryTable_v3(entity, query, sort, offset, limit); }
 
 function DB_getOriginalsFolderUrl(arg) { return sv_getOriginalsFolderUrl(arg); }
 function DriveBuilder_getOriginalsFolderUrl(arg) { return sv_getOriginalsFolderUrl(arg); }
 function DB_getOriginalsUrl(arg) { return sv_getOriginalsUrl(arg); }
 function DriveBuilder_getOriginalsUrl(arg) { return sv_getOriginalsUrl(arg); }
-
-function _tablePickDataMode_(payload) {
-  if (!payload || typeof payload !== "object") return { mode: "legacy", reason: "invalid-payload" };
-  if (payload.forceLegacy === true) return { mode: "legacy", reason: "forceLegacy" };
-  if (payload.forceHub === true) return { mode: "hub", reason: "forceHub" };
-  function ruleHasValue_(rule) {
-    var op = String(rule && rule.op || "").toLowerCase();
-    if (op === "isempty" || op === "isnotempty") return true;
-    var values = Array.isArray(rule && rule.values) ? rule.values : [];
-    if (values.length) return values.some(function (v) { return String(v || "").trim().length > 0; });
-    if (rule && Object.prototype.hasOwnProperty.call(rule, "value")) {
-      if (rule.value === 0 || rule.value === false) return true;
-      if (rule.value == null) return false;
-      if (typeof rule.value === "string") return rule.value.trim().length > 0;
-      return true;
-    }
-    return false;
-  }
-  var hasOrder = !!(payload.orderBy && String(payload.orderBy).trim());
-  var hasQuery = !!(payload.query && String(payload.query).trim());
-  var hasFilters = false;
-  try {
-    if (Array.isArray(payload.filters)) { hasFilters = payload.filters.some(function (f) { var id = String(f && f.id || "").trim(); var op = String(f && f.op || "").trim(); if (!(id && op && _isFid_(id))) return false; return ruleHasValue_(f); }); }
-    if (!hasFilters && Array.isArray(payload.filterGroups)) { hasFilters = payload.filterGroups.some(function (g) { var rules = Array.isArray(g && g.rules) ? g.rules : []; return rules.some(function (r) { var id = String(r && r.id || "").trim(); var op = String(r && r.op || "").trim(); if (!(id && op && _isFid_(id))) return false; return ruleHasValue_(r); }); }); }
-  } catch (_) { hasFilters = false; }
-  if (hasOrder) return { mode: "legacy", reason: "orderBy" };
-  if (hasQuery) return { mode: "legacy", reason: "query" };
-  if (hasFilters) return { mode: "legacy", reason: "filters" };
-  return { mode: "hub", reason: "plain-paging" };
-}
-
-/* ==========================================================================
- * v3 Fast Boot: BootPack Generator (Merged into DataCore to save file count)
- * ========================================================================== */
-
-/**
- * 指定されたページIDの BootPack を生成し、BootCacheシートに保存する
- * ※ クライアントから直接呼ばれるほか、PageConfig保存時にも呼ばれる想定
- */
-function sv_updateBootPackForPage(params) {
-  var pageId = params && params.pageId;
-  var entity = params && params.entity;
-
-  if (!pageId || !entity) {
-    return { ok: false, reason: 'missing-params', pageId: pageId || '', entity: entity || '' };
-  }
-  
-  // 1. PageConfigのロード (表示する列を確定)
-  var cfg = sv_loadPageConfig({ pageId: pageId });
-  var fieldIds = [];
-  if (cfg && cfg.config && Array.isArray(cfg.config.order)) {
-    fieldIds = cfg.config.order;
-  }
-  
-  // マニフェストがない（または空）の場合はデフォルト生成を試みる
-  if (!fieldIds.length) {
-    var fallback = (typeof buildFallbackPageConfigForEntity_ === 'function') 
-      ? buildFallbackPageConfigForEntity_(entity) 
-      : null;
-    if (fallback && fallback.order) fieldIds = fallback.order;
-  }
-
-  // 2. Coreデータの取得 (Hub or Sheet)
-  // Fast Boot用なので、先頭50〜100件程度に絞る
-  var limit = 100; 
-  var payload = {
-    entity: entity,
-    pageId: pageId,
-    limit: limit,
-    offset: 0,
-    requestedFields: fieldIds,
-    // ソート/フィルタは "Default" の状態（未指定）でキャッシュする
-    // ※ユーザーごとのソート状態などは localStorage (Tier1) が担う
-  };
-
-  // 既存の listRowsPage ロジックを再利用してデータを取得
-  // ※ v3対応のため DataHubモード推奨だが、自動でLegacyフォールバックもする
-  var res = sv_listRowsPage_v3(payload); 
-  
-  if (!res || !res.ok) {
-    return { ok: false, reason: 'rows-fetch-failed', details: res };
-  }
-
-  // 3. LinkMapsの取得 (ID解決用)
-  // ※ 全量ではなく、今回のCoreデータに含まれるIDに関連するものだけに絞るのが理想だが
-  //    一旦は既存の sv_getLinkMaps を使って全量キャッシュする（頻度は低いので許容）
-  var linkMaps = {};
-  try {
-    linkMaps = sv_getLinkMaps(); 
-  } catch(e) {
-    console.warn('BootPack: linkMaps fetch failed', e);
-  }
-
-  // 4. FieldMetaの取得
-  var fieldsMeta = {};
-  try {
-    var allTypes = getFieldTypes(entity);
-    var entTypes = allTypes[entity] || {};
-    // 表示する列のメタデータだけを抽出
-    fieldIds.forEach(function(fid) {
-      if (entTypes[fid]) fieldsMeta[fid] = entTypes[fid];
-    });
-  } catch(e) {
-    console.warn('BootPack: fieldsMeta fetch failed', e);
-  }
-
-  // 5. BootPack オブジェクトの組み立て
-  var bootPack = {
-    generatedAt: new Date().toISOString(),
-    pageId: pageId,
-    entity: entity,
-    // G2: 列固定のためのマニフェスト
-    manifest: {
-      fieldIds: fieldIds,
-      columns: res.columns || [], // listRowsPage_v3 が返す正規化された列定義
-      hash: _hubSha1Hex_(fieldIds.join(',')) // 変更検知用ハッシュ
-    },
-    // G1: 枠とCoreデータ
-    data: {
-      total: res.total,
-      rows: res.rows, // Core 100件
-      ids: res.ids    // 対応するフィールドID並び
-    },
-    // 依存リソース
-    resources: {
-      linkMaps: linkMaps,
-      fieldsMeta: fieldsMeta
-    }
-  };
-
-  // 6. BootCacheシートへ保存 (1SA_CacheHydrator.js の関数を呼び出し)
-  // Key: "bp:{entity}:{pageId}"
-  var cacheKey = "bp:" + entity + ":" + pageId;
-  
-  // スキーマ署名やページ署名の計算（キャッシュ無効化用）
-  var schemaSig = _buildFieldsSchemaSig_(); // 既存関数
-  var pageSig = _hubSha1Hex_(JSON.stringify(fieldIds));
-
-  var saveResult = sv_saveBootPack_v3({
-    key: cacheKey,
-    kind: 'BOOTPACK',
-    entity: entity,
-    pageId: pageId,
-    schemaSig: schemaSig,
-    pageSig: pageSig,
-    payload: bootPack
-  });
-
-  return { 
-    ok: saveResult.ok, 
-    key: cacheKey, 
-    chunks: saveResult.chunks, 
-    itemCount: res.rows.length 
-  };
-}
 
 /* ===== Scheduler (TAKE152) ===== */
 function _sched_findSheetByCandidates_(ss, names) {
@@ -3066,11 +3201,15 @@ function _sched_findIdx_(headerNorm, parts) {
   return -1;
 }
 
-function _sched_findIdxByFieldName_(header, headerNorm, entity, fieldName, parts) {
-  var fid = schemaGetFidByFieldName(entity, fieldName);
-  var idx = schemaGetColIndexByFid(header, fid);
-  if (idx >= 0) return idx;
-  return _sched_findIdx_(headerNorm, parts);
+function _sched_findIdxByAny_(headerNorm, candidates) {
+  if (!candidates || !candidates.length) return -1;
+  for (var i = 0; i < candidates.length; i++) {
+    var c = candidates[i];
+    var parts = Array.isArray(c) ? c : [c];
+    var idx = _sched_findIdx_(headerNorm, parts);
+    if (idx >= 0) return idx;
+  }
+  return -1;
 }
 
 function _sched_findIdxByType_(header, headerNorm, entity, type, parts) {
@@ -3103,11 +3242,13 @@ function _sched_readTasks_(data, diag) {
   var idx = {
     id: _sched_findIdxByType_(header, norm, 'task', 'id', ['task', 'id', 'task_id', 'taskid']),
     name: _sched_findIdxByType_(header, norm, 'task', 'entity_name', ['name', 'task_name', 'taskname']),
-    status: _sched_findIdxByFieldName_(header, norm, 'task', 'Status', ['status']),
-    assignee: _sched_findIdxByFieldName_(header, norm, 'task', 'Assigned member', ['assignedto', 'assignee', 'memberid', 'assign']),
-    planStart: _sched_findIdxByFieldName_(header, norm, 'task', 'Start Date', ['planstart', 'plan_start', 'start', 'startslot']),
-    planEnd: _sched_findIdxByFieldName_(header, norm, 'task', 'End Date', ['planend', 'plan_end', 'end', 'endslot']),
-    bidMin: _sched_findIdxByFieldName_(header, norm, 'task', 'Est length', ['bid', 'length', 'duration', 'min']),
+    status: _sched_findIdxByAny_(norm, [['status'], ['state']]),
+    assignee: _sched_findIdxByAny_(norm, [['assigned'], ['assignee'], ['member', 'id'], ['assign']]),
+    planStart: _sched_findIdxByAny_(norm, [['plan', 'start'], ['start', 'date'], ['start', 'slot']]),
+    planEnd: _sched_findIdxByAny_(norm, [['plan', 'end'], ['end', 'date'], ['end', 'slot']]),
+    shotId: _sched_findIdxByAny_(norm, [['shot', 'link'], ['shot', 'id'], ['shot']]),
+    shotCode: _sched_findIdxByAny_(norm, [['shot', 'code'], ['shotcode']]),
+    bidMin: _sched_findIdxByAny_(norm, [['bid'], ['length'], ['duration'], ['min']]),
     actStart: _sched_findIdx_(norm, ['actstart', 'act_start']),
     actEnd: _sched_findIdx_(norm, ['actend', 'act_end'])
   };
@@ -3123,12 +3264,18 @@ function _sched_readTasks_(data, diag) {
     if (!id) continue;
     tasks.push({
       taskId: id,
+      id: id,
       taskName: idx.name >= 0 ? row[idx.name] : '',
+      name: idx.name >= 0 ? row[idx.name] : '',
       status: idx.status >= 0 ? row[idx.status] : '',
       assignee: idx.assignee >= 0 ? row[idx.assignee] : '',
       laneVal: idx.assignee >= 0 ? row[idx.assignee] : '',
       planStart: idx.planStart >= 0 ? row[idx.planStart] : '',
       planEnd: idx.planEnd >= 0 ? row[idx.planEnd] : '',
+      planStartIso: idx.planStart >= 0 ? row[idx.planStart] : '',
+      planEndIso: idx.planEnd >= 0 ? row[idx.planEnd] : '',
+      shotId: idx.shotId >= 0 ? row[idx.shotId] : '',
+      shotCode: idx.shotCode >= 0 ? row[idx.shotCode] : '',
       bidMin: idx.bidMin >= 0 ? row[idx.bidMin] : '',
       actStart: idx.actStart >= 0 ? row[idx.actStart] : '',
       actEnd: idx.actEnd >= 0 ? row[idx.actEnd] : ''
@@ -3170,8 +3317,10 @@ function _sched_valueToSlot_(val, viewSlotBase) {
 function _sched_normalizeSlot_(slot, viewSlotBase) {
   if (!isFinite(slot)) return null;
   var s = Math.ceil(Number(slot));
+  if (s < 1) s = 1;
   var base = Math.max(1, Number(viewSlotBase) || 1);
-  return Math.ceil(s / base) * base;
+  var normalized = Math.ceil(s / base) * base;
+  return normalized < 1 ? 1 : normalized;
 }
 
 function _sched_readCards_(data, tasksById, viewSlotBase, diag) {
@@ -3180,14 +3329,14 @@ function _sched_readCards_(data, tasksById, viewSlotBase, diag) {
   if (!header.length) throw new Error('Scheduler cards: header missing');
   var norm = header.map(_sched_norm_);
   var idx = {
-    cardNo: _sched_findIdxByFieldName_(header, norm, 'card', 'card number', ['card', 'no']),
-    taskId: _sched_findIdxByFieldName_(header, norm, 'card', 'Task Link', ['task', 'id']),
-    memo: _sched_findIdxByFieldName_(header, norm, 'card', 'cardMemo', ['memo']),
-    laneVal: _sched_findIdxByFieldName_(header, norm, 'card', 'laneVal', ['lane', 'assignee', 'member', 'artist']),
-    startSlot: _sched_findIdxByFieldName_(header, norm, 'card', 'startSlot', ['start', 'slot']),
-    lengthMin: _sched_findIdxByFieldName_(header, norm, 'card', 'lengthMin', ['length', 'len', 'duration', 'min']),
-    endSlot: _sched_findIdxByFieldName_(header, norm, 'card', 'endSlot', ['end', 'slot']),
-    cardId: _sched_findIdx_(norm, ['card', 'id'])
+    cardNo: _sched_findIdxByAny_(norm, [['card', 'number'], ['card', 'no'], ['card', 'num']]),
+    taskId: _sched_findIdxByAny_(norm, [['task', 'link'], ['task', 'id']]),
+    memo: _sched_findIdxByAny_(norm, [['memo'], ['note']]),
+    laneVal: _sched_findIdxByAny_(norm, [['lane'], ['assignee'], ['member'], ['artist']]),
+    startSlot: _sched_findIdxByAny_(norm, [['start', 'slot'], ['start']]),
+    lengthMin: _sched_findIdxByAny_(norm, [['length'], ['len'], ['duration'], ['min']]),
+    endSlot: _sched_findIdxByAny_(norm, [['end', 'slot'], ['end']]),
+    cardId: _sched_findIdxByAny_(norm, [['card', 'id'], ['id']])
   };
 
   if (idx.taskId < 0 && diag) {
@@ -3214,13 +3363,13 @@ function _sched_readCards_(data, tasksById, viewSlotBase, diag) {
     if (!endSlot && task && task.planEnd) endSlot = _sched_valueToSlot_(task.planEnd, viewSlotBase);
     if (!endSlot && startSlot != null && lengthMin != null) {
       var lenSlots = Math.ceil(lengthMin / 5);
-      endSlot = startSlot + lenSlots;
+      endSlot = startSlot + Math.max(0, lenSlots - 1);
     }
     startSlot = _sched_normalizeSlot_(startSlot, viewSlotBase);
     endSlot = _sched_normalizeSlot_(endSlot, viewSlotBase);
     if (startSlot != null && endSlot != null) {
-      if (endSlot <= startSlot) endSlot = startSlot + Math.max(1, Math.ceil((lengthMin || 5) / 5));
-      if (lengthMin == null) lengthMin = (endSlot - startSlot) * 5;
+      if (endSlot < startSlot) endSlot = startSlot + Math.max(0, Math.ceil((lengthMin || 5) / 5) - 1);
+      if (lengthMin == null) lengthMin = (endSlot - startSlot + 1) * 5;
     }
     cards.push({
       cardId: cardId,
@@ -3454,16 +3603,58 @@ function sv_scheduler_load_v2() {
     if (!ss) {
       return JSON.stringify({ ok: false, error: { message: 'No Active Spreadsheet' } });
     }
-
-    var getAllSheets = ss.getSheets();
-    var loadSheet = function(keyword) {
-      var sheet = null;
-      for (var i = 0; i < getAllSheets.length; i++) {
-        if (getAllSheets[i].getName().indexOf(keyword) > -1) {
-          sheet = getAllSheets[i];
-          break;
+    var spreadsheetTimeZone = '';
+    try { spreadsheetTimeZone = ss.getSpreadsheetTimeZone(); } catch (eTz) {}
+    if (!spreadsheetTimeZone) spreadsheetTimeZone = Session.getScriptTimeZone();
+    var toLocalDateText_ = function(value) {
+      if (value === null || value === undefined || value === '') return '';
+      if (value instanceof Date) {
+        if (isNaN(value.getTime())) return '';
+        return Utilities.formatDate(value, spreadsheetTimeZone, 'yyyy-MM-dd');
+      }
+      if (typeof value === 'number' && isFinite(value)) {
+        var dateFromNumber = null;
+        if (Math.abs(value) > 10000000000) {
+          dateFromNumber = new Date(value);
+        } else {
+          dateFromNumber = _serialToDate_(value);
+        }
+        if (dateFromNumber && !isNaN(dateFromNumber.getTime())) {
+          return Utilities.formatDate(dateFromNumber, spreadsheetTimeZone, 'yyyy-MM-dd');
         }
       }
+      var s = String(value).trim();
+      if (!s) return '';
+      var mYmd = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+      if (mYmd) {
+        return [
+          mYmd[1],
+          String(Number(mYmd[2])).padStart(2, '0'),
+          String(Number(mYmd[3])).padStart(2, '0')
+        ].join('-');
+      }
+      if (/[Tt].*(Z|[+-]\d{2}:?\d{2})/.test(s)) {
+        var dIso = new Date(s);
+        if (!isNaN(dIso.getTime())) {
+          return Utilities.formatDate(dIso, spreadsheetTimeZone, 'yyyy-MM-dd');
+        }
+      }
+      var parsed = _parseDate_(s);
+      if (parsed && !isNaN(parsed.getTime())) {
+        return Utilities.formatDate(parsed, spreadsheetTimeZone, 'yyyy-MM-dd');
+      }
+      return '';
+    };
+
+    var getAllSheets = ss.getSheets();
+    var findSheetByKeyword = function(keyword) {
+      for (var i = 0; i < getAllSheets.length; i++) {
+        if (getAllSheets[i].getName().indexOf(keyword) > -1) return getAllSheets[i];
+      }
+      return null;
+    };
+    var loadSheet = function(keyword) {
+      var sheet = findSheetByKeyword(keyword);
       if (!sheet) {
         log.push('MISS: ' + keyword);
         return [];
@@ -3486,6 +3677,167 @@ function sv_scheduler_load_v2() {
           }
         }
         if (hasData) out.push(obj);
+      }
+      return out;
+    };
+    var normKey_ = function(v) { return String(v || '').trim().toLowerCase(); };
+    var inferKeyByParts_ = function(o, parts) {
+      if (!o || typeof o !== 'object' || !parts || !parts.length) return '';
+      var keys = Object.keys(o);
+      for (var i = 0; i < keys.length; i++) {
+        var nk = normKey_(keys[i]);
+        var ok = true;
+        for (var p = 0; p < parts.length; p++) {
+          if (nk.indexOf(parts[p]) < 0) { ok = false; break; }
+        }
+        if (ok) return keys[i];
+      }
+      return '';
+    };
+    var inferTaskIdKey_ = function(o) {
+      if (!o || typeof o !== 'object') return '';
+      if ('taskId' in o) return 'taskId';
+      if ('id' in o) return 'id';
+      var keys = Object.keys(o);
+      for (var i = 0; i < keys.length; i++) {
+        var v = String(o[keys[i]] || '').trim();
+        if (/^(tk|ta)_/i.test(v)) return keys[i];
+      }
+      for (var j = 0; j < keys.length; j++) {
+        var nk = normKey_(keys[j]);
+        if (nk.indexOf('task') >= 0 && nk.indexOf('id') >= 0) return keys[j];
+      }
+      return '';
+    };
+    var normalizeMetaKey_ = function(k) {
+      return String(k || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s\-\/]+/g, '_')
+        .replace(/[^\w]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+    };
+    var pickMetaValue_ = function(meta, candidates) {
+      if (!meta) return '';
+      var normMap = {};
+      var mk = Object.keys(meta);
+      for (var i = 0; i < mk.length; i++) normMap[normalizeMetaKey_(mk[i])] = meta[mk[i]];
+      for (var j = 0; j < candidates.length; j++) {
+        var key = candidates[j];
+        if (meta.hasOwnProperty(key) && String(meta[key] || '').trim()) return String(meta[key]).trim();
+        var nk = normalizeMetaKey_(key);
+        if (normMap.hasOwnProperty(nk) && String(normMap[nk] || '').trim()) return String(normMap[nk]).trim();
+      }
+      return '';
+    };
+    var normalizeTaskDate_ = function(v) {
+      return toLocalDateText_(v);
+    };
+    var parsePositiveInt_ = function(value, fallback) {
+      var fb = (isFinite(fallback) && fallback > 0) ? Math.floor(fallback) : 1;
+      var n = Number(value);
+      if (isFinite(n) && n > 0) return Math.floor(n);
+      var s = String(value === null || value === undefined ? '' : value).trim();
+      if (!s) return fb;
+      var m = s.match(/-?\d+/);
+      if (!m) return fb;
+      var p = Number(m[0]);
+      if (!isFinite(p) || p <= 0) return fb;
+      return Math.floor(p);
+    };
+    var parseEntityIds_ = function(value, prefix) {
+      var out = [];
+      var seen = {};
+      var pfx = String(prefix || '').trim().toLowerCase();
+      var pushOne_ = function(token) {
+        var s = String(token || '').trim();
+        if (!s) return;
+        var normalized = s.toLowerCase();
+        if (pfx) {
+          if (!new RegExp('^' + pfx + '_').test(normalized)) return;
+        }
+        if (seen[normalized]) return;
+        seen[normalized] = true;
+        out.push(s);
+      };
+      var walk_ = function(v) {
+        if (v === null || v === undefined || v === '') return;
+        if (Array.isArray(v)) {
+          for (var i = 0; i < v.length; i++) walk_(v[i]);
+          return;
+        }
+        if (v instanceof Date) return;
+        if (typeof v === 'object') {
+          var keys = ['id', 'ids', 'value', 'values', 'list', 'items', 'assetIds', 'asset_ids'];
+          for (var k = 0; k < keys.length; k++) {
+            var key = keys[k];
+            if (v.hasOwnProperty(key)) walk_(v[key]);
+          }
+          return;
+        }
+        var s = String(v).trim();
+        if (!s) return;
+        if (pfx) {
+          var re = new RegExp(pfx + '_[a-z0-9]+', 'ig');
+          var hits = s.match(re);
+          if (hits && hits.length) {
+            for (var h = 0; h < hits.length; h++) pushOne_(hits[h]);
+            return;
+          }
+        }
+        var parts = s.split(/[\s,;|\n\r\t]+/);
+        for (var j = 0; j < parts.length; j++) pushOne_(parts[j]);
+      };
+      walk_(value);
+      return out;
+    };
+    var normalizeSchedulerTasks_ = function(rawTasks, taskShotByTaskId, shotCodeByShotId, taskAssetIdsByTaskId) {
+      var out = [];
+      for (var i = 0; i < rawTasks.length; i++) {
+        var t = rawTasks[i] || {};
+        var idKey = inferTaskIdKey_(t);
+        var nameKey = ('name' in t) ? 'name' : inferKeyByParts_(t, ['task', 'name']) || inferKeyByParts_(t, ['name']) || inferKeyByParts_(t, ['title']);
+        var statusKey = inferKeyByParts_(t, ['status']) || inferKeyByParts_(t, ['state']);
+        var assigneeKey = inferKeyByParts_(t, ['assignee']) || inferKeyByParts_(t, ['assigned']) || inferKeyByParts_(t, ['assign']);
+        var planStartKey = inferKeyByParts_(t, ['plan', 'start', 'iso']) || inferKeyByParts_(t, ['plan', 'start']) || inferKeyByParts_(t, ['start']);
+        var planEndKey = inferKeyByParts_(t, ['plan', 'end', 'iso']) || inferKeyByParts_(t, ['plan', 'end']) || inferKeyByParts_(t, ['end']);
+        var shotIdKey = inferKeyByParts_(t, ['shot', 'id']) || inferKeyByParts_(t, ['shot', 'link']) || inferKeyByParts_(t, ['shot']);
+        var shotCodeKey = inferKeyByParts_(t, ['shot', 'code']) || inferKeyByParts_(t, ['shotcode']);
+        var assetLinkKey = inferKeyByParts_(t, ['asset', 'link']) || inferKeyByParts_(t, ['asset']) || inferKeyByParts_(t, ['resource']);
+
+        var taskId = String(idKey ? t[idKey] : (t.taskId || t.id || '')).trim();
+        if (!taskId) continue;
+        var taskName = String(nameKey ? t[nameKey] : (t.taskName || t.name || t.title || '')).trim();
+        var status = String(statusKey ? t[statusKey] : (t.status || '')).trim();
+        var assignee = String(assigneeKey ? t[assigneeKey] : (t.assignee || '')).trim();
+        var planStartIso = normalizeTaskDate_(planStartKey ? t[planStartKey] : (t.planStartIso || t.planStart || ''));
+        var planEndIso = normalizeTaskDate_(planEndKey ? t[planEndKey] : (t.planEndIso || t.planEnd || ''));
+        var shotId = String(shotIdKey ? t[shotIdKey] : (t.shotId || t.shot_id || t.shotLink || t.shot_link || '')).trim();
+        if (!shotId && taskShotByTaskId && taskShotByTaskId[taskId]) shotId = String(taskShotByTaskId[taskId]).trim();
+        var shotCode = String(shotCodeKey ? t[shotCodeKey] : (t.shotCode || t.shot_code || '')).trim();
+        if (!shotCode && shotId && shotCodeByShotId && shotCodeByShotId[shotId]) shotCode = String(shotCodeByShotId[shotId]).trim();
+        var assetIds = [];
+        if (taskAssetIdsByTaskId && taskAssetIdsByTaskId[taskId] && taskAssetIdsByTaskId[taskId].length) {
+          assetIds = taskAssetIdsByTaskId[taskId].slice();
+        } else {
+          var rawAssetValue = assetLinkKey ? t[assetLinkKey] : (t.assetIds || t.asset_ids || t.assetLink || t.asset_link || t.resources || '');
+          assetIds = parseEntityIds_(rawAssetValue, 'as');
+        }
+
+        out.push({
+          taskId: taskId,
+          id: taskId,
+          name: taskName,
+          status: status,
+          assignee: assignee,
+          planStartIso: planStartIso,
+          planEndIso: planEndIso,
+          planStart: planStartIso,
+          planEnd: planEndIso,
+          shotId: shotId,
+          shotCode: shotCode,
+          assetIds: assetIds
+        });
       }
       return out;
     };
@@ -3541,7 +3893,116 @@ function sv_scheduler_load_v2() {
       log.push('MISS: Scheds');
     }
 
-    var tasks = loadSheet('Tasks');
+    var tasksRaw = loadSheet('Tasks');
+    var projectMeta = {};
+    try {
+      var metaSheet = ss.getSheetByName('project_meta');
+      if (metaSheet && typeof _sv_readProjectMeta_ === 'function') {
+        projectMeta = _sv_readProjectMeta_(metaSheet) || {};
+      }
+    } catch (_) {}
+    var shotLinkFid = pickMetaValue_(projectMeta, [
+      'task.shotlink_fieldid',
+      'task.shotlink_fid',
+      'fieldmap.task.shot_link',
+      'fieldmap_task_shot_link'
+    ]);
+    var taskAssetLinkFid = pickMetaValue_(projectMeta, [
+      'task.assetlink_fieldid',
+      'task.assetlink_fid',
+      'fieldmap.task.asset_link',
+      'fieldmap_task_asset_link'
+    ]);
+    var taskShotByTaskId = {};
+    var taskAssetIdsByTaskId = {};
+    var tasksSheet = findSheetByKeyword('Tasks');
+    if (tasksSheet) {
+      try {
+        var tVals = tasksSheet.getDataRange().getValues();
+        if (tVals && tVals.length >= 3) {
+          var tIds = tVals[0] || [];
+          var tHeaders = tVals[1] || [];
+          var cTaskId = schemaGetColIndexByFid(tIds, schemaGetIdFid('task'));
+          if (cTaskId < 0) cTaskId = _getColIdx_v2(tHeaders, ['Task ID', 'taskId', 'id']);
+          var cShot = -1;
+          if (shotLinkFid) cShot = schemaGetColIndexByFid(tIds, shotLinkFid);
+          if (cShot < 0) cShot = _getColIdx_v2(tHeaders, ['Shot Link', 'shot_link', 'shotId', 'shot id']);
+          var cAsset = -1;
+          if (taskAssetLinkFid) cAsset = schemaGetColIndexByFid(tIds, taskAssetLinkFid);
+          if (cAsset < 0) cAsset = _getColIdx_v2(tHeaders, ['Asset Link', 'asset_link', 'assetIds', 'asset_ids', 'resources']);
+          for (var tr = 2; tr < tVals.length; tr++) {
+            var tRow = tVals[tr] || [];
+            var tid = String(cTaskId >= 0 ? tRow[cTaskId] : '').trim();
+            if (!tid) continue;
+            var sid = String(cShot >= 0 ? tRow[cShot] : '').trim();
+            if (sid) taskShotByTaskId[tid] = sid;
+            var rawAsset = cAsset >= 0 ? tRow[cAsset] : '';
+            var assetIds = parseEntityIds_(rawAsset, 'as');
+            if (assetIds.length) taskAssetIdsByTaskId[tid] = assetIds;
+          }
+        }
+      } catch (_) {}
+    }
+    var shotCodeByShotId = {};
+    var shotsSheet = findSheetByKeyword('Shots');
+    if (shotsSheet) {
+      try {
+        var sVals2 = shotsSheet.getDataRange().getValues();
+        if (sVals2 && sVals2.length >= 3) {
+          var sIds2 = sVals2[0] || [];
+          var sHeaders2 = sVals2[1] || [];
+          var cShotId = schemaGetColIndexByFid(sIds2, schemaGetIdFid('shot'));
+          if (cShotId < 0) cShotId = _getColIdx_v2(sHeaders2, ['Shot ID', 'id']);
+          var cShotCode = schemaGetColIndexByFid(sIds2, schemaGetEntityNameFid('shot'));
+          if (cShotCode < 0) cShotCode = _getColIdx_v2(sHeaders2, ['ShotCode', 'shotcode', 'name']);
+          for (var sr = 2; sr < sVals2.length; sr++) {
+            var sRow = sVals2[sr] || [];
+            var sid2 = String(cShotId >= 0 ? sRow[cShotId] : '').trim();
+            if (!sid2) continue;
+            var scode = String(cShotCode >= 0 ? sRow[cShotCode] : '').trim();
+            if (scode) shotCodeByShotId[sid2] = scode;
+          }
+        }
+      } catch (_) {}
+    }
+    var overlapCapacityFid = pickMetaValue_(projectMeta, [
+      'sched.asset.overlap_capacity_fieldid',
+      'asset.overlap_capacity_fieldid',
+      'asset.overlap_capacity_fid'
+    ]);
+    var overlapCapacityDefault = parsePositiveInt_(pickMetaValue_(projectMeta, [
+      'sched.asset.overlap_capacity_default',
+      'asset.overlap_capacity_default'
+    ]), 1);
+    var assetCapacityById = {};
+    var assetNameById = {};
+    var assetsSheet = findSheetByKeyword('Assets');
+    if (assetsSheet) {
+      try {
+        var aVals = assetsSheet.getDataRange().getValues();
+        if (aVals && aVals.length >= 3) {
+          var aIds = aVals[0] || [];
+          var aHeaders = aVals[1] || [];
+          var cAssetId = schemaGetColIndexByFid(aIds, schemaGetIdFid('asset'));
+          if (cAssetId < 0) cAssetId = _getColIdx_v2(aHeaders, ['Asset ID', 'assetId', 'id']);
+          var cAssetName = schemaGetColIndexByFid(aIds, schemaGetEntityNameFid('asset'));
+          if (cAssetName < 0) cAssetName = _getColIdx_v2(aHeaders, ['Asset Name', 'name']);
+          var cCap = -1;
+          if (overlapCapacityFid) cCap = schemaGetColIndexByFid(aIds, overlapCapacityFid);
+          if (cCap < 0) cCap = _getColIdx_v2(aHeaders, ['Overlap Capacity', 'overlap_capacity', 'capacity']);
+          for (var ar = 2; ar < aVals.length; ar++) {
+            var aRow = aVals[ar] || [];
+            var aid = String(cAssetId >= 0 ? aRow[cAssetId] : '').trim();
+            if (!aid) continue;
+            var aname = String(cAssetName >= 0 ? aRow[cAssetName] : '').trim();
+            if (aname) assetNameById[aid] = aname;
+            var capVal = cCap >= 0 ? aRow[cCap] : '';
+            assetCapacityById[aid] = parsePositiveInt_(capVal, overlapCapacityDefault);
+          }
+        }
+      } catch (_) {}
+    }
+    var tasks = normalizeSchedulerTasks_(tasksRaw, taskShotByTaskId, shotCodeByShotId, taskAssetIdsByTaskId);
     var members = loadSheet('ProjectMembers');
 
     var cards = [];
@@ -3590,6 +4051,11 @@ function sv_scheduler_load_v2() {
     } else {
       log.push('MISS: ' + activeID);
     }
+    config.originDate = toLocalDateText_(config.originDate);
+    if (viewMeta && typeof viewMeta === 'object') {
+      var vmStartDate = toLocalDateText_(viewMeta.startDate);
+      if (vmStartDate) viewMeta.startDate = vmStartDate;
+    }
 
     var payload = {
       ok: true,
@@ -3603,6 +4069,9 @@ function sv_scheduler_load_v2() {
         allScheds: allScheds,
         view_meta: viewMeta
       },
+      assetCapacityById: assetCapacityById,
+      assetNameById: assetNameById,
+      assetCapacityDefault: overlapCapacityDefault,
       scriptUrl: ScriptApp.getService().getUrl(),
       diag: { log: log.join(' | ') }
     };
@@ -3622,6 +4091,36 @@ function sv_scheduler_save_meta_v2(jsonPayload) {
     var ss = SpreadsheetApp.getActive();
     var sh = ss.getSheetByName('Scheds');
     if (!sh) return JSON.stringify({ ok: false, error: 'No Scheds sheet' });
+    var tz = '';
+    try { tz = ss.getSpreadsheetTimeZone(); } catch (eTz) {}
+    if (!tz) tz = Session.getScriptTimeZone();
+    var toLocalDateText_ = function(value) {
+      if (value === null || value === undefined || value === '') return '';
+      if (value instanceof Date) {
+        if (isNaN(value.getTime())) return '';
+        return Utilities.formatDate(value, tz, 'yyyy-MM-dd');
+      }
+      if (typeof value === 'number' && isFinite(value)) {
+        var dNum = Math.abs(value) > 10000000000 ? new Date(value) : _serialToDate_(value);
+        if (dNum && !isNaN(dNum.getTime())) return Utilities.formatDate(dNum, tz, 'yyyy-MM-dd');
+      }
+      var s = String(value).trim();
+      if (!s) return '';
+      var m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+      if (m) return [m[1], String(Number(m[2])).padStart(2, '0'), String(Number(m[3])).padStart(2, '0')].join('-');
+      if (/[Tt].*(Z|[+-]\d{2}:?\d{2})/.test(s)) {
+        var dIso = new Date(s);
+        if (!isNaN(dIso.getTime())) return Utilities.formatDate(dIso, tz, 'yyyy-MM-dd');
+      }
+      return '';
+    };
+    if (req.type === 'originDate') {
+      req.value = toLocalDateText_(req.value);
+    }
+    if (req.type === 'view_meta' && req.value && typeof req.value === 'object' && req.value.startDate !== undefined) {
+      var vmStart = toLocalDateText_(req.value.startDate);
+      req.value.startDate = vmStart || req.value.startDate;
+    }
 
     var data = sh.getDataRange().getValues();
     var headers = data[1] || [];
@@ -3653,6 +4152,89 @@ function sv_scheduler_save_meta_v2(jsonPayload) {
     return JSON.stringify({ ok: false, error: 'Sched ID not found' });
   } catch (e) {
     return JSON.stringify({ ok: false, error: e.toString() });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function sv_scheduler_save_config_v2(reqPayload) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(3000)) return JSON.stringify({ ok: false, error: 'Busy' });
+  try {
+    var req = reqPayload;
+    if (typeof reqPayload === 'string') req = JSON.parse(reqPayload || '{}');
+    req = req || {};
+    var scheduleId = String(req.scheduleId || req.schedId || '').trim();
+    if (!scheduleId) return JSON.stringify({ ok: false, error: 'scheduleId required' });
+    var cfg = req.cfg && typeof req.cfg === 'object' ? req.cfg : {};
+
+    var ss = SpreadsheetApp.getActive();
+    var sh = ss ? ss.getSheetByName('Scheds') : null;
+    if (!sh) return JSON.stringify({ ok: false, error: 'No Scheds sheet' });
+
+    var tz = '';
+    try { tz = ss.getSpreadsheetTimeZone(); } catch (_) {}
+    if (!tz) tz = Session.getScriptTimeZone();
+    var toLocalDateText_ = function(value) {
+      if (value === null || value === undefined || value === '') return '';
+      if (value instanceof Date && !isNaN(value.getTime())) return Utilities.formatDate(value, tz, 'yyyy-MM-dd');
+      if (typeof value === 'number' && isFinite(value)) {
+        var dNum = Math.abs(value) > 10000000000 ? new Date(value) : _serialToDate_(value);
+        if (dNum && !isNaN(dNum.getTime())) return Utilities.formatDate(dNum, tz, 'yyyy-MM-dd');
+      }
+      var s = String(value).trim();
+      if (!s) return '';
+      var m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+      if (m) return [m[1], String(Number(m[2])).padStart(2, '0'), String(Number(m[3])).padStart(2, '0')].join('-');
+      if (/[Tt].*(Z|[+-]\d{2}:?\d{2})/.test(s)) {
+        var dIso = new Date(s);
+        if (!isNaN(dIso.getTime())) return Utilities.formatDate(dIso, tz, 'yyyy-MM-dd');
+      }
+      return '';
+    };
+
+    var originDate = toLocalDateText_(cfg.originDate);
+    if (!originDate) return JSON.stringify({ ok: false, error: 'originDate required' });
+    var slotMin = Number(cfg.slotMin);
+    var workHours = Number(cfg.workHours);
+    if (!isFinite(slotMin) || slotMin <= 0) return JSON.stringify({ ok: false, error: 'invalid slotMin' });
+    if (!isFinite(workHours) || workHours <= 0) return JSON.stringify({ ok: false, error: 'invalid workHours' });
+
+    var data = sh.getDataRange().getValues();
+    var headers = data[1] || [];
+    var sysHeaders = data[0] || [];
+    var cId = schemaGetColIndexByFid(sysHeaders, schemaGetFidByFieldName('sched', 'schedId'));
+    if (cId < 0) cId = _getColIdx_v2(headers, ['schedId', 'id', 'ID']);
+    var cOrigin = schemaGetColIndexByFid(sysHeaders, schemaGetFidByFieldName('sched', 'originDate'));
+    if (cOrigin < 0) cOrigin = _getColIdx_v2(headers, ['originDate']);
+    var cSlot = schemaGetColIndexByFid(sysHeaders, schemaGetFidByFieldName('sched', 'slotMin'));
+    if (cSlot < 0) cSlot = _getColIdx_v2(headers, ['slotMin']);
+    var cWork = schemaGetColIndexByFid(sysHeaders, schemaGetFidByFieldName('sched', 'workHours'));
+    if (cWork < 0) cWork = _getColIdx_v2(headers, ['workHours']);
+    if (cId < 0 || cOrigin < 0 || cSlot < 0 || cWork < 0) {
+      return JSON.stringify({ ok: false, error: 'Scheds columns not found' });
+    }
+
+    var targetRow = -1;
+    for (var i = 2; i < data.length; i++) {
+      if (String(data[i][cId] || '').trim() === scheduleId) {
+        targetRow = i + 1;
+        break;
+      }
+    }
+    if (targetRow < 0) return JSON.stringify({ ok: false, error: 'scheduleId not found' });
+
+    sh.getRange(targetRow, cOrigin + 1).setValue(originDate);
+    sh.getRange(targetRow, cSlot + 1).setValue(slotMin);
+    sh.getRange(targetRow, cWork + 1).setValue(workHours);
+
+    return JSON.stringify({
+      ok: true,
+      scheduleId: scheduleId,
+      cfg: { originDate: originDate, slotMin: slotMin, workHours: workHours }
+    });
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
   } finally {
     lock.releaseLock();
   }
@@ -3806,6 +4388,23 @@ function sv_scheduler_commit_v2(payloadJson) {
     var payload = JSON.parse(payloadJson);
     var action = payload.action;
     var cardData = payload.card;
+    var skipUndoLog = !!(payload && payload.__skipUndoLog);
+    var actorHint = payload && payload.actor;
+    var slotToInt_ = function(v, fallback) {
+      var n = Math.round(Number(v));
+      if (!isFinite(n)) return fallback;
+      if (n < 1) return 1;
+      return n;
+    };
+    if (!cardData || typeof cardData !== 'object') cardData = {};
+    if (action !== 'delete') {
+      cardData.start = slotToInt_(cardData.start, 1);
+      cardData.end = slotToInt_(cardData.end, cardData.start);
+      if (cardData.end < cardData.start) cardData.end = cardData.start;
+      var slotsInclusive = cardData.end - cardData.start + 1;
+      var lenVal = Number(cardData.len);
+      cardData.len = (isFinite(lenVal) && lenVal > 0) ? Math.round(lenVal) : slotsInclusive;
+    }
 
     var ss = SpreadsheetApp.getActive();
     var schedsSheet = ss.getSheetByName('Scheds');
@@ -3857,21 +4456,70 @@ function sv_scheduler_commit_v2(payloadJson) {
       return -1;
     };
 
-    var fidCardNo = schemaGetFidByFieldName('card', 'card number');
-    var fidTaskLink = schemaGetFidByFieldName('card', 'Task Link');
-    var fidLaneVal = schemaGetFidByFieldName('card', 'laneVal');
-    var fidStartSlot = schemaGetFidByFieldName('card', 'startSlot');
-    var fidLengthMin = schemaGetFidByFieldName('card', 'lengthMin');
-    var fidEndSlot = schemaGetFidByFieldName('card', 'endSlot');
-    var fidMemo = schemaGetFidByFieldName('card', 'cardMemo');
+    var findColByParts_ = function (partsList) {
+      for (var i = 0; i < partsList.length; i++) {
+        var parts = partsList[i];
+        for (var key in colMap) {
+          if (!colMap.hasOwnProperty(key)) continue;
+          var ok = true;
+          for (var p = 0; p < parts.length; p++) {
+            if (key.indexOf(parts[p]) === -1) { ok = false; break; }
+          }
+          if (ok) return colMap[key];
+        }
+      }
+      return -1;
+    };
 
-    var C_ID = getCol([fidCardNo, 'card no', 'card number', 'card']);
-    var C_TASK = getCol([fidTaskLink, 'task id', 'task link']);
-    var C_LANE = getCol([fidLaneVal, 'lane', 'assignee', 'laneval']);
-    var C_START = getCol([fidStartSlot, 'start slot', 'startslot', 'start']);
-    var C_LEN = getCol([fidLengthMin, 'length', 'lengthmin', 'duration']);
-    var C_END = getCol([fidEndSlot, 'end slot', 'endslot', 'end']);
-    var C_MEMO = getCol([fidMemo, 'memo', 'cardmemo']);
+    var C_ID = findColByParts_([['card', 'number'], ['card', 'no'], ['card']]);
+    var C_TASK = findColByParts_([['task', 'id'], ['task', 'link']]);
+    var C_LANE = findColByParts_([['lane'], ['assignee'], ['laneval']]);
+    var C_START = findColByParts_([['start', 'slot'], ['start']]);
+    var C_LEN = findColByParts_([['length'], ['lengthmin'], ['duration']]);
+    var C_END = findColByParts_([['end', 'slot'], ['end']]);
+    var C_MEMO = findColByParts_([['memo'], ['cardmemo']]);
+    var readCell_ = function(row, col) {
+      if (!row || row < 1 || !col || col < 1) return '';
+      return sheet.getRange(row, col).getValue();
+    };
+    var readCardAtRow_ = function(row) {
+      if (!row || row < 1) return null;
+      var out = {
+        id: String(readCell_(row, C_ID) || '').trim(),
+        taskId: String(readCell_(row, C_TASK) || '').trim(),
+        lane: String(readCell_(row, C_LANE) || '').trim(),
+        start: 1,
+        end: 1,
+        len: 1,
+        memo: String(readCell_(row, C_MEMO) || '')
+      };
+      out.start = slotToInt_(readCell_(row, C_START), 1);
+      out.end = slotToInt_(readCell_(row, C_END), out.start);
+      if (out.end < out.start) out.end = out.start;
+      var lv = Number(readCell_(row, C_LEN));
+      out.len = (isFinite(lv) && lv > 0) ? Math.round(lv) : (out.end - out.start + 1);
+      return out;
+    };
+    var appendSchedulerUndoLog_ = function(beforeCard, afterCard, inversePayload, noteText) {
+      if (skipUndoLog) return;
+      _undo_appendLog_({
+        ts: _undo_nowIso_(),
+        actor: actorHint,
+        scope: 'scheduler',
+        action: String(action || ''),
+        targetSheet: String(activeID || ''),
+        entity: 'card',
+        targetId: String((afterCard && afterCard.id) || (beforeCard && beforeCard.id) || (cardData && cardData.id) || ''),
+        status: 'applied',
+        before: beforeCard || null,
+        after: afterCard || null,
+        inverse: {
+          kind: 'scheduler_commit',
+          payload: inversePayload || {}
+        },
+        note: noteText || 'sv_scheduler_commit_v2'
+      });
+    };
 
     var diag = {
       activeID: activeID,
@@ -3913,8 +4561,15 @@ function sv_scheduler_commit_v2(payloadJson) {
 
     if (action === 'delete') {
       if (targetRow > 0) {
+        var beforeDelete = readCardAtRow_(targetRow);
         sheet.deleteRow(targetRow);
         diag.targetRow = targetRow;
+        appendSchedulerUndoLog_(
+          beforeDelete,
+          null,
+          { action: 'create', card: beforeDelete || {} },
+          'sv_scheduler_commit_v2:delete'
+        );
         return JSON.stringify({ ok: true, action: 'delete', diag: diag });
       }
       return JSON.stringify({ ok: false, error: { message: 'Card not found for deletion' }, diag: diag });
@@ -3924,12 +4579,30 @@ function sv_scheduler_commit_v2(payloadJson) {
       if (targetRow === -1) {
         return JSON.stringify({ ok: false, error: { message: 'Card ID not found: ' + cardData.id }, diag: diag });
       }
+      var beforeUpdate = readCardAtRow_(targetRow);
+      if (C_TASK > 0) sheet.getRange(targetRow, C_TASK).setValue(cardData.taskId || '');
       if (C_LANE > 0) sheet.getRange(targetRow, C_LANE).setValue(cardData.lane);
       if (C_START > 0) sheet.getRange(targetRow, C_START).setValue(cardData.start);
       if (C_END > 0) sheet.getRange(targetRow, C_END).setValue(cardData.end);
-      if (C_LEN > 0) sheet.getRange(targetRow, C_LEN).setValue(cardData.len || (cardData.end - cardData.start));
+      if (C_LEN > 0) sheet.getRange(targetRow, C_LEN).setValue(cardData.len || (cardData.end - cardData.start + 1));
       if (C_MEMO > 0 && cardData.memo !== undefined) sheet.getRange(targetRow, C_MEMO).setValue(cardData.memo);
       diag.targetRow = targetRow;
+      var afterUpdate = {
+        id: String(cardData.id || '').trim(),
+        taskId: String(cardData.taskId || '').trim(),
+        lane: String(cardData.lane || '').trim(),
+        start: slotToInt_(cardData.start, 1),
+        end: slotToInt_(cardData.end, slotToInt_(cardData.start, 1)),
+        len: (isFinite(Number(cardData.len)) && Number(cardData.len) > 0) ? Math.round(Number(cardData.len)) : (slotToInt_(cardData.end, slotToInt_(cardData.start, 1)) - slotToInt_(cardData.start, 1) + 1),
+        memo: (cardData.memo === undefined || cardData.memo === null) ? '' : String(cardData.memo)
+      };
+      if (afterUpdate.end < afterUpdate.start) afterUpdate.end = afterUpdate.start;
+      appendSchedulerUndoLog_(
+        beforeUpdate,
+        afterUpdate,
+        { action: 'update', card: beforeUpdate || {} },
+        'sv_scheduler_commit_v2:update'
+      );
       return JSON.stringify({ ok: true, action: 'update', id: cardData.id, diag: diag });
     }
 
@@ -3944,6 +4617,22 @@ function sv_scheduler_commit_v2(payloadJson) {
       if (C_LEN > 0) sheet.getRange(insertRow, C_LEN).setValue(cardData.len);
       if (C_MEMO > 0) sheet.getRange(insertRow, C_MEMO).setValue(cardData.memo || '');
       diag.targetRow = insertRow;
+      var afterCreate = {
+        id: String(newId || '').trim(),
+        taskId: String(cardData.taskId || '').trim(),
+        lane: String(cardData.lane || '').trim(),
+        start: slotToInt_(cardData.start, 1),
+        end: slotToInt_(cardData.end, slotToInt_(cardData.start, 1)),
+        len: (isFinite(Number(cardData.len)) && Number(cardData.len) > 0) ? Math.round(Number(cardData.len)) : (slotToInt_(cardData.end, slotToInt_(cardData.start, 1)) - slotToInt_(cardData.start, 1) + 1),
+        memo: (cardData.memo === undefined || cardData.memo === null) ? '' : String(cardData.memo)
+      };
+      if (afterCreate.end < afterCreate.start) afterCreate.end = afterCreate.start;
+      appendSchedulerUndoLog_(
+        null,
+        afterCreate,
+        { action: 'delete', card: { id: afterCreate.id } },
+        'sv_scheduler_commit_v2:create'
+      );
       return JSON.stringify({ ok: true, action: 'create', id: newId, diag: diag });
     }
   } catch (e) {
