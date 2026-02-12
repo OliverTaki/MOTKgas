@@ -2792,36 +2792,6 @@ function DriveBuilder_getOriginalsFolderUrl(arg) { return sv_getOriginalsFolderU
 function DB_getOriginalsUrl(arg) { return sv_getOriginalsUrl(arg); }
 function DriveBuilder_getOriginalsUrl(arg) { return sv_getOriginalsUrl(arg); }
 
-function _tablePickDataMode_(payload) {
-  if (!payload || typeof payload !== "object") return { mode: "legacy", reason: "invalid-payload" };
-  if (payload.forceLegacy === true) return { mode: "legacy", reason: "forceLegacy" };
-  if (payload.forceHub === true) return { mode: "hub", reason: "forceHub" };
-  function ruleHasValue_(rule) {
-    var op = String(rule && rule.op || "").toLowerCase();
-    if (op === "isempty" || op === "isnotempty") return true;
-    var values = Array.isArray(rule && rule.values) ? rule.values : [];
-    if (values.length) return values.some(function (v) { return String(v || "").trim().length > 0; });
-    if (rule && Object.prototype.hasOwnProperty.call(rule, "value")) {
-      if (rule.value === 0 || rule.value === false) return true;
-      if (rule.value == null) return false;
-      if (typeof rule.value === "string") return rule.value.trim().length > 0;
-      return true;
-    }
-    return false;
-  }
-  var hasOrder = !!(payload.orderBy && String(payload.orderBy).trim());
-  var hasQuery = !!(payload.query && String(payload.query).trim());
-  var hasFilters = false;
-  try {
-    if (Array.isArray(payload.filters)) { hasFilters = payload.filters.some(function (f) { var id = String(f && f.id || "").trim(); var op = String(f && f.op || "").trim(); if (!(id && op && _isFid_(id))) return false; return ruleHasValue_(f); }); }
-    if (!hasFilters && Array.isArray(payload.filterGroups)) { hasFilters = payload.filterGroups.some(function (g) { var rules = Array.isArray(g && g.rules) ? g.rules : []; return rules.some(function (r) { var id = String(r && r.id || "").trim(); var op = String(r && r.op || "").trim(); if (!(id && op && _isFid_(id))) return false; return ruleHasValue_(r); }); }); }
-  } catch (_) { hasFilters = false; }
-  if (hasOrder) return { mode: "legacy", reason: "orderBy" };
-  if (hasQuery) return { mode: "legacy", reason: "query" };
-  if (hasFilters) return { mode: "legacy", reason: "filters" };
-  return { mode: "hub", reason: "default" };
-}
-
 /* ===== Scheduler (TAKE152) ===== */
 function _sched_findSheetByCandidates_(ss, names) {
   for (var i = 0; i < names.length; i++) {

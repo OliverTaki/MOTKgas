@@ -5481,37 +5481,6 @@ window.applyData = applyData;
 
       function isRowIdLike(id) { return /^[a-z]{2}_[0-9]+$/i.test(String(id || '')); }
 
-      function isScheduleEditorHref_(href) {
-        try {
-          if (!href) return false;
-          var u = new URL(String(href), location.href);
-          var p = String(u.searchParams.get('p') || u.searchParams.get('page') || '').toLowerCase();
-          if (p !== 'schedule') return false;
-          var sid = String(u.searchParams.get('schedId') || u.searchParams.get('sid') || '').trim();
-          return !!sid;
-        } catch (_) {
-          return false;
-        }
-      }
-
-      function bindScheduleLinksNewTabEnforcer_() {
-        var wrap = document.getElementById('tableWrap');
-        if (!wrap) return;
-        if (window.__MOTK_SCHED_LINK_NEWTAB_BOUND__) return;
-        window.__MOTK_SCHED_LINK_NEWTAB_BOUND__ = true;
-        wrap.addEventListener('click', function (ev) {
-          try {
-            var a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
-            if (!a) return;
-            if (!isScheduleEditorHref_(a.href)) return;
-            if (ev.defaultPrevented) return;
-            if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.button !== 0) return;
-            ev.preventDefault();
-            window.open(a.href, '_blank', 'noopener');
-          } catch (_) { }
-        }, true);
-      }
-
       function isLinkColumn(header) { return /link/i.test(String(header || '')); }
 
       function isLinkish(fieldId, header) {
@@ -8667,8 +8636,6 @@ window.applyData = applyData;
 
         // 左クリックの SPA ルーティングは使用しない（通常のページ遷移）
         try { readUrlState && readUrlState(); } catch (_) { }
-        try { bindScheduleLinksNewTabEnforcer_(); } catch (_) { }
-
         Promise.resolve(start()).then(function () {
           bindLinkPickerInlineEdit();
         });

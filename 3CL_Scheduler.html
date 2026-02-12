@@ -456,8 +456,7 @@ window.app = (function() {
     workHours: 8,
     originDate: null,
     originDisplayText: '',
-    originAnchor: null,
-    workStartH: 0
+    originAnchor: null
   };
 
   const state = {
@@ -465,7 +464,7 @@ window.app = (function() {
     tasksById: {},
     startDate: new Date(), dayCount: 14, slotPx: 20,
     endDate: null, startPreset: 'custom', endPreset: 'custom', viewDriver: 'range',
-    workDayMap: [], selection: null, autoPush: true, suppressClick: false,
+    workDayMap: [], selection: null, autoPush: true,
     schedId: 'sched_0001', schedName: 'Schedule', scriptUrl: (function(){ try { return location.origin + location.pathname; } catch (_) { return location.pathname || ''; } })(), scriptUrlServer: '', viewMeta: {}, allScheds: [],
     laneWidth: 65,
     assetColWidth: 65,
@@ -647,7 +646,7 @@ window.app = (function() {
     dateToSlot: (d, kind) => {
       if (!d || isNaN(d)) return 1;
       const dateStr = formatYmd_(d);
-      const mins = (d.getHours() * 60 + d.getMinutes()) - (config.workStartH * 60);
+      const mins = (d.getHours() * 60 + d.getMinutes());
       const rel = Math.round(mins / config.slotMin);
       return utils.dateValToSlot(dateStr, rel + 1, kind || 'start');
     },
@@ -2062,12 +2061,6 @@ window.app = (function() {
       var cardMainSel = document.getElementById('sel-card-main');
       var cardSubSel = document.getElementById('sel-card-sub');
       ui.syncCardDisplayFieldSelectors(cardMainSel, cardSubSel);
-      var cfgOrigin = document.getElementById('cfg-origin-date');
-      if (cfgOrigin) cfgOrigin.value = utils.fmtYmdInput(config.originDate);
-      var cfgSlot = document.getElementById('cfg-slot-min');
-      if (cfgSlot) cfgSlot.value = String(config.slotMin);
-      var cfgWork = document.getElementById('cfg-work-hours');
-      if (cfgWork) cfgWork.value = String(config.workHours);
       var renameInput = document.getElementById('sched-rename-input');
       if (renameInput) renameInput.value = state.schedName;
       var laneWInput = document.getElementById('inp-lane-w');
@@ -2632,50 +2625,6 @@ window.app = (function() {
       store.saveViewMeta('lane');
     },
 
-    saveScheduleConfig: () => {
-      var originEl = document.getElementById('cfg-origin-date');
-      var slotEl = document.getElementById('cfg-slot-min');
-      var workEl = document.getElementById('cfg-work-hours');
-      var req = {
-        scheduleId: state.schedId,
-        cfg: {
-          originDate: originEl ? String(originEl.value || '').trim() : '',
-          slotMin: slotEl ? Number(slotEl.value) : NaN,
-          workHours: workEl ? Number(workEl.value) : NaN
-        }
-      };
-      if (!req.cfg.originDate) {
-        alert('Origin Date is required.');
-        return;
-      }
-      if (!isFinite(req.cfg.slotMin) || req.cfg.slotMin <= 0) {
-        alert('Slot Min must be a positive number.');
-        return;
-      }
-      if (!isFinite(req.cfg.workHours) || req.cfg.workHours <= 0) {
-        alert('Work Hours must be a positive number.');
-        return;
-      }
-      utils.saveStatus('saving', 'Saving config...');
-      google.script.run
-        .withSuccessHandler((str) => {
-          var res = null;
-          try { res = JSON.parse(str); } catch (_) { res = { ok: false }; }
-          if (!res || !res.ok) {
-            utils.saveStatus('error', 'Config save failed');
-            return;
-          }
-          utils.saveStatus('saved', 'Config saved');
-          setSettingsModalOpen_(false);
-          actions.load();
-        })
-        .withFailureHandler((err) => {
-          console.error('[MOTK][Scheduler][ConfigSave] failed', err);
-          utils.saveStatus('error', 'Config save failed');
-        })
-        .sv_scheduler_save_config_v2(JSON.stringify(req));
-    },
-
     resolveCollisions: (movedCard) => {
       if (!state.autoPush) return;
       if (!movedCard || !movedCard.laneId || movedCard.laneId === 'unassigned') return;
@@ -3063,6 +3012,35 @@ window.app = (function() {
     }
   };
 
+  function fmtTaskDateForInspector_(v) {
+    if (!v) return '';
+    if (v instanceof Date && !isNaN(v)) return utils.fmtYmdText(v);
+    const d1 = utils.parseDateTextStrict(v);
+    if (d1) return utils.fmtYmdText(d1);
+    const d2 = utils.parseDateTime(v);
+    return d2 && !isNaN(d2) ? utils.fmtYmdText(d2) : '';
+  }
+
+  function resolveDropTargetFromCanvas_(x, y) {
+    const pxPerDay = getPxPerDay_();
+    const dayIdx = Math.floor(y / pxPerDay);
+    if (!state.workDayMap[dayIdx]) return null;
+    const yInDay = y % pxPerDay;
+    const snapState = snapMinutes_(yInDay, pxPerDay);
+    const snappedMins = snapState.minutes;
+    const d = new Date(state.workDayMap[dayIdx]);
+    d.setHours(0, 0, 0, 0);
+    const spd = getSlotsPerDay_();
+    let slotVal = Math.round(snappedMins / config.slotMin) + 1;
+    slotVal = Math.max(1, Math.min(spd, slotVal));
+    const newStart = utils.dateValToSlot(formatYmd_(d), slotVal, 'start');
+    const lanes = state.lanes.filter(l => l.visible);
+    const laneWidth = getLaneWidth_();
+    const laneIdx = Math.floor(x / laneWidth);
+    const newLane = (laneIdx >= 0 && laneIdx < lanes.length) ? lanes[laneIdx].id : null;
+    return { newStart, newLane, snapState };
+  }
+
   const ui = {
     syncCardDisplayFieldSelectors: (mainSel, subSel) => {
       const main = mainSel || document.getElementById('sel-card-main');
@@ -3340,15 +3318,6 @@ window.app = (function() {
       const inspectorSessionId = Number(edit.sessionId) || 0;
 
       const getTaskById_ = (id) => state.tasks.find(t => String(t.id || '') === String(id || ''));
-      const fmtTaskDate_ = (v) => {
-        if (!v) return '';
-        if (v instanceof Date && !isNaN(v)) return utils.fmtYmdText(v);
-        const d1 = utils.parseDateTextStrict(v);
-        if (d1) return utils.fmtYmdText(d1);
-        const d2 = utils.parseDateTime(v);
-        return d2 && !isNaN(d2) ? utils.fmtYmdText(d2) : '';
-      };
-
       const title = document.createElement('div');
       title.style.cssText = 'background:#222; padding:6px; font-weight:bold; border-radius:4px; display:flex; align-items:center; justify-content:space-between; gap:8px;';
       const titleText = document.createElement('span');
@@ -3567,14 +3536,14 @@ window.app = (function() {
         const taskPlanStart = document.createElement('input');
         taskPlanStart.className = 'inp';
         taskPlanStart.readOnly = true;
-        taskPlanStart.value = fmtTaskDate_(t.planStart);
+        taskPlanStart.value = fmtTaskDateForInspector_(t.planStart);
         edit.refs.taskPlanStart = taskPlanStart;
         addField('Plan Start', taskPlanStart);
 
         const taskPlanEnd = document.createElement('input');
         taskPlanEnd.className = 'inp';
         taskPlanEnd.readOnly = true;
-        taskPlanEnd.value = fmtTaskDate_(t.planEnd);
+        taskPlanEnd.value = fmtTaskDateForInspector_(t.planEnd);
         edit.refs.taskPlanEnd = taskPlanEnd;
         addField('Plan End', taskPlanEnd);
       }
@@ -3923,20 +3892,12 @@ window.app = (function() {
       }
       if (edit.refs.pickStart) edit.refs.pickStart.value = utils.fmtYmdInput(sVal.date);
       if (edit.refs.pickEnd) edit.refs.pickEnd.value = utils.fmtYmdInput(eVal.date);
-      const fmtTaskDate_ = (v) => {
-        if (!v) return '';
-        if (v instanceof Date && !isNaN(v)) return utils.fmtYmdText(v);
-        const d1 = utils.parseDateTextStrict(v);
-        if (d1) return utils.fmtYmdText(d1);
-        const d2 = utils.parseDateTime(v);
-        return d2 && !isNaN(d2) ? utils.fmtYmdText(d2) : '';
-      };
       const t = c.taskId ? (state.tasks.find(x => String(x.id || '') === String(c.taskId)) || {}) : {};
       if (edit.refs.taskName) edit.refs.taskName.value = String(t.name || '');
       if (edit.refs.taskStatus) edit.refs.taskStatus.value = String(t.status || '');
       if (edit.refs.taskAssignee) edit.refs.taskAssignee.value = String(t.assignee || '');
-      if (edit.refs.taskPlanStart) edit.refs.taskPlanStart.value = fmtTaskDate_(t.planStart);
-      if (edit.refs.taskPlanEnd) edit.refs.taskPlanEnd.value = fmtTaskDate_(t.planEnd);
+      if (edit.refs.taskPlanStart) edit.refs.taskPlanStart.value = fmtTaskDateForInspector_(t.planStart);
+      if (edit.refs.taskPlanEnd) edit.refs.taskPlanEnd.value = fmtTaskDateForInspector_(t.planEnd);
       if (edit.refs.metaStart) edit.refs.metaStart.textContent = `rawSlot: ${utils.normalizeSlot(c.start, 'start').rawSlot}`;
       if (edit.refs.metaEnd) edit.refs.metaEnd.textContent = `rawSlot: ${utils.normalizeSlot(c.end, 'end').rawSlot}`;
       if (edit.refs.lenBox) {
@@ -3995,29 +3956,14 @@ window.app = (function() {
       const top = parseFloat(drag.el.style.top);
       const h = parseFloat(drag.el.style.height);
       const pxPerDay = getPxPerDay_();
-
-      const dayIdx = Math.floor(top / pxPerDay);
-      const yInDay = top % pxPerDay;
-
-      if (state.workDayMap[dayIdx]) {
-        const snapState = snapMinutes_(yInDay, pxPerDay);
-        const snappedMins = snapState.minutes;
-        const snap = snapState.snap;
-
-        const d = new Date(state.workDayMap[dayIdx]);
-        d.setHours(0, 0, 0, 0);
-        const spd = getSlotsPerDay_();
-        let slotVal = Math.round(snappedMins / config.slotMin) + 1;
-        slotVal = Math.max(1, Math.min(spd, slotVal));
-        const newStart = utils.dateValToSlot(formatYmd_(d), slotVal, 'start');
-
-        const rect = els.canvas.getBoundingClientRect();
-        const scrollX = els.gridScroll ? els.gridScroll.scrollLeft : 0;
-        const x = (e.clientX - rect.left) + scrollX;
-        const laneWidth = getLaneWidth_();
-        const colIdx = Math.floor(x / laneWidth);
-        const lanes = state.lanes.filter(l => l.visible);
-        const newLane = (colIdx>=0 && colIdx<lanes.length) ? lanes[colIdx].id : drag.card.laneId;
+      const rect = els.canvas.getBoundingClientRect();
+      const scrollX = els.gridScroll ? els.gridScroll.scrollLeft : 0;
+      const x = (e.clientX - rect.left) + scrollX;
+      const dropTarget = resolveDropTargetFromCanvas_(x, top);
+      if (dropTarget) {
+        const newStart = dropTarget.newStart;
+        const newLane = dropTarget.newLane || drag.card.laneId;
+        const snap = dropTarget.snapState.snap;
 
         if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) {
           state.selection = drag.card.id;
@@ -4068,33 +4014,17 @@ window.app = (function() {
     if (!key || !state.cards[key]) return;
 
     const c = state.cards[key];
-    const pxPerDay = getPxPerDay_();
-    const rect = els.canvas.getBoundingClientRect();
-    const scrollX = els.gridScroll ? els.gridScroll.scrollLeft : 0;
-    const scrollY = els.gridScroll ? els.gridScroll.scrollTop : 0;
-    const x = (e.clientX - rect.left) + scrollX;
-    const y = (e.clientY - rect.top) + scrollY;
+      const rect = els.canvas.getBoundingClientRect();
+      const scrollX = els.gridScroll ? els.gridScroll.scrollLeft : 0;
+      const scrollY = els.gridScroll ? els.gridScroll.scrollTop : 0;
+      const x = (e.clientX - rect.left) + scrollX;
+      const y = (e.clientY - rect.top) + scrollY;
 
-    const dayIdx = Math.floor(y / pxPerDay);
-    if (!state.workDayMap[dayIdx]) return;
-
-    const yInDay = y % pxPerDay;
-    const snapState = snapMinutes_(yInDay, pxPerDay);
-    const snappedMins = snapState.minutes;
-
-    const d = new Date(state.workDayMap[dayIdx]);
-    d.setHours(0, 0, 0, 0);
-    const spd = getSlotsPerDay_();
-    let slotVal = Math.round(snappedMins / config.slotMin) + 1;
-    slotVal = Math.max(1, Math.min(spd, slotVal));
-    const newStart = utils.dateValToSlot(formatYmd_(d), slotVal, 'start');
-
-    const lanes = state.lanes.filter(l => l.visible);
-    const laneWidth = getLaneWidth_();
-    const laneIdx = Math.floor(x / laneWidth);
-    const newLane = (laneIdx >= 0 && laneIdx < lanes.length) ? lanes[laneIdx].id : c.laneId;
-
-    var dur = (c.start !== null && c.end !== null && isFinite(c.end - c.start) && (c.end - c.start) >= 0) ? (c.end - c.start + 1) : Math.max(1, Math.round(snapState.snap.min / config.slotMin));
+    const dropTarget = resolveDropTargetFromCanvas_(x, y);
+    if (!dropTarget) return;
+    const newStart = dropTarget.newStart;
+    const newLane = dropTarget.newLane || c.laneId;
+    var dur = (c.start !== null && c.end !== null && isFinite(c.end - c.start) && (c.end - c.start) >= 0) ? (c.end - c.start + 1) : Math.max(1, Math.round(dropTarget.snapState.snap.min / config.slotMin));
     c.start = newStart;
     c.end = newStart + dur - 1;
     c.laneId = newLane;
@@ -4329,7 +4259,6 @@ window.app = (function() {
       setSettingsModalOpen_(true);
     });
     safeAdd('btn-settings-close', 'click', () => setSettingsModalOpen_(false));
-    safeAdd('btn-save-sched-cfg', 'click', actions.saveScheduleConfig);
     safeAdd('btn-rename-sched-save', 'click', actions.renameSchedFromSettings);
     safeAdd('sched-rename-input', 'keydown', (e) => {
       if (e.key === 'Enter') {

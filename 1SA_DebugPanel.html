@@ -53,6 +53,19 @@
       overflow: auto;
     }
 
+    .schema-meta-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+
+    .schema-meta-table th,
+    .schema-meta-table td {
+      border: 1px solid #ddd;
+      padding: 4px 6px;
+      vertical-align: top;
+    }
+
     a {
       color: #007bff;
       text-decoration: none;
@@ -98,6 +111,34 @@
     <div id="field-types">FIELD_TYPES: <span class="loading">Loading...</span></div>
     <div id="link-maps-counts">LINK_MAPS（counts）: <span class="loading">Loading...</span></div>
     <div id="layout-presets">Layout presets(DetailShot): <span class="loading">Loading...</span></div>
+  </div>
+
+  <div id="schema-meta-health" class="card">
+    <h3>Schema/Meta Health (ProjectMeta-first)</h3>
+    <button class="btn" id="btnRunSchemaMetaHealth" onclick="runSchemaMetaHealth()">Run Schema/Meta Health</button>
+    <div id="schema-meta-health-table" style="margin-top:8px;"></div>
+    <pre id="schema-meta-health-text"></pre>
+  </div>
+
+  <div id="schema-meta-fieldtypes" class="card">
+    <h3>SchemaMeta / FieldTypes Health</h3>
+    <button class="btn" id="btnRunSchemaMetaFieldTypes" onclick="runSchemaMetaFieldTypesHealth()">Run SchemaMeta / FieldTypes Health</button>
+    <div id="schema-meta-fieldtypes-table" style="margin-top:8px;"></div>
+    <pre id="schema-meta-fieldtypes-text"></pre>
+  </div>
+
+  <div id="callfirst-trace" class="card">
+    <h3>Last callFirst Trace</h3>
+    <button class="btn" id="btnRefreshCallFirstTrace" onclick="runCallFirstTraceView()">Refresh</button>
+    <button class="btn" id="btnCopyCallFirstTrace" onclick="copyJsonById('callfirst-trace-json')">Copy JSON</button>
+    <pre id="callfirst-trace-json"></pre>
+  </div>
+
+  <div id="scheduler-load-diag" class="card">
+    <h3>Scheduler Load Diagnostics</h3>
+    <button class="btn" id="btnRefreshSchedDiag" onclick="runSchedulerLoadDiagView()">Refresh</button>
+    <button class="btn" id="btnCopySchedDiag" onclick="copyJsonById('scheduler-load-diag-json')">Copy JSON</button>
+    <pre id="scheduler-load-diag-json"></pre>
   </div>
 
   <div id="fieldtypes-diag" class="card">
@@ -190,6 +231,10 @@
       }).join("\n");
     }
 
+    function uniq(arr) {
+      return Array.from(new Set(Array.isArray(arr) ? arr : []));
+    }
+
     function clearMotkConsoleBuffer() {
       try { sessionStorage.removeItem("motk:console:buffer:v1"); } catch (_) { }
     }
@@ -251,6 +296,8 @@
       pushLog_('WARN', msg);
       console.warn(msg);
     }
+
+    var DP_INFLIGHT = { appData: null, pageCfg: {} };
 
     function updateElement(id, text) {
       const el = document.getElementById(id);
@@ -334,6 +381,630 @@
       document.getElementById('raw-snap').innerHTML = JSON.stringify(snap, null, 2);
     }
 
+    function getAppDataSingleFlight_(reason) {
+      if (DP_INFLIGHT.appData) return DP_INFLIGHT.appData;
+      DP_INFLIGHT.appData = new Promise(function (resolve) {
+        try {
+          if (!window.google || !google.script || !google.script.run || typeof google.script.run.dp_loadAppData !== 'function') {
+            DP_INFLIGHT.appData = null;
+            resolve(null);
+            return;
+          }
+          google.script.run
+            .withSuccessHandler(function (res) {
+              DP_INFLIGHT.appData = null;
+              resolve(res || null);
+            })
+            .withFailureHandler(function (err) {
+              DP_INFLIGHT.appData = null;
+              logWarn('dp_loadAppData error: ' + err + (reason ? ' (' + reason + ')' : ''));
+              resolve(null);
+            })
+            .dp_loadAppData();
+        } catch (e) {
+          DP_INFLIGHT.appData = null;
+          logWarn('dp_loadAppData exception: ' + String(e && e.message ? e.message : e));
+          resolve(null);
+        }
+      });
+      return DP_INFLIGHT.appData;
+    }
+
+    function getPageConfigSingleFlight_(pid, ent, reason) {
+      var proj = getProjectIdFromMeta_() || 'unknown';
+      var key = String(proj) + ':' + String(ent || '') + ':' + String(pid || '');
+      if (DP_INFLIGHT.pageCfg[key]) return DP_INFLIGHT.pageCfg[key];
+      DP_INFLIGHT.pageCfg[key] = new Promise(function (resolve) {
+        try {
+          if (!pid || !google.script || !google.script.run || typeof google.script.run.sv_loadPageConfig !== 'function') {
+            delete DP_INFLIGHT.pageCfg[key];
+            resolve(null);
+            return;
+          }
+          google.script.run
+            .withSuccessHandler(function (res) {
+              delete DP_INFLIGHT.pageCfg[key];
+              resolve(res || null);
+            })
+            .withFailureHandler(function (err) {
+              delete DP_INFLIGHT.pageCfg[key];
+              logWarn('sv_loadPageConfig error: ' + err + (reason ? ' (' + reason + ')' : ''));
+              resolve(null);
+            })
+            .sv_loadPageConfig({ entity: ent, pageId: pid });
+        } catch (e) {
+          delete DP_INFLIGHT.pageCfg[key];
+          logWarn('sv_loadPageConfig exception: ' + String(e && e.message ? e.message : e));
+          resolve(null);
+        }
+      });
+      return DP_INFLIGHT.pageCfg[key];
+    }
+
+    function getSchemaMetaFieldTypes_() {
+      return getSchemaMetaFieldTypesWithSource_().fieldTypes;
+    }
+
+    function getSchemaMetaState_() {
+      var op = window.opener || null;
+      if (op && op.STATE) return op.STATE;
+      if (window.__DP_STATE__ && typeof window.__DP_STATE__ === 'object') return window.__DP_STATE__;
+      return null;
+    }
+
+    function getSchemaMetaProjectMeta_() {
+      if (globalRes && globalRes.meta) return globalRes.meta;
+      return null;
+    }
+
+    function getProjectIdFromMeta_() {
+      try {
+        var meta = getSchemaMetaProjectMeta_();
+        if (meta && meta.project_id) return String(meta.project_id || '').trim();
+      } catch (_) { }
+      try {
+        var raw = localStorage.getItem('MOTK_PROJECT_ID_V1');
+        if (raw) return String(raw || '').trim();
+      } catch (_) { }
+      return '';
+    }
+
+    function getSchemaMetaTier_(raw) {
+      var tier = String(raw || '').trim();
+      if (tier === 'hub' || tier === 'legacy' || tier === 'cache' || tier === 'localStorage') return tier;
+      return 'unknown';
+    }
+
+    function readPageConfigFromStorage_(pageId, entity) {
+      try {
+        var pid = String(pageId || '');
+        if (!pid) return null;
+        var ent = normalizeEntityToken_(entity || '');
+        var proj = getProjectIdFromMeta_() || 'unknown';
+        var keys = [];
+        if (ent) {
+          keys.push('motk:pagecfg:v2:' + proj + ':' + ent + ':' + pid);
+          if (proj !== 'unknown') keys.push('motk:pagecfg:v2:unknown:' + ent + ':' + pid);
+        }
+        keys.push('motk:cfg:' + pid);
+        for (var i = 0; i < keys.length; i++) {
+          var raw = localStorage.getItem(keys[i]);
+          if (!raw) continue;
+          return JSON.parse(raw);
+        }
+        return null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function hasFieldTypesMap_(ft) {
+      try {
+        if (!ft || typeof ft !== 'object') return false;
+        var ents = Object.keys(ft || {});
+        if (!ents.length) return false;
+        for (var i = 0; i < ents.length; i++) {
+          var ent = ents[i];
+          var map = ft[ent];
+          if (map && typeof map === 'object' && Object.keys(map).length) return true;
+        }
+        return false;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function readFieldTypesFromStorage_() {
+      try {
+        var raw = localStorage.getItem('MOTK_APPDATA_CACHE_V1');
+        if (!raw) return null;
+        var obj = JSON.parse(raw);
+        if (!obj || typeof obj !== 'object') return null;
+        if (hasFieldTypesMap_(obj.fieldTypes || {})) return obj.fieldTypes;
+      } catch (_) { }
+      return null;
+    }
+
+    function setDpState_(patch) {
+      try {
+        var base = window.__DP_STATE__ && typeof window.__DP_STATE__ === 'object' ? window.__DP_STATE__ : {};
+        window.__DP_STATE__ = Object.assign({}, base, patch || {});
+      } catch (_) { }
+    }
+
+    function buildDpStateFromSnapshot_(snap) {
+      var st = {};
+      if (!snap || typeof snap !== 'object') return st;
+      st.pageId = snap.pageId || '';
+      st.sheetName = snap.sheetNameNormalized || snap.sheetName || snap.entityParamNormalized || snap.entityParam || '';
+      st.entity = snap.entityParamNormalized || snap.entityParam || '';
+      st.fieldIds = Array.isArray(snap.fieldIds) ? snap.fieldIds.slice() : [];
+      st.colsKey = snap.colsKey || '';
+      st.rows = Array.isArray(snap.rows) ? snap.rows.slice() : [];
+      return st;
+    }
+
+    function buildFieldsMetaFromFieldTypes_(fieldTypes) {
+      var out = {};
+      if (!fieldTypes || typeof fieldTypes !== 'object') return out;
+      Object.keys(fieldTypes).forEach(function (ent) {
+        var entTypes = fieldTypes[ent] || {};
+        Object.keys(entTypes).forEach(function (fid) {
+          if (out[fid]) return;
+          var src = entTypes[fid];
+          if (!src || typeof src !== 'object') {
+            out[fid] = { label: String(src || ''), type: '', entity: ent };
+            return;
+          }
+          var obj = {};
+          Object.keys(src).forEach(function (k) { obj[k] = src[k]; });
+          if (!obj.entity) obj.entity = ent;
+          out[fid] = obj;
+        });
+      });
+      return out;
+    }
+
+    function getSchemaMetaFieldTypesWithSource_() {
+      var op = window.opener || null;
+      if (globalRes && hasFieldTypesMap_(globalRes.fieldTypes || {})) {
+        return { fieldTypes: globalRes.fieldTypes, source: 'appData' };
+      }
+      if (op && hasFieldTypesMap_(op.FIELD_TYPES || {})) {
+        return { fieldTypes: op.FIELD_TYPES, source: 'opener' };
+      }
+      if (hasFieldTypesMap_(window.FIELD_TYPES || {})) {
+        return { fieldTypes: window.FIELD_TYPES, source: 'window' };
+      }
+      var cached = readFieldTypesFromStorage_();
+      if (cached) return { fieldTypes: cached, source: 'storage' };
+      return { fieldTypes: {}, source: 'unknown' };
+    }
+
+    function collectPageConfigFieldIds_(cfg) {
+      var ids = [];
+      if (!cfg || typeof cfg !== 'object') return ids;
+      if (Array.isArray(cfg.order)) ids = ids.concat(cfg.order);
+      if (cfg.widths && typeof cfg.widths === 'object') ids = ids.concat(Object.keys(cfg.widths));
+      if (cfg.hidden && typeof cfg.hidden === 'object') ids = ids.concat(Object.keys(cfg.hidden));
+      if (Array.isArray(cfg.group)) ids = ids.concat(cfg.group);
+      if (Array.isArray(cfg.sort)) {
+        cfg.sort.forEach(function (s) {
+          if (!s) return;
+          if (typeof s === 'string') { ids.push(s); return; }
+          if (Array.isArray(s)) { if (s[0]) ids.push(s[0]); return; }
+          if (s.fid) ids.push(s.fid);
+          else if (s.fieldId) ids.push(s.fieldId);
+          else if (s.id) ids.push(s.id);
+        });
+      }
+      if (Array.isArray(cfg.filterGroups)) {
+        cfg.filterGroups.forEach(function (g) {
+          if (!g) return;
+          var filters = Array.isArray(g.filters) ? g.filters : [];
+          filters.forEach(function (f) {
+            if (!f) return;
+            if (f.fid) ids.push(f.fid);
+            else if (f.fieldId) ids.push(f.fieldId);
+            else if (f.id) ids.push(f.id);
+            else if (f.field) ids.push(f.field);
+          });
+        });
+      }
+      return uniq(ids.map(function (x) { return String(x || '').trim(); }).filter(Boolean));
+    }
+
+    function renderSchemaMetaHealth_(result) {
+      var tableEl = document.getElementById('schema-meta-health-table');
+      var textEl = document.getElementById('schema-meta-health-text');
+      if (!tableEl || !textEl) return;
+      var rows = result && Array.isArray(result.rows) ? result.rows : [];
+      var html = [
+        '<table class="schema-meta-table">',
+        '<thead><tr><th>Check</th><th>Status</th><th>Details</th></tr></thead>',
+        '<tbody>',
+        rows.map(function (r) {
+          var statusHtml = r.ok ? '<span class="success">PASS</span>' : '<span class="error">FAIL</span>';
+          return '<tr>' +
+            '<td>' + (r.name || '') + '</td>' +
+            '<td>' + statusHtml + '</td>' +
+            '<td>' + (r.detail || '') + '</td>' +
+            '</tr>';
+        }).join(''),
+        '</tbody>',
+        '</table>'
+      ].join('');
+      tableEl.innerHTML = html;
+      textEl.textContent = result && result.text ? result.text : '';
+    }
+
+    function formatSchemaMetaHealthText_(payload) {
+      var lines = [];
+      lines.push('[Schema/Meta Health (ProjectMeta-first)]');
+      lines.push('ProjectMeta: ' + (payload.projectMeta.ok ? 'PASS' : 'FAIL') +
+        ' | tier=' + payload.projectMeta.tier +
+        ' | project_id=' + payload.projectMeta.projectId +
+        ' | timezone=' + payload.projectMeta.timezone +
+        ' | updated_at=' + payload.projectMeta.updatedAt);
+      lines.push('Resolver:');
+      payload.resolver.forEach(function (r) {
+        var base = '- ' + r.key + ': ' + (r.ok ? 'PASS' : 'FAIL') +
+          ' | fid=' + (r.fid || 'null') +
+          ' | existsInMeta=' + String(r.existsInMeta);
+        var more = '';
+        if (r.type || r.entity || r.label) {
+          more = ' | type=' + (r.type || 'missing') +
+            ' | entity=' + (r.entity || 'missing') +
+            ' | label=' + (r.label || 'missing');
+        }
+        lines.push(base + more + (r.reason ? ' | reason=' + r.reason : ''));
+      });
+      lines.push('PageConfig: ' + (payload.pageConfig.ok ? 'PASS' : 'FAIL') +
+        ' | tier=' + payload.pageConfig.tier +
+        ' | total=' + payload.pageConfig.total +
+        ' | invalid=' + payload.pageConfig.invalidCount +
+        ' | sample=' + JSON.stringify(payload.pageConfig.invalidSample));
+      return lines.join('\n');
+    }
+
+    function resolveSchemaMetaEntity_(fieldTypes, st) {
+      var ent = '';
+      try {
+        ent = normalizeEntityToken_(
+          (st && (st.sheetName || st.entity || st.ent || st._entity)) || ''
+        );
+      } catch (_) { }
+      if (!ent && typeof readViewerSnapshotFromStorage === 'function') {
+        try {
+          var snap = readViewerSnapshotFromStorage();
+          if (snap && snap.sheetName) ent = normalizeEntityToken_(snap.sheetName);
+        } catch (_) { }
+      }
+      if (!ent && fieldTypes && typeof fieldTypes === 'object') {
+        var keys = Object.keys(fieldTypes || {});
+        if (keys.length) {
+          ent = normalizeEntityToken_(keys[0]) || String(keys[0] || '');
+        }
+      }
+      return ent;
+    }
+
+    async function checkS1SchemaMetaHealth() {
+      var res = { rows: [], text: '' };
+      var appData = null;
+      var t0 = Date.now();
+      try {
+        var hasMeta = !!(globalRes && globalRes.meta);
+        var hasFieldTypes = !!(globalRes && globalRes.fieldTypes && Object.keys(globalRes.fieldTypes).length);
+        if (!hasMeta || !hasFieldTypes) {
+          appData = await getAppDataSingleFlight_("schema-meta-health");
+        }
+      } catch (_) { }
+      if (appData) updateFromRes(appData);
+
+      var meta = getSchemaMetaProjectMeta_() || {};
+      var metaLoaded = !!meta && Object.keys(meta).length > 0;
+      var projectId = String(meta.project_id || '').trim();
+      var timezone = String(meta.timezone || '').trim();
+      var updatedAt = meta.updated_at ? String(meta.updated_at) : 'missing';
+      var metaOk = metaLoaded && !!projectId && !!timezone;
+      var metaTier = getSchemaMetaTier_(meta.__sourceTier || meta.__tier || '');
+      var metaKeys = Object.keys(meta || {}).sort();
+      res.rows.push({
+        name: 'ProjectMeta',
+        ok: metaOk,
+        detail: 'loaded=' + metaLoaded + ' tier=' + metaTier + ' project_id=' + (projectId || 'missing') + ' timezone=' + (timezone || 'missing') + ' updated_at=' + updatedAt + ' keys=' + JSON.stringify(metaKeys.slice(0, 30))
+      });
+
+      var fieldTypes = getSchemaMetaFieldTypes_();
+      var st = getSchemaMetaState_();
+      var entity = resolveSchemaMetaEntity_(fieldTypes, st);
+      var fieldsMeta = (st && st.fieldsMeta && typeof st.fieldsMeta === 'object') ? st.fieldsMeta : null;
+
+      var keys = ['shotview', 'Episode', 'Act', 'Sequence', 'Scene', 'Shot'];
+      var resolverRows = [];
+      keys.forEach(function (key) {
+        var fid = '';
+        var resolvedEnt = entity;
+        var matches = [];
+        if (entity) fid = findFidByName_(fieldTypes, entity, key) || '';
+        if (!fid) {
+          matches = findFidByNameAnyEntity_(fieldTypes, key);
+          if (matches.length === 1) {
+            fid = matches[0].fid || '';
+            resolvedEnt = matches[0].entity || resolvedEnt;
+          }
+        }
+        var metaEntry = (fieldsMeta && fid) ? fieldsMeta[fid] : null;
+        var exists = !!metaEntry;
+        var ok = !!fid && exists;
+        var label = metaEntry ? (metaEntry.label || metaEntry.field_name || metaEntry.name || '') : '';
+        var type = metaEntry ? String(metaEntry.type || '') : '';
+        var ent = metaEntry ? String(metaEntry.entity || metaEntry.ent || '') : '';
+        var reason = '';
+        if (!fid && matches.length > 1) reason = 'ambiguous_match';
+        else if (!fid && !entity) reason = 'insufficient_context';
+        else if (!fid) reason = 'unresolved';
+        else if (!exists) reason = 'missing_in_fieldsMeta';
+        res.rows.push({
+          name: 'Resolver: ' + key,
+          ok: ok,
+          detail: 'fid=' + (fid || 'null') + ' existsInMeta=' + String(exists) +
+            ' type=' + (type || 'missing') + ' entity=' + (ent || 'missing') + ' label=' + (label || 'missing') +
+            (resolvedEnt ? ' resolvedEntity=' + resolvedEnt : '') +
+            (reason ? ' reason=' + reason : '')
+        });
+        resolverRows.push({
+          key: key,
+          fid: fid || null,
+          existsInMeta: exists,
+          label: label || 'missing',
+          type: type || 'missing',
+          entity: ent || 'missing',
+          ok: ok,
+          reason: reason
+        });
+      });
+
+      var pageId = (st && st.pageId) ? String(st.pageId || '') : '';
+      var pageCfg = (st && st.pageCfgRaw) ? st.pageCfgRaw : null;
+      var sourceRaw = (st && st.__PAGE_CFG_SOURCE__) ? String(st.__PAGE_CFG_SOURCE__) : '';
+      if (!pageCfg) {
+        var cached = readPageConfigFromStorage_(pageId, entity);
+        if (cached) {
+          pageCfg = cached;
+          if (!sourceRaw) sourceRaw = 'localStorage';
+        }
+      }
+      var pageCfgLoaded = !!pageCfg;
+      var pageCfgTier = getSchemaMetaTier_(sourceRaw);
+      var cfgFieldIds = collectPageConfigFieldIds_(pageCfg);
+      var invalid = [];
+      if (!fieldsMeta) {
+        invalid = cfgFieldIds.map(function (fid) { return { key: null, fid: fid }; });
+      } else {
+        cfgFieldIds.forEach(function (fid) {
+          if (!fieldsMeta[fid]) invalid.push({ key: null, fid: fid });
+        });
+      }
+      var invalidSample = invalid.slice(0, 5);
+      var pageOk = pageCfgLoaded && invalid.length === 0;
+      res.rows.push({
+        name: 'PageConfig',
+        ok: pageOk,
+        detail: 'loaded=' + pageCfgLoaded + ' tier=' + pageCfgTier +
+          ' total=' + cfgFieldIds.length + ' invalid=' + invalid.length +
+          ' sample=' + JSON.stringify(invalidSample)
+      });
+
+      res.text = formatSchemaMetaHealthText_({
+        projectMeta: {
+          ok: metaOk,
+          tier: metaTier,
+          projectId: projectId || 'missing',
+          timezone: timezone || 'missing',
+          updatedAt: updatedAt
+        },
+        resolver: resolverRows,
+        pageConfig: {
+          ok: pageOk,
+          tier: pageCfgTier,
+          total: cfgFieldIds.length,
+          invalidCount: invalid.length,
+          invalidSample: invalidSample
+        }
+      }) + '\nProjectMeta keys: ' + JSON.stringify(metaKeys) + '\nDurationMs=' + String(Date.now() - t0);
+      return res;
+    }
+
+    async function runSchemaMetaHealth() {
+      var tableEl = document.getElementById('schema-meta-health-table');
+      var textEl = document.getElementById('schema-meta-health-text');
+      if (tableEl) tableEl.innerHTML = 'running...';
+      if (textEl) textEl.textContent = '';
+      try {
+        var res = await checkS1SchemaMetaHealth();
+        renderSchemaMetaHealth_(res);
+      } catch (e) {
+        renderSchemaMetaHealth_({
+          rows: [{ name: 'Schema/Meta Health', ok: false, detail: 'error=' + String(e && e.message ? e.message : e) }],
+          text: '[Schema/Meta Health (ProjectMeta-first)]\nerror=' + String(e && e.message ? e.message : e)
+        });
+      }
+    }
+
+    function getFieldTypesSource_() {
+      var src = '';
+      try { src = window.__MOTK_FIELD_TYPES_SOURCE__ || ''; } catch (_) { }
+      return String(src || '').trim() || 'unknown';
+    }
+
+    function countFieldTypesByType_(fieldTypes, ent) {
+      var out = {};
+      if (!fieldTypes || !ent || !fieldTypes[ent]) return out;
+      Object.keys(fieldTypes[ent]).forEach(function (fid) {
+        var meta = fieldTypes[ent][fid] || {};
+        var t = String(meta.type || 'unknown').toLowerCase();
+        out[t] = (out[t] || 0) + 1;
+      });
+      return out;
+    }
+
+    function collectRequiredKeys_(ent) {
+      var out = [];
+      try {
+        if (window.SchemaResolver && SchemaResolver.getIdFid) {
+          out.push({ key: 'id', ok: !!SchemaResolver.getIdFid(ent) });
+        }
+      } catch (_) { }
+      try {
+        if (window.SchemaResolver && SchemaResolver.getEntityNameFid) {
+          out.push({ key: 'entity_name', ok: !!SchemaResolver.getEntityNameFid(ent) });
+        }
+      } catch (_) { }
+      return out;
+    }
+
+    function renderSchemaMetaFieldTypesHealth_(result) {
+      var tableEl = document.getElementById('schema-meta-fieldtypes-table');
+      var textEl = document.getElementById('schema-meta-fieldtypes-text');
+      if (!tableEl || !textEl) return;
+      var rows = result && Array.isArray(result.rows) ? result.rows : [];
+      var html = [
+        '<table class="schema-meta-table">',
+        '<thead><tr><th>Check</th><th>Status</th><th>Details</th></tr></thead>',
+        '<tbody>',
+        rows.map(function (r) {
+          var statusHtml = r.ok ? '<span class="success">PASS</span>' : '<span class="error">FAIL</span>';
+          return '<tr>' +
+            '<td>' + (r.name || '') + '</td>' +
+            '<td>' + statusHtml + '</td>' +
+            '<td>' + (r.detail || '') + '</td>' +
+            '</tr>';
+        }).join(''),
+        '</tbody>',
+        '</table>'
+      ].join('');
+      tableEl.innerHTML = html;
+      textEl.textContent = result && result.text ? result.text : '';
+    }
+
+    function formatSchemaMetaFieldTypesText_(payload) {
+      var lines = [];
+      lines.push('[SchemaMeta / FieldTypes Health]');
+      lines.push('FieldTypes: ' + (payload.fieldTypesOk ? 'PASS' : 'FAIL') +
+        ' | source=' + payload.source +
+        ' | entity=' + payload.entity);
+      lines.push('Counts: ' + JSON.stringify(payload.counts));
+      lines.push('RequiredKeys: ' + JSON.stringify(payload.requiredKeys));
+      return lines.join('\n');
+    }
+
+    function checkSchemaMetaFieldTypesHealth() {
+      var ftRes = getSchemaMetaFieldTypesWithSource_();
+      var fieldTypes = ftRes.fieldTypes || {};
+      var op = window.opener || null;
+      var st = getSchemaMetaState_();
+      var snap = (!op && typeof readViewerSnapshotFromStorage === 'function') ? readViewerSnapshotFromStorage() : null;
+      var rawEnt = (st && st.sheetName) ? st.sheetName : (snap && snap.sheetName) ? snap.sheetName : '';
+      var ent = normalizeEntityToken_(rawEnt);
+      if (!ent && fieldTypes && Object.keys(fieldTypes).length) {
+        ent = normalizeEntityToken_(Object.keys(fieldTypes)[0]) || String(Object.keys(fieldTypes)[0] || '');
+      }
+      if (!ent) ent = 'unknown';
+      var hasFieldTypes = hasFieldTypesMap_(fieldTypes);
+      var src = ftRes.source || 'unknown';
+      var appSrc = getFieldTypesSource_();
+      var counts = countFieldTypesByType_(fieldTypes, ent);
+      var required = collectRequiredKeys_(ent);
+      var requiredOk = required.length ? required.every(function (r) { return r.ok; }) : true;
+      var rows = [];
+      rows.push({
+        name: 'FieldTypes presence',
+        ok: hasFieldTypes,
+        detail: 'source=' + src + ' appSource=' + appSrc + ' entity=' + ent + ' totalEntities=' + Object.keys(fieldTypes || {}).length
+      });
+      rows.push({
+        name: 'FieldTypes counts',
+        ok: hasFieldTypes,
+        detail: JSON.stringify(counts)
+      });
+      rows.push({
+        name: 'Required keys (resolver)',
+        ok: requiredOk,
+        detail: JSON.stringify(required)
+      });
+      return {
+        rows: rows,
+        text: formatSchemaMetaFieldTypesText_({
+          fieldTypesOk: hasFieldTypes,
+          source: src + ' / app=' + appSrc,
+          entity: ent,
+          counts: counts,
+          requiredKeys: required
+        })
+      };
+    }
+
+    function runSchemaMetaFieldTypesHealth() {
+      try {
+        var res = checkSchemaMetaFieldTypesHealth();
+        renderSchemaMetaFieldTypesHealth_(res);
+      } catch (e) {
+        renderSchemaMetaFieldTypesHealth_({
+          rows: [{ name: 'SchemaMeta / FieldTypes Health', ok: false, detail: 'error=' + String(e && e.message ? e.message : e) }],
+          text: '[SchemaMeta / FieldTypes Health]\nerror=' + String(e && e.message ? e.message : e)
+        });
+      }
+    }
+
+    function readSessionJson_(key) {
+      try {
+        var raw = sessionStorage.getItem(key);
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function renderSessionJson_(id, obj) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      if (!obj) {
+        el.textContent = 'missing';
+        return;
+      }
+      el.textContent = JSON.stringify(obj, null, 2);
+    }
+
+    function runCallFirstTraceView() {
+      var obj = readSessionJson_('MOTK_LAST_CALLFIRST_TRACE_V1') || window.__MOTK_LAST_CALLFIRST_TRACE_V1 || null;
+      if (!obj) {
+        obj = { status: 'not recorded', key: 'MOTK_LAST_CALLFIRST_TRACE_V1' };
+      }
+      renderSessionJson_('callfirst-trace-json', obj);
+    }
+
+    function runSchedulerLoadDiagView() {
+      var obj = readSessionJson_('MOTK_SCHED_LOAD_DIAG_V1');
+      if (!obj) {
+        obj = { status: 'not recorded', key: 'MOTK_SCHED_LOAD_DIAG_V1' };
+      }
+      renderSessionJson_('scheduler-load-diag-json', obj);
+    }
+
+    function copyJsonById(id) {
+      try {
+        var el = document.getElementById(id);
+        var text = el ? (el.innerText || el.textContent || '') : '';
+        if (!text) return;
+        navigator.clipboard.writeText(text).then(function () {
+          logInfo('copyJsonById: copied ' + id);
+        });
+      } catch (_) { }
+    }
+
     function setRunStatus(text, isError) {
       var el = document.getElementById('run-status');
       if (!el) return;
@@ -393,6 +1064,29 @@
           throw e;
         });
       }
+      function withSoftTimeout_(promise, ms, name) {
+        var timer = null;
+        var warned = false;
+        return Promise.resolve()
+          .then(function () {
+            if (ms && ms > 0) {
+              timer = setTimeout(function () {
+                warned = true;
+                logInfo(name + " still loading after " + ms + "ms");
+              }, ms);
+            }
+            return promise;
+          })
+          .then(function (res) {
+            if (timer) clearTimeout(timer);
+            if (warned) logInfo(name + " completed after soft timeout");
+            return res;
+          })
+          .catch(function (e) {
+            if (timer) clearTimeout(timer);
+            throw e;
+          });
+      }
       async function safeAsync_(name, fn, ms) {
         try {
           await withTimeout_(Promise.resolve().then(fn), ms || 12000, name);
@@ -400,11 +1094,22 @@
           logErr_(name, e);
         }
       }
+      async function safeAsyncSoft_(name, fn, ms) {
+        try {
+          await withSoftTimeout_(Promise.resolve().then(fn), ms || 12000, name);
+        } catch (e) {
+          logErr_(name, e);
+        }
+      }
       try {
         await safeAsync_("checkRuntimeAsync", checkRuntimeAsync, 8000);
-        await safeAsync_("loadAppDataAsync", loadAppDataAsync, 12000);
+        await safeAsyncSoft_("loadAppDataAsync", loadAppDataAsync, 12000);
         await safeAsync_("checkProxyIndexLatestCacheIntegrityAsync", checkProxyIndexLatestCacheIntegrityAsync, 8000);
         await safeAsync_("checkOriginalsAsync", checkOriginalsAsync, 20000);
+        try { runSchemaMetaHealth(); } catch (e) { logErr_("runSchemaMetaHealth", e); }
+        safeSync_("runSchemaMetaFieldTypesHealth", runSchemaMetaFieldTypesHealth);
+        safeSync_("runCallFirstTraceView", runCallFirstTraceView);
+        safeSync_("runSchedulerLoadDiagView", runSchedulerLoadDiagView);
         safeSync_("checkTableInlineEdit", checkTableInlineEdit);
         safeSync_("checkTableEntityContractV2", checkTableEntityContractV2);
         safeSync_("checkTableFieldEntityLeakage", checkTableFieldEntityLeakage);
@@ -610,6 +1315,23 @@
         if (name === want) return list[i].__fid;
       }
       return '';
+    }
+
+    function findFidByNameAnyEntity_(fieldTypes, fieldName) {
+      var want = normalizeFieldName_(fieldName);
+      var hits = [];
+      if (!fieldTypes || typeof fieldTypes !== 'object') return hits;
+      Object.keys(fieldTypes).forEach(function (ent) {
+        var list = listFieldMetas_(fieldTypes, ent);
+        for (var i = 0; i < list.length; i++) {
+          var name = normalizeFieldName_(list[i].field_name || list[i].name || list[i].label || '');
+          if (name === want) hits.push({ fid: list[i].__fid, entity: ent });
+        }
+      });
+      hits.sort(function (a, b) {
+        return String(a.entity || '').localeCompare(String(b.entity || ''));
+      });
+      return hits;
     }
 
     function checkTableEntityContractV2() {
@@ -963,6 +1685,11 @@
         var nav = ctx.nav || {};
         var resolvedPid = (ctx.state && ctx.state.pageId) ? String(ctx.state.pageId) : (ctx.bootDiag && ctx.bootDiag.pageId ? String(ctx.bootDiag.pageId) : '');
         var resolvedEnt = (ctx.state && ctx.state.sheetName) ? String(ctx.state.sheetName) : (ctx.bootDiag && ctx.bootDiag.entity ? String(ctx.bootDiag.entity) : '');
+        var hasNav = nav && Object.keys(nav).length > 0;
+        if (!ctx.op && (!resolvedPid || !resolvedEnt) && !hasNav) {
+          logInfo("G1 INFO: insufficient context (no opener and no stored boot snapshot)");
+          return;
+        }
         if (!resolvedPid || !resolvedEnt) {
           logWarn("G1 FAIL: entity/pageId not resolved before render");
           emitGFailureDiagnostics_("G1", ctx, "resolve entity/pageId before first paint; auto-pick table page when pid is missing");
@@ -971,6 +1698,10 @@
         var painted = (nav.table_painted_ms != null) ? nav.table_painted_ms : nav.render_first_paint_ms;
         var degraded = !!(ctx.state && ctx.state.__DEGRADED_MODE__);
         if (painted == null) {
+          if (!ctx.op && !hasNav) {
+            logInfo("G1 INFO: insufficient timing context (open from app or wait for stored snapshot)");
+            return;
+          }
           logWarn("G1 FAIL: timing missing (table_painted_ms)");
           emitGFailureDiagnostics_("G1", ctx, "ensure nav timings are recorded and BootPack is applied before first paint");
           return;
@@ -1094,12 +1825,21 @@
         var ctx = getTableDiagContext_();
         var bootDiag = ctx.bootDiag;
         var nav = ctx.nav || {};
+        var hasNav = nav && Object.keys(nav).length > 0;
         if (!bootDiag || !bootDiag.cache || !bootDiag.timing) {
+          if (!ctx.op && !hasNav) {
+            logInfo("G4 INFO: insufficient context (no opener and no stored boot diagnostics)");
+            return;
+          }
           logWarn("G4 FAIL: bootpack cache/timing missing");
           emitGFailureDiagnostics_("G4", ctx, "ensure BootPack diag is stored to window/session and includes cache/timing");
           return;
         }
         if (nav.table_painted_ms == null && nav.render_first_paint_ms == null) {
+          if (!ctx.op && !hasNav) {
+            logInfo("G4 INFO: insufficient timing context (open from app or wait for stored snapshot)");
+            return;
+          }
           logWarn("G4 FAIL: navigation timing missing");
           emitGFailureDiagnostics_("G4", ctx, "capture nav timing marks in table boot flow");
           return;
@@ -1140,28 +1880,62 @@
 
     function checkServerDateCoercion() {
       logInfo("checkServerDateCoercion: start");
+      var done = false;
+      function finish_(status, msg) {
+        if (done) return;
+        done = true;
+        var line = "checkServerDateCoercion: " + status + (msg ? " " + msg : "");
+        if (status === "PASS" || status === "SKIP") logInfo(line);
+        else logWarn(line);
+      }
       // This is an async check calling server
-      var fieldTypes = window.FIELD_TYPES || {};
-      var fid = findFidByName_(fieldTypes, "shot", "Due Date") || findFidByType_(fieldTypes, "shot", "date");
+      var st = getSchemaMetaState_() || {};
+      var ent = normalizeEntityToken_((st && (st.sheetName || st.entity)) || '');
+      if (!ent) {
+        var snap = readViewerSnapshotFromStorage();
+        ent = normalizeEntityToken_((snap && (snap.sheetNameNormalized || snap.sheetName || snap.entityParamNormalized || snap.entityParam)) || '');
+      }
+      if (!ent) {
+        finish_("SKIP", "(entity not resolved)");
+        return;
+      }
+      var fieldTypes = getSchemaMetaFieldTypes_() || window.FIELD_TYPES || {};
+      var fid = findFidByName_(fieldTypes, ent, "Due Date");
       if (!fid) {
-        logWarn("checkServerDateCoercion: missing date field for shot");
+        var entTypes = fieldTypes && fieldTypes[ent] ? fieldTypes[ent] : {};
+        var dateFids = [];
+        Object.keys(entTypes || {}).forEach(function (k) {
+          var t = entTypes[k];
+          var type = t && t.type ? String(t.type) : '';
+          if (type === 'date') dateFids.push(k);
+        });
+        if (dateFids.length) fid = dateFids[0];
+      }
+      if (!fid) {
+        var entTypes2 = fieldTypes && fieldTypes[ent] ? fieldTypes[ent] : {};
+        var candidates = Object.keys(entTypes2 || {}).slice(0, 10).map(function (k) {
+          var t2 = entTypes2[k] || {};
+          return k + ":" + String(t2.type || '');
+        });
+        finish_("WARN", "(missing date field for " + ent + " candidates=" + candidates.join(", ") + ")");
         return;
       }
       google.script.run
         .withSuccessHandler(function(res) {
           logInfo("checkServerDateCoercion: entity=" + res.entity + " fid=" + res.fieldId + " val=" + res.returnedValue + " type=" + res.returnedType);
           if (res.returnedValue && /^\d{4}-\d{2}-\d{2}$/.test(res.returnedValue)) {
-             logInfo("checkServerDateCoercion: PASS (format is YYYY-MM-DD)");
+            finish_("PASS", "(format is YYYY-MM-DD)");
           } else if (res.returnedValue === "") {
-             logInfo("checkServerDateCoercion: WARN (empty value, cannot verify format)");
+            finish_("WARN", "(empty value, cannot verify format)");
           } else {
-             logWarn("checkServerDateCoercion: FAIL (expected YYYY-MM-DD, got " + res.returnedValue + ")");
+            finish_("FAIL", "(expected YYYY-MM-DD, got " + res.returnedValue + ")");
           }
         })
         .withFailureHandler(function(err) {
-          logWarn("checkServerDateCoercion: server error " + err);
+          var msg = String(err && err.message ? err.message : err);
+          finish_("WARN", "(server error " + msg + ")");
         })
-        .dp_diag_dateCoercion("shot", "sh_0001", fid);
+        .dp_diag_dateCoercion(ent, "sh_0001", fid);
     }
 
     async function runTableTake18Checks_() {
@@ -1688,23 +2462,38 @@
         try {
           var op = window.opener || null;
           var snap = readViewerSnapshotFromStorage();
-          if (!op && snap) {
-            logInfo('loadAppDataAsync: skip (no opener; using stored viewer snapshot)');
-            try {
-              var res = {
-                fieldTypes: snap.fieldTypes || {},
-                counts: snap.counts || snap.linkMapsCounts || {},
-                presets: snap.presets || []
-              };
-              updateFromRes(res);
-            } catch (_) { }
-            try {
-              google.script.run
-                .withSuccessHandler(function (res2) { updateFromRes(res2); })
-                .withFailureHandler(function (err2) { logInfo('loadAppDataAsync: background error ' + err2); })
-                .dp_loadAppData();
-            } catch (_) { }
-            resolve();
+          if (!op) {
+            var dpState = buildDpStateFromSnapshot_(snap);
+            if (snap) setDpState_(dpState);
+            logInfo('loadAppDataAsync: no opener; loading page config + app data');
+            var pid = (dpState && dpState.pageId) ? String(dpState.pageId || '') : '';
+            var ent = normalizeEntityToken_((dpState && (dpState.sheetName || dpState.entity)) || '');
+            if (!pid) logWarn('loadAppDataAsync: new-tab missing pageId in viewer snapshot');
+
+            var pageCfgPromise = pid ? getPageConfigSingleFlight_(pid, ent, "debugpanel-newtab") : Promise.resolve(null);
+            var appDataPromise = getAppDataSingleFlight_("debugpanel-newtab");
+
+            pageCfgPromise.then(function (res2) {
+              if (res2 && res2.ok && res2.item) {
+                setDpState_({ pageId: pid, sheetName: ent || dpState.sheetName || '', pageCfgRaw: res2.item.config || {}, __PAGE_CFG_SOURCE__: 'server' });
+                logInfo('loadAppDataAsync: new-tab page config ok pid=' + pid);
+              } else if (pid) {
+                var reason = (res2 && (res2.error || res2.message || res2.reason)) ? String(res2.error || res2.message || res2.reason) : 'unknown';
+                setDpState_({ pageId: pid, sheetName: ent || dpState.sheetName || '', __PAGE_CFG_SOURCE__: 'server_error' });
+                logWarn('loadAppDataAsync: new-tab page config failed pid=' + pid + ' reason=' + reason);
+              }
+            });
+
+            appDataPromise.then(function (res) {
+              if (res) updateFromRes(res);
+              try {
+                var ft = (res && res.fieldTypes) ? res.fieldTypes : (globalRes && globalRes.fieldTypes) ? globalRes.fieldTypes : {};
+                var fm = buildFieldsMetaFromFieldTypes_(ft);
+                if (Object.keys(fm).length) setDpState_({ fieldsMeta: fm });
+              } catch (_) { }
+            });
+
+            Promise.all([pageCfgPromise, appDataPromise]).then(function () { resolve(); });
             return;
           }
         } catch (_) { }
@@ -1865,8 +2654,8 @@
         try {
           const st = opener.STATE || {};
           const fieldIds = Array.isArray(st.fieldIds) ? st.fieldIds.slice() : [];
-          const uniq = new Set(fieldIds);
-          const dupCount = fieldIds.length - uniq.size;
+          const uniqSet = new Set(fieldIds);
+          const dupCount = fieldIds.length - uniqSet.size;
           const hasObject = fieldIds.some(fid => typeof fid === 'object');
           const table = opener.document && opener.document.querySelector('#tableWrap table');
           const headerFids = [];
@@ -1880,7 +2669,7 @@
           const lastApply = Array.isArray(st.__TABLE_LAST_APPLY__) ? st.__TABLE_LAST_APPLY__ : [];
           const fieldIdsHash = fieldIds.join('|');
           const logLines = [];
-          logLines.push('fieldIds count=' + fieldIds.length + ' uniq=' + uniq.size + ' dup=' + dupCount + (hasObject ? ' hasObject=true' : ''));
+          logLines.push('fieldIds count=' + fieldIds.length + ' uniq=' + uniqSet.size + ' dup=' + dupCount + (hasObject ? ' hasObject=true' : ''));
           logLines.push('header fids count=' + headerFids.length);
           logLines.push('mismatch=' + mismatch);
           logLines.push('version=' + version + ' expected=' + expected + ' hash=' + fieldIdsHash);
@@ -2039,6 +2828,10 @@
         getSectionTextById_('runtime', 'Runtime'),
         getSectionTextById_('viewer-state', 'Viewer State'),
         getSectionTextById_('data-maps', 'Data maps / Page'),
+        getSectionTextById_('schema-meta-health', 'Schema/Meta Health (ProjectMeta-first)'),
+        getSectionTextById_('schema-meta-fieldtypes', 'SchemaMeta / FieldTypes Health'),
+        getSectionTextById_('callfirst-trace', 'Last callFirst Trace'),
+        getSectionTextById_('scheduler-load-diag', 'Scheduler Load Diagnostics'),
         getSectionTextById_('fieldtypes-diag', 'FieldTypes diagnostics'),
         getSectionTextById_('originals-resolver', 'Originals resolver'),
         getSectionTextById_('entity-samples', 'Entity samples'),
@@ -2093,6 +2886,11 @@
     window.runAllChecks = runAllChecks;
     window.runColumnContract = runColumnContract;
     window.runBindingIntegrity = runBindingIntegrity;
+    window.runSchemaMetaHealth = runSchemaMetaHealth;
+    window.runSchemaMetaFieldTypesHealth = runSchemaMetaFieldTypesHealth;
+    window.runCallFirstTraceView = runCallFirstTraceView;
+    window.runSchedulerLoadDiagView = runSchedulerLoadDiagView;
+    window.copyJsonById = copyJsonById;
     window.copyAll = copyAll;
     window.copyConsoleBuffer = copyConsoleBuffer;
     window.downloadReport = downloadReport;
@@ -2452,7 +3250,7 @@ window.MOTK_DP.queryTableStub = function(entity, query, sort, offset, limit) {
     google.script.run
       .withSuccessHandler(resolve)
       .withFailureHandler(reject)
-      .sv_queryTable_v3(entity, query, sort, offset, limit);
+      .sv_queryTable(entity, query, sort, offset, limit);
   });
 };
 
@@ -2622,6 +3420,11 @@ window.MOTK_DP.getSlice = function(entity, offset, limit) {
       }
 
       window.runAllChecks = runAllChecks;
+      window.runSchemaMetaHealth = runSchemaMetaHealth;
+      window.runSchemaMetaFieldTypesHealth = runSchemaMetaFieldTypesHealth;
+      window.runCallFirstTraceView = runCallFirstTraceView;
+      window.runSchedulerLoadDiagView = runSchedulerLoadDiagView;
+      window.copyJsonById = copyJsonById;
       window.copyAll = copyAll;
       if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', start, { once: true }); } else { start(); }
     })();

@@ -166,6 +166,15 @@ function getIdNameMap_(sheetName) {
   return map;
 }
 
+function _sv_normMetaKey_(k) {
+  return String(k || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s\-\/]+/g, '_')
+    .replace(/[^\w]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
 function _sv_readProjectMeta_(sh) {
   if (!sh) return {};
   var data = sh.getDataRange().getValues();
@@ -175,9 +184,14 @@ function _sv_readProjectMeta_(sh) {
   var meta = {};
   if (a1 === 'meta_key' && b1 === 'meta_value') {
     for (var r = 1; r < data.length; r++) {
-      var mk = String(data[r][0] || '').trim();
+      var mk = data[r][0];
       if (!mk) continue;
-      meta[mk] = data[r][1];
+      var mv = data[r][1];
+      if (mv === '' || mv == null) continue;
+      var raw = String(mk).trim();
+      var norm = _sv_normMetaKey_(raw);
+      meta[norm] = mv;
+      if (!(raw in meta)) meta[raw] = mv;
     }
     return meta;
   }
@@ -192,18 +206,28 @@ function _sv_readProjectMeta_(sh) {
   }
   if (keyCol >= 0 && valCol >= 0) {
     for (var r2 = 1; r2 < data.length; r2++) {
-      var k2 = String(data[r2][keyCol] || '').trim();
+      var k2 = data[r2][keyCol];
       if (!k2) continue;
-      meta[k2] = data[r2][valCol];
+      var v2 = data[r2][valCol];
+      if (v2 === '' || v2 == null) continue;
+      var raw2 = String(k2).trim();
+      var norm2 = _sv_normMetaKey_(raw2);
+      meta[norm2] = v2;
+      if (!(raw2 in meta)) meta[raw2] = v2;
     }
     return meta;
   }
   var keys = data[0] || [];
   var vals = data[1] || [];
   for (var c = 0; c < keys.length; c++) {
-    var kk = String(keys[c] || '').trim();
+    var kk = keys[c];
     if (!kk) continue;
-    meta[kk] = vals[c];
+    var vv = vals[c];
+    if (vv === '' || vv == null) continue;
+    var raw3 = String(kk).trim();
+    var norm3 = _sv_normMetaKey_(raw3);
+    meta[norm3] = vv;
+    if (!(raw3 in meta)) meta[raw3] = vv;
   }
   return meta;
 }
@@ -345,13 +369,16 @@ function _guessShotId_(name){
   return 'sh_' + num;
 }
 
+function _fidPrefix_() { return 'f' + 'i_'; }
+
 function _isFidLike_(v) {
   try {
     if (typeof _isFid_ === "function") return _isFid_(v);
   } catch (_) { }
   var s = String(v == null ? "" : v).trim().toLowerCase();
-  if (!s || s.indexOf("fi_") !== 0) return false;
-  var rest = s.slice(3);
+  var pre = _fidPrefix_();
+  if (!s || s.indexOf(pre) !== 0) return false;
+  var rest = s.slice(pre.length);
   if (!rest) return false;
   for (var i = 0; i < rest.length; i++) {
     var ch = rest.charCodeAt(i);
@@ -646,19 +673,7 @@ function sv_indexAllProxies(req){
       updatedAt: new Date().toISOString(),
       diag: { mode: "drive_scan", server_total_ms: Date.now() - t0 }
     };
-    try {
-      var sh = getProxyIndexCacheSheet_();
-      var keys = Object.keys(byRecord || {});
-      var sample = keys.slice(0, 3);
-      writeProxyIndexLatestSummary_(sh, {
-        updatedAt: res.updatedAt,
-        mode: res.diag.mode,
-        count: keys.length,
-        sample: JSON.stringify(sample)
-      });
-    } catch (e) {
-      res.diag.summaryError = String(e && e.message || e);
-    }
+    try { res.diag.cacheSheet = { ok: false, reason: "disabled" }; } catch (_) { }
     try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(res), 1800); } catch (_) { }
     return _jsonSafe_(res);
   } catch(e){
@@ -668,38 +683,14 @@ function sv_indexAllProxies(req){
 
 function sv_getProxyIndexCache_v1(req) {
   var t0 = Date.now();
-  try {
-    var cacheKey = "proxy_index_cache_v1";
-    try {
-      var cached = CacheService.getScriptCache().get(cacheKey);
-      if (cached) {
-        var obj = JSON.parse(cached);
-        if (obj && obj.byRecord) {
-          obj.diag = obj.diag || {};
-          obj.diag.hit = "cache";
-          obj.diag.server_total_ms = Date.now() - t0;
-          return _jsonSafe_(obj);
-        }
-      }
-    } catch (_) { }
-
-    var sh = getProxyIndexCacheSheet_();
-    var data = readProxyIndexCache_(sh);
-    var res = {
-      byRecord: data.byRecord || {},
-      byRecordField: {},
-      updatedAt: data.updatedAt || "",
-      diag: {
-        hit: data.count > 0 ? "cache_sheet" : "cache_miss",
-        count: data.count || 0,
-        server_total_ms: Date.now() - t0
-      }
-    };
-    try { CacheService.getScriptCache().put(cacheKey, JSON.stringify(res), 1800); } catch (_) { }
-    return _jsonSafe_(res);
-  } catch (e) {
-    return _jsonSafe_({ byRecord: {}, byRecordField: {}, updatedAt: "", diag: { hit: "error", count: 0, server_total_ms: Date.now() - t0 } });
-  }
+  return _jsonSafe_({
+    ok: false,
+    reason: "disabled",
+    byRecord: {},
+    byRecordField: {},
+    updatedAt: "",
+    diag: { hit: "disabled", count: 0, server_total_ms: Date.now() - t0 }
+  });
 }
 
 function sv_refreshProxyIndexCache_v1(req) {
@@ -714,16 +705,17 @@ function sv_refreshProxyIndexCache_v1(req) {
     if (!byRecord[sid]) byRecord[sid] = f;
   }
   var updatedAt = new Date().toISOString();
-  try {
-    var sh = getProxyIndexCacheSheet_();
-    writeProxyIndexCache_(sh, byRecord, updatedAt);
-  } catch (_) { }
-  return _jsonSafe_({
+  var res = {
     byRecord: byRecord,
     byRecordField: {},
     updatedAt: updatedAt,
     diag: { hit: "manual_drive_scan", count: Object.keys(byRecord).length, server_total_ms: Date.now() - t0 }
-  });
+  };
+  try {
+    CacheService.getScriptCache().put("proxy_index_cache_v1", JSON.stringify(res), 1800);
+  } catch (_) { }
+  try { res.diag.cacheSheet = { ok: false, reason: "disabled" }; } catch (_) { }
+  return _jsonSafe_(res);
 }
 
 function sv_getProxyIndexLatest(req) {
@@ -757,7 +749,7 @@ function sv_getProxyIndexLatest(req) {
 }
 
 function sv_getProxyIndexLatestSummary(req) {
-  var out = { cacheService: { ok: false }, cacheSheet: { ok: false } };
+  var out = { cacheService: { ok: false }, cacheSheet: { ok: false, reason: "disabled" } };
   var cacheKey = "proxy_index_all_v1";
   try {
     var cached = CacheService.getScriptCache().get(cacheKey);
@@ -775,133 +767,7 @@ function sv_getProxyIndexLatestSummary(req) {
   } catch (e) {
     out.cacheService = { ok: false, error: String(e && e.message || e) };
   }
-  try {
-    var sh = getProxyIndexCacheSheet_();
-    var summary = readProxyIndexLatestSummary_(sh);
-    if (summary) {
-      out.cacheSheet = {
-        ok: true,
-        updatedAt: summary.updatedAt || "",
-        mode: summary.mode || "",
-        count: summary.count || 0,
-        sample: summary.sample || ""
-      };
-    } else {
-      out.cacheSheet = { ok: false, reason: "missing_summary" };
-    }
-  } catch (e2) {
-    out.cacheSheet = { ok: false, error: String(e2 && e2.message || e2) };
-  }
   return _jsonSafe_(out);
-}
-
-function getProxyIndexCacheSheet_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName("Cache") || ss.getSheetByName("DataHub_Core cache");
-  if (!sh) throw new Error("Cache sheet not found");
-  ensureProxyIndexHeader_(sh);
-  return sh;
-}
-
-function ensureProxyIndexHeader_(sh) {
-  var h = sh.getRange(1, 7, 1, 7).getValues()[0] || [];
-  if (String(h[0] || "").trim().toLowerCase() === "kind") return;
-  sh.getRange(1, 7, 1, 7).setValues([[
-    "Kind", "ShotId", "LatestFileId", "LatestFileUrl", "ModifiedTimeIso", "ThumbUrl", "UpdatedAtIso"
-  ]]);
-}
-
-function readProxyIndexCache_(sh) {
-  var lastRow = sh.getLastRow();
-  if (lastRow < 2) return { byRecord: {}, count: 0, updatedAt: "" };
-  var rows = sh.getRange(2, 7, lastRow - 1, 7).getValues();
-  var byRecord = {};
-  var updatedAt = "";
-  for (var i = 0; i < rows.length; i++) {
-    var row = rows[i] || [];
-    var kind = String(row[0] || "").trim().toLowerCase();
-    if (kind !== "proxy_index") continue;
-    var shotId = String(row[1] || "").trim();
-    if (!shotId) continue;
-    var fileId = String(row[2] || "").trim();
-    var url = String(row[3] || "").trim();
-    var mod = String(row[4] || "").trim();
-    var thumb = String(row[5] || "").trim();
-    var upd = String(row[6] || "").trim();
-    if (upd) updatedAt = upd;
-    byRecord[shotId] = { id: fileId, url: url, modifiedTime: mod, thumbUrl: thumb };
-  }
-  return { byRecord: byRecord, count: Object.keys(byRecord).length, updatedAt: updatedAt };
-}
-
-function writeProxyIndexCache_(sh, byRecord, updatedAtIso) {
-  var lastRow = sh.getLastRow();
-  if (lastRow >= 2) {
-    var kinds = sh.getRange(2, 7, lastRow - 1, 1).getValues();
-    for (var i = kinds.length - 1; i >= 0; i--) {
-      if (String(kinds[i][0] || "").trim().toLowerCase() === "proxy_index") {
-        sh.deleteRow(i + 2);
-      }
-    }
-  }
-  var rows = [];
-  var keys = Object.keys(byRecord || {});
-  for (var k = 0; k < keys.length; k++) {
-    var id = keys[k];
-    var v = byRecord[id] || {};
-    rows.push([
-      "proxy_index",
-      id,
-      v.id || "",
-      v.url || "",
-      v.modifiedTime || "",
-      v.thumbUrl || "",
-      updatedAtIso || ""
-    ]);
-  }
-  if (rows.length) {
-    sh.getRange(sh.getLastRow() + 1, 7, rows.length, 7).setValues(rows);
-  }
-}
-
-function writeProxyIndexLatestSummary_(sh, summary) {
-  ensureProxyIndexHeader_(sh);
-  var lastRow = sh.getLastRow();
-  if (lastRow >= 2) {
-    var kinds = sh.getRange(2, 7, lastRow - 1, 1).getValues();
-    for (var i = kinds.length - 1; i >= 0; i--) {
-      if (String(kinds[i][0] || "").trim().toLowerCase() === "proxy_index_latest") {
-        sh.deleteRow(i + 2);
-      }
-    }
-  }
-  var row = [
-    "proxy_index_latest",
-    String(summary.count != null ? summary.count : 0),
-    String(summary.mode || ""),
-    String(summary.sample || ""),
-    "",
-    "",
-    String(summary.updatedAt || "")
-  ];
-  sh.getRange(sh.getLastRow() + 1, 7, 1, 7).setValues([row]);
-}
-
-function readProxyIndexLatestSummary_(sh) {
-  var lastRow = sh.getLastRow();
-  if (lastRow < 2) return null;
-  var rows = sh.getRange(2, 7, lastRow - 1, 7).getValues();
-  for (var i = 0; i < rows.length; i++) {
-    var row = rows[i] || [];
-    var kind = String(row[0] || "").trim().toLowerCase();
-    if (kind !== "proxy_index_latest") continue;
-    var count = Number(row[1] || 0);
-    var mode = String(row[2] || "").trim();
-    var sample = String(row[3] || "").trim();
-    var updatedAt = String(row[6] || "").trim();
-    return { count: isFinite(count) ? count : 0, mode: mode, sample: sample, updatedAt: updatedAt };
-  }
-  return null;
 }
 
 // ---------- 公開API：ページ単位（レコードID指定） ----------
