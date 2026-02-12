@@ -514,7 +514,9 @@ window.app = (function() {
     requestedSchedApplied: false,
     undoBusy: false,
     commitOpId: '',
-    commitQueueByCard: {},
+    commitQueue: [],
+    commitInflight: null,
+    commitSeq: 0,
     inspEdit: { active: false, cardId: null, fields: {}, dirty: {}, commitLock: false, isTyping: false, isEditingStart: false, isEditingEnd: false, needsResyncAfterEdit: false, refs: {}, timers: {} }
   };
   const readRequestedSchedId_ = () => {
@@ -2382,12 +2384,34 @@ window.app = (function() {
     }
   };
 
-  function flushCommitQueue_(cardKey) {
-    const entry = state.commitQueueByCard[cardKey];
-    if (!entry || entry.inflight || !entry.pending) return;
-    const payload = entry.pending;
-    entry.pending = null;
-    entry.inflight = true;
+  function flushCommitQueue_() {
+    if (state.undoBusy && !state.commitInflight) return;
+    if (state.commitInflight) return;
+    const item = state.commitQueue.shift();
+    if (!item || !item.payload) return;
+    state.commitInflight = item;
+    const payload = item.payload;
+    const finalize_ = () => {
+      state.commitInflight = null;
+      queueAssetInspectorRefresh_();
+      if (state.undoBusy) return;
+      flushCommitQueue_();
+    };
+    const retry_ = (reason) => {
+      const attempts = Number(item.attempts || 0);
+      if (attempts >= 3) {
+        console.error('[MOTK][Scheduler][Commit] final failure after retries', { reason, payload, attempts });
+        utils.saveStatus('error', 'Error');
+        finalize_();
+        return;
+      }
+      item.attempts = attempts + 1;
+      state.commitInflight = null;
+      state.commitQueue.unshift(item);
+      const delayMs = Math.min(120 * item.attempts, 600);
+      console.warn('[MOTK][Scheduler][Commit] retry scheduled', { reason, attempts: item.attempts, delayMs });
+      setTimeout(() => flushCommitQueue_(), delayMs);
+    };
     utils.saveStatus('saving', 'Saving...');
     google.script.run
       .withSuccessHandler((str) => {
@@ -2395,23 +2419,16 @@ window.app = (function() {
         try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
         if (res && res.ok) {
           utils.saveStatus('saved', 'Saved');
+          finalize_();
         } else {
-          console.warn('[MOTK][Scheduler][Commit] RPC error', { cardKey, payload, res });
-          utils.saveStatus('error', 'Error');
+          const msg = String((res && (res.error && (res.error.message || res.error))) || 'rpc_error');
+          console.warn('[MOTK][Scheduler][Commit] RPC error', { payload, res, msg });
+          retry_('rpc:' + msg);
         }
-        entry.inflight = false;
-        queueAssetInspectorRefresh_();
-        if (entry.pending) flushCommitQueue_(cardKey);
       })
       .withFailureHandler((err) => {
-        console.error('[MOTK][Scheduler][Commit] Network failure', { cardKey, payload, err });
-        utils.saveStatus('error', 'Net Error');
-        entry.inflight = false;
-        queueAssetInspectorRefresh_();
-        if (entry.pending) {
-          console.warn('[MOTK][Scheduler][Commit] Pending latest update remains queued after failure.', { cardKey });
-          flushCommitQueue_(cardKey);
-        }
+        console.error('[MOTK][Scheduler][Commit] Network failure', { payload, err });
+        retry_('network');
       })
       .sv_scheduler_commit_v2(JSON.stringify(payload));
   }
@@ -2433,25 +2450,28 @@ window.app = (function() {
   }
 
   function enqueueCommit_(payload) {
-    const cardId = (payload && payload.card && payload.card.id != null) ? String(payload.card.id) : '__global__';
-    if (!state.commitQueueByCard[cardId]) {
-      state.commitQueueByCard[cardId] = { inflight: false, pending: null };
-    }
-    state.commitQueueByCard[cardId].pending = payload;
-    flushCommitQueue_(cardId);
+    if (!payload || typeof payload !== 'object') return;
+    if (!payload.opId) payload.opId = createCommitOpId_('single');
+    state.commitSeq = Math.max(0, Math.round(Number(state.commitSeq) || 0)) + 1;
+    state.commitQueue.push({
+      seq: state.commitSeq,
+      payload: payload,
+      attempts: 0,
+      enqueuedAt: Date.now()
+    });
+    flushCommitQueue_();
   }
 
   function getCommitQueueStats_() {
-    const keys = Object.keys(state.commitQueueByCard || {});
-    let inflight = 0;
-    let pending = 0;
-    for (let i = 0; i < keys.length; i++) {
-      const entry = state.commitQueueByCard[keys[i]];
-      if (!entry) continue;
-      if (entry.inflight) inflight++;
-      if (entry.pending) pending++;
-    }
-    return { keys: keys.length, inflight: inflight, pending: pending };
+    const pending = Array.isArray(state.commitQueue) ? state.commitQueue.length : 0;
+    const inflight = state.commitInflight ? 1 : 0;
+    const retrying = (state.commitInflight && Number(state.commitInflight.attempts || 0) > 0) ? 1 : 0;
+    return {
+      keys: pending + inflight,
+      inflight: inflight,
+      pending: pending,
+      retrying: retrying
+    };
   }
 
   function isCommitQueueIdle_() {
@@ -2625,6 +2645,23 @@ window.app = (function() {
 
     undoLast: () => {
       if (state.undoBusy) return;
+      clearInspectorTimers_();
+      var droppedPending = Array.isArray(state.commitQueue) ? state.commitQueue.length : 0;
+      if (droppedPending > 0) {
+        console.warn('[MOTK][Scheduler][Undo] dropped pending commits before undo', { droppedPending: droppedPending });
+        state.commitQueue = [];
+      }
+      if (state.inspEdit) {
+        state.inspEdit.isEditingStart = false;
+        state.inspEdit.isEditingEnd = false;
+        state.inspEdit.isTypingStartDate = false;
+        state.inspEdit.isTypingEndDate = false;
+        state.inspEdit.isTyping = false;
+      }
+      try {
+        const ae = document.activeElement;
+        if (ae && typeof ae.blur === 'function') ae.blur();
+      } catch (_) {}
       state.undoBusy = true;
       const beginTs = Date.now();
       const startUndoRpc_ = () => {
@@ -2636,12 +2673,19 @@ window.app = (function() {
             try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
             if (res && res.ok) {
               const undoneCount = Math.max(1, Math.round(Number(res.undoneCount || 1)));
-              utils.saveStatus('saved', undoneCount > 1 ? ('Undone ×' + undoneCount) : 'Undone');
+              const msg = undoneCount > 1 ? ('Undone ×' + undoneCount) : 'Undone';
+              utils.saveStatus('saved', msg);
+              console.info('[MOTK][Scheduler][Undo] applied', {
+                opId: String(res.opId || ''),
+                undoneCount: undoneCount,
+                undoneLogIds: Array.isArray(res.undoneLogIds) ? res.undoneLogIds : []
+              });
               actions.load({
                 forceNetwork: true,
                 onDone: () => {
                   state.undoBusy = false;
                   setBlockingOverlay_(false);
+                  flushCommitQueue_();
                 }
               });
               return;
@@ -2651,12 +2695,14 @@ window.app = (function() {
             utils.saveStatus('error', msg);
             state.undoBusy = false;
             setBlockingOverlay_(false);
+            flushCommitQueue_();
           })
           .withFailureHandler((err) => {
             console.error('[MOTK][Scheduler][Undo] network failure', err);
             utils.saveStatus('error', String(err && (err.message || err) || 'Undo failed'));
             state.undoBusy = false;
             setBlockingOverlay_(false);
+            flushCommitQueue_();
           })
           .sv_undo_last_v2(JSON.stringify({ scope: 'scheduler' }));
       };
@@ -2666,7 +2712,7 @@ window.app = (function() {
           return;
         }
         const elapsed = Date.now() - beginTs;
-        if (elapsed > 10000) {
+        if (elapsed > 60000) {
           const q = getCommitQueueStats_();
           console.warn('[MOTK][Scheduler][Undo] commit queue timeout', q);
           utils.saveStatus('error', 'Undo timeout (save queue busy)');
@@ -2674,7 +2720,8 @@ window.app = (function() {
           setBlockingOverlay_(false);
           return;
         }
-        setBlockingOverlay_(true, 'Waiting save queue...');
+        const q = getCommitQueueStats_();
+        setBlockingOverlay_(true, 'Waiting save queue... (' + (q.inflight + q.pending) + ')');
         setTimeout(waitQueueAndUndo_, 60);
       };
       waitQueueAndUndo_();
@@ -4398,6 +4445,11 @@ window.app = (function() {
   }
 
   function dragStart(e, card, el) {
+    if (state.undoBusy) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (e.target.classList.contains('card-close')) return;
     const isResizing = e.target.classList.contains('card-resizer');
     if (!isResizing && (e.metaKey || e.ctrlKey)) {
@@ -4429,7 +4481,7 @@ window.app = (function() {
   }
 
   function dragMove(e) {
-    if (!drag) return;
+    if (!drag || state.undoBusy) return;
     const dy = e.clientY - drag.startY;
     const dx = e.clientX - drag.startX;
     if (!drag.didMove && (Math.abs(dy) > 6 || Math.abs(dx) > 6)) drag.didMove = true;
@@ -4498,6 +4550,11 @@ window.app = (function() {
     document.removeEventListener('mousemove', dragMove);
     document.removeEventListener('mouseup', dragEnd);
     if (!drag) return;
+    if (state.undoBusy) {
+      render.grid();
+      drag = null;
+      return;
+    }
     if (drag.el) drag.el.style.transform = '';
     clearDragPreviewNodes_();
     if (!drag.didMove) {
@@ -4576,6 +4633,7 @@ window.app = (function() {
 
   function handleCanvasDrop_(e) {
     e.preventDefault();
+    if (state.undoBusy) return;
     const cardId = e.dataTransfer.getData('text/plain');
     const key = String(cardId || '');
     if (!key || !state.cards[key]) return;
@@ -4615,6 +4673,7 @@ window.app = (function() {
       return false;
     };
     const pickGapFromCanvasEvent_ = (e) => {
+      if (state.undoBusy) return;
       if (Date.now() < Number(state.suppressCanvasPickUntil || 0)) return;
       const canvas = els.canvas || document.getElementById('grid-canvas');
       if (!canvas) return;
@@ -4849,10 +4908,12 @@ window.app = (function() {
     safeAdd('grid-canvas', 'dragover', (e) => { e.preventDefault(); });
     safeAdd('grid-canvas', 'drop', handleCanvasDrop_);
     safeAdd('grid-canvas', 'mousedown', (e) => {
+      if (state.undoBusy) return;
       if (e.button !== 0) return;
       pickGapFromCanvasEvent_(e);
     });
     safeAdd('grid-canvas', 'click', (e) => {
+      if (state.undoBusy) return;
       if (e.button !== 0) return;
       pickGapFromCanvasEvent_(e);
     });
