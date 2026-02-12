@@ -3042,7 +3042,10 @@ function sv_undo_last_v2(reqPayload) {
 
 function sv_setRecord_v2(entity, id, patch, options) {
   if (!entity || !id || !patch) { return { ok: true, note: "sv_setRecord_v2 present", ts: new Date().toISOString() }; }
+  var lock = null;
   try {
+    lock = LockService.getScriptLock();
+    lock.waitLock(10000);
     var opts = (options && typeof options === 'object') ? options : {};
     var skipUndoLog = !!opts.__skipUndoLog;
     var actorHint = opts.actor;
@@ -3058,24 +3061,51 @@ function sv_setRecord_v2(entity, id, patch, options) {
     var cleanPatch = {};
     Object.keys(sourcePatch).forEach(function (k) {
       var v = sourcePatch[k];
-        if (v instanceof Date) { patch[k] = isNaN(v.getTime()) ? "" : v.toISOString().slice(0, 10); }
-      else if (typeof v === "string") { patch[k] = v.trim(); }
-      else patch[k] = v;
-      cleanPatch[k] = patch[k];
+      if (v instanceof Date) { cleanPatch[k] = isNaN(v.getTime()) ? "" : v.toISOString().slice(0, 10); }
+      else if (typeof v === "string") { cleanPatch[k] = v.trim(); }
+      else cleanPatch[k] = v;
     });
 
     var beforeRecord = null;
     var beforePatch = {};
-    if (!skipUndoLog) {
-      beforeRecord = sv_getRecord(entity, id);
-      if (beforeRecord && typeof beforeRecord === 'object') {
-        Object.keys(cleanPatch).forEach(function (k) {
-          beforePatch[k] = beforeRecord.hasOwnProperty(k) ? beforeRecord[k] : '';
-        });
-      }
+    beforeRecord = sv_getRecord(entity, id);
+    if (beforeRecord && typeof beforeRecord === 'object') {
+      Object.keys(cleanPatch).forEach(function (k) {
+        beforePatch[k] = beforeRecord.hasOwnProperty(k) ? beforeRecord[k] : '';
+      });
     }
 
-    var res = dp_updateEntityRecord(entity, id, cleanPatch, opts);
+    function _normCmp_(v) {
+      if (v == null) return '';
+      if (v instanceof Date) {
+        return isNaN(v.getTime()) ? '' : Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      }
+      return String(v).trim();
+    }
+    var changedPatch = {};
+    var changedBefore = {};
+    Object.keys(cleanPatch).forEach(function (k) {
+      var prev = beforePatch.hasOwnProperty(k) ? beforePatch[k] : '';
+      var next = cleanPatch[k];
+      if (_normCmp_(prev) !== _normCmp_(next)) {
+        changedPatch[k] = next;
+        changedBefore[k] = prev;
+      }
+    });
+
+    if (!Object.keys(changedPatch).length) {
+      undoLogDiag.skipped = true;
+      return {
+        ok: true,
+        entity: String(entity || ''),
+        id: String(id || ''),
+        noop: true,
+        note: 'NOOP_NO_DIFF',
+        undoLog: undoLogDiag
+      };
+    }
+
+    var res = dp_updateEntityRecord(entity, id, changedPatch, opts);
     if (res && typeof res === "object") {
       res.ok = (res.ok === true);
       if (!res.errorCode && res.ok === false && res.error) res.errorCode = "INLINE_EDIT_FAILED";
@@ -3093,13 +3123,13 @@ function sv_setRecord_v2(entity, id, patch, options) {
           entity: String(entity || ''),
           targetId: String(id || ''),
           status: 'applied',
-          before: beforePatch,
-          after: cleanPatch,
+          before: changedBefore,
+          after: changedPatch,
           inverse: {
             kind: 'setRecord',
             entity: String(entity || ''),
             id: String(id || ''),
-            patch: beforePatch
+            patch: changedBefore
           },
           note: 'sv_setRecord_v2'
         });
@@ -3115,6 +3145,10 @@ function sv_setRecord_v2(entity, id, patch, options) {
     return res;
   } catch (e) {
     return { ok: false, error: String(e && e.message || e), errorCode: "INLINE_EDIT_EXCEPTION" };
+  } finally {
+    if (lock) {
+      try { lock.releaseLock(); } catch (_) { }
+    }
   }
 }
 function sv_setRecord(entity, id, patch, options) { return sv_setRecord_v2(entity, id, patch, options); }
