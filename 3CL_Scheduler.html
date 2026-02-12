@@ -2380,6 +2380,13 @@ window.app = (function() {
         actions.clearGapSelection();
         return;
       }
+      try {
+        var ae = document.activeElement;
+        if (ae && typeof ae.blur === 'function') {
+          var tag = String(ae.tagName || '').toLowerCase();
+          if (tag === 'input' || tag === 'textarea' || tag === 'select' || ae.isContentEditable) ae.blur();
+        }
+      } catch (_) {}
       state.selection = null;
       state.assetCellSelection = null;
       state.gapSelection = {
@@ -3139,9 +3146,17 @@ window.app = (function() {
       if (!c) {
         if (state.gapSelection && state.gapSelection.sizeSlots > 0) {
           setInspectorClosed_(false);
-          p.innerHTML = `Gap selected in lane <b>${escapeHtml_(state.gapSelection.laneId)}</b><br>` +
+          p.innerHTML = '';
+          const msg = document.createElement('div');
+          msg.innerHTML = `Gap selected in lane <b>${escapeHtml_(state.gapSelection.laneId)}</b><br>` +
             `Slots: ${state.gapSelection.fromSlot} - ${state.gapSelection.toSlot} (${state.gapSelection.sizeSlots})<br>` +
-            `Press <b>Delete</b> to close this gap.`;
+            `Press <b>Delete</b> or use the button below.`;
+          const btnCloseGap = document.createElement('button');
+          btnCloseGap.className = 'btn';
+          btnCloseGap.textContent = 'Close Gap';
+          btnCloseGap.addEventListener('click', () => actions.closeSelectedGap());
+          p.appendChild(msg);
+          p.appendChild(btnCloseGap);
         } else {
           p.innerHTML = 'Select a card';
         }
