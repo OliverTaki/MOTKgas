@@ -4537,6 +4537,19 @@ window.applyData = applyData;
           return false;
         }
 
+        function retargetNodeAnchors_(n, href) {
+          try {
+            if (!n || !href) return;
+            if (n.nodeType !== 1) return;
+            var tag = (n.tagName || '').toLowerCase();
+            if (tag === 'a') n.href = href;
+            if (n.querySelectorAll) {
+              var anchors = n.querySelectorAll('a');
+              for (var ai = 0; ai < anchors.length; ai++) anchors[ai].href = href;
+            }
+          } catch (_) { }
+        }
+
         function renderCellNode_(entitySing, fid, raw, meta, rowId, rowObj) {
           try {
             if (!(window.CommonRenderer && typeof CommonRenderer.renderCellByField === 'function')) {
@@ -4708,16 +4721,25 @@ window.applyData = applyData;
                 aPM.href = Router.buildEntityUrl('member', rowId);
                 aPM.appendChild(node);
                 node = aPM;
-              } else if (shouldNameCellLinkToDetail(canon, headTxt, rowId) && !isNodeWithAnchor_(node)) {
+              } else if (shouldNameCellLinkToDetail(canon, headTxt, rowId)) {
                 var ent = singularEntityFor(canon);
-                var a2 = document.createElement('a');
-                if (ent === 'sched' && Router && typeof Router.buildScheduleUrl === 'function') {
-                  a2.href = Router.buildScheduleUrl(rowId);
-                } else {
+                var schedLike = (ent === 'sched' || ent === 'schedule' || ent === 'scheds' || ent === 'schedules');
+                if (schedLike && Router && typeof Router.buildScheduleUrl === 'function') {
+                  var schedHref = Router.buildScheduleUrl(rowId);
+                  if (isNodeWithAnchor_(node)) {
+                    retargetNodeAnchors_(node, schedHref);
+                  } else {
+                    var a2s = document.createElement('a');
+                    a2s.href = schedHref;
+                    a2s.appendChild(node);
+                    node = a2s;
+                  }
+                } else if (!isNodeWithAnchor_(node)) {
+                  var a2 = document.createElement('a');
                   a2.href = Router.buildEntityUrl(ent, rowId);
+                  a2.appendChild(node);
+                  node = a2;
                 }
-                a2.appendChild(node);
-                node = a2;
               } else if (/shotcode/i.test(headTxt) && isRowIdLike(rowId) && !isNodeWithAnchor_(node)) {
                 var a3 = document.createElement('a');
                 a3.href = Router.buildEntityUrl('shot', rowId);
