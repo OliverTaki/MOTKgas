@@ -2268,7 +2268,8 @@ window.app = (function() {
         .withSuccessHandler(() => { actions.load(); })
         .sv_scheduler_switch_active(id);
     },
-    load: () => {
+    load: (opts) => {
+      opts = opts || {};
       utils.saveStatus('saving', 'Loading...');
       const sp = document.getElementById('loadingSpinner');
       if (sp) sp.style.display='flex';
@@ -2287,7 +2288,7 @@ window.app = (function() {
       };
 
       let cacheUsed = false;
-      const shouldBypassCache = !!(state.requestedSchedId && !state.requestedSchedApplied);
+      const shouldBypassCache = !!(opts.forceNetwork || (state.requestedSchedId && !state.requestedSchedApplied));
       if (!shouldBypassCache) {
         try {
           const raw = localStorage.getItem(SCHED_CACHE_KEY);
@@ -4303,7 +4304,7 @@ window.app = (function() {
       state.autoPush = !!(e && e.target && e.target.checked);
       markViewDirty_();
     });
-    safeAdd('btn-reload', 'click', actions.load);
+    safeAdd('btn-reload', 'click', () => actions.load({ forceNetwork: true }));
     safeAdd('btn-insp', 'click', () => {
       const insp = document.getElementById('inspector');
       if (!insp) return;
