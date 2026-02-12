@@ -2399,6 +2399,11 @@ window.app = (function() {
       flushCommitQueue_();
     };
     const retry_ = (reason) => {
+      if (state.undoBusy) {
+        console.warn('[MOTK][Scheduler][Commit] retry dropped during undo', { reason, payload });
+        finalize_();
+        return;
+      }
       const attempts = Number(item.attempts || 0);
       if (attempts >= 3) {
         console.error('[MOTK][Scheduler][Commit] final failure after retries', { reason, payload, attempts });
@@ -2478,6 +2483,34 @@ window.app = (function() {
   function isCommitQueueIdle_() {
     const stats = getCommitQueueStats_();
     return (stats.inflight === 0 && stats.pending === 0);
+  }
+
+  function compactCommitQueueForUndo_() {
+    const q = Array.isArray(state.commitQueue) ? state.commitQueue : [];
+    if (!q.length) return { before: 0, after: 0 };
+    const seen = {};
+    const keptRev = [];
+    for (let i = q.length - 1; i >= 0; i--) {
+      const item = q[i];
+      const p = (item && item.payload && typeof item.payload === 'object') ? item.payload : {};
+      const cardId = (p.card && p.card.id != null) ? String(p.card.id) : '';
+      const key = cardId ? ('card:' + cardId) : ('idx:' + i);
+      if (seen[key]) continue;
+      seen[key] = true;
+      keptRev.push(item);
+    }
+    keptRev.reverse();
+    const before = q.length;
+    state.commitQueue = keptRev;
+    return { before: before, after: keptRev.length };
+  }
+
+  function dropPendingCommitQueueForUndo_() {
+    const q = Array.isArray(state.commitQueue) ? state.commitQueue : [];
+    const before = q.length;
+    if (before <= 0) return { before: 0, after: 0 };
+    state.commitQueue = [];
+    return { before: before, after: 0 };
   }
 
   function setBlockingOverlay_(visible, text) {
@@ -2647,6 +2680,14 @@ window.app = (function() {
     undoLast: () => {
       if (state.undoBusy) return;
       clearInspectorTimers_();
+      const compacted = compactCommitQueueForUndo_();
+      if (compacted.before > compacted.after) {
+        console.info('[MOTK][Scheduler][Undo] compacted pending queue before wait', compacted);
+      }
+      const dropped = dropPendingCommitQueueForUndo_();
+      if (dropped.before > 0) {
+        console.info('[MOTK][Scheduler][Undo] dropped pending queue before undo', dropped);
+      }
       if (state.inspEdit) {
         state.inspEdit.isEditingStart = false;
         state.inspEdit.isEditingEnd = false;
@@ -2708,22 +2749,22 @@ window.app = (function() {
           .sv_undo_last_v2(JSON.stringify({ scope: 'scheduler' }));
       };
       const waitQueueAndUndo_ = () => {
-        if (isCommitQueueIdle_()) {
+        if (!state.commitInflight) {
           startUndoRpc_();
           return;
         }
         const elapsed = Date.now() - beginTs;
-        if (elapsed > 60000) {
+        if (elapsed > 30000) {
           const q = getCommitQueueStats_();
           console.warn('[MOTK][Scheduler][Undo] commit queue timeout', q);
-          utils.saveStatus('error', 'Undo timeout (save queue busy)');
+          utils.saveStatus('error', 'Undo timeout (save in-flight)');
           state.undoBusy = false;
           state.undoPhase = '';
           setBlockingOverlay_(false);
           return;
         }
         const q = getCommitQueueStats_();
-        setBlockingOverlay_(true, 'Waiting save queue... (' + (q.inflight + q.pending) + ')');
+        setBlockingOverlay_(true, 'Waiting in-flight save... (' + q.inflight + ')');
         setTimeout(waitQueueAndUndo_, 60);
       };
       waitQueueAndUndo_();
