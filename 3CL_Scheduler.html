@@ -1484,45 +1484,6 @@ window.app = (function() {
     };
   }
 
-  function buildAssetSlotLinesForCard_(card, limit) {
-    if (!card) return [];
-    var assetIds = getTaskAssetIds_(card.taskId);
-    if (!assetIds.length) return [];
-    var maxLines = Math.max(1, Number(limit) || 60);
-    var start = Math.max(1, Math.round(Number(card.start) || 1));
-    var end = Math.max(start, Math.round(Number(card.end) || start));
-    var lines = [];
-    for (var slot = start; slot <= end; slot++) {
-      var slotUsage = state.assetUsageBySlot[String(slot)] || state.assetUsageBySlot[slot];
-      if (!slotUsage) continue;
-      var parts = [];
-      for (var i = 0; i < assetIds.length; i++) {
-        var aid = assetIds[i];
-        var u = slotUsage[aid];
-        if (!u) continue;
-        var warn = u.count > u.capacity ? ' !' : '';
-        parts.push(getAssetLabel_(aid) + ' ' + u.count + '/' + u.capacity + warn);
-      }
-      if (!parts.length) continue;
-      lines.push(slotLabelFromRaw_(slot) + ': ' + parts.join(', '));
-      if (lines.length >= maxLines) break;
-    }
-    return lines;
-  }
-
-  function getVisibleRawSlotRange_() {
-    if (!state.workDayMap || !state.workDayMap.length) return null;
-    var slotsPerDay = Math.max(1, getSlotsPerDay_());
-    var firstDay = state.workDayMap[0];
-    var lastDay = state.workDayMap[state.workDayMap.length - 1];
-    if (!firstDay || !lastDay) return null;
-    var startRaw = utils.dateValToSlot(formatYmd_(firstDay), 1, 'start');
-    var endRaw = utils.dateValToSlot(formatYmd_(lastDay), slotsPerDay, 'end');
-    startRaw = Math.max(1, Math.round(Number(startRaw) || 1));
-    endRaw = Math.max(startRaw, Math.round(Number(endRaw) || startRaw));
-    return { startRaw: startRaw, endRaw: endRaw, slotsPerDay: slotsPerDay };
-  }
-
   function getAssetsColWidth_() {
     try {
       var raw = getComputedStyle(document.documentElement).getPropertyValue('--asset-col-w');
