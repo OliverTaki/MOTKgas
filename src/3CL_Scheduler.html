@@ -2399,7 +2399,7 @@ window.app = (function() {
       flushCommitQueue_();
     };
     const retry_ = (reason) => {
-      if (state.undoBusy) {
+      if (state.undoBusy && state.undoPhase === 'rpc') {
         console.warn('[MOTK][Scheduler][Commit] retry dropped during undo', { reason, payload });
         finalize_();
         return;
@@ -2503,14 +2503,6 @@ window.app = (function() {
     const before = q.length;
     state.commitQueue = keptRev;
     return { before: before, after: keptRev.length };
-  }
-
-  function dropPendingCommitQueueForUndo_() {
-    const q = Array.isArray(state.commitQueue) ? state.commitQueue : [];
-    const before = q.length;
-    if (before <= 0) return { before: 0, after: 0 };
-    state.commitQueue = [];
-    return { before: before, after: 0 };
   }
 
   function setBlockingOverlay_(visible, text) {
@@ -2684,10 +2676,6 @@ window.app = (function() {
       if (compacted.before > compacted.after) {
         console.info('[MOTK][Scheduler][Undo] compacted pending queue before wait', compacted);
       }
-      const dropped = dropPendingCommitQueueForUndo_();
-      if (dropped.before > 0) {
-        console.info('[MOTK][Scheduler][Undo] dropped pending queue before undo', dropped);
-      }
       if (state.inspEdit) {
         state.inspEdit.isEditingStart = false;
         state.inspEdit.isEditingEnd = false;
@@ -2749,22 +2737,22 @@ window.app = (function() {
           .sv_undo_last_v2(JSON.stringify({ scope: 'scheduler' }));
       };
       const waitQueueAndUndo_ = () => {
-        if (!state.commitInflight) {
+        if (isCommitQueueIdle_()) {
           startUndoRpc_();
           return;
         }
         const elapsed = Date.now() - beginTs;
-        if (elapsed > 30000) {
+        if (elapsed > 60000) {
           const q = getCommitQueueStats_();
           console.warn('[MOTK][Scheduler][Undo] commit queue timeout', q);
-          utils.saveStatus('error', 'Undo timeout (save in-flight)');
+          utils.saveStatus('error', 'Undo timeout (save queue busy)');
           state.undoBusy = false;
           state.undoPhase = '';
           setBlockingOverlay_(false);
           return;
         }
         const q = getCommitQueueStats_();
-        setBlockingOverlay_(true, 'Waiting in-flight save... (' + q.inflight + ')');
+        setBlockingOverlay_(true, 'Waiting save queue... (' + (q.inflight + q.pending) + ')');
         setTimeout(waitQueueAndUndo_, 60);
       };
       waitQueueAndUndo_();
