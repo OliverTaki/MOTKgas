@@ -3046,6 +3046,14 @@ function sv_setRecord_v2(entity, id, patch, options) {
     var opts = (options && typeof options === 'object') ? options : {};
     var skipUndoLog = !!opts.__skipUndoLog;
     var actorHint = opts.actor;
+    var undoLogDiag = {
+      scope: 'record',
+      attempted: false,
+      skipped: !!skipUndoLog,
+      logged: false,
+      logId: '',
+      error: ''
+    };
     var sourcePatch = (patch && typeof patch === 'object') ? patch : {};
     var cleanPatch = {};
     Object.keys(sourcePatch).forEach(function (k) {
@@ -3074,26 +3082,35 @@ function sv_setRecord_v2(entity, id, patch, options) {
     }
 
     if (!skipUndoLog && res && res.ok) {
-      _undo_appendLog_({
-        ts: _undo_nowIso_(),
-        actor: actorHint,
-        scope: 'record',
-        action: 'update',
-        targetSheet: _entityToSheet_(entity),
-        entity: String(entity || ''),
-        targetId: String(id || ''),
-        status: 'applied',
-        before: beforePatch,
-        after: cleanPatch,
-        inverse: {
-          kind: 'setRecord',
+      undoLogDiag.attempted = true;
+      try {
+        var undoRes = _undo_appendLog_({
+          ts: _undo_nowIso_(),
+          actor: actorHint,
+          scope: 'record',
+          action: 'update',
+          targetSheet: _entityToSheet_(entity),
           entity: String(entity || ''),
-          id: String(id || ''),
-          patch: beforePatch
-        },
-        note: 'sv_setRecord_v2'
-      });
+          targetId: String(id || ''),
+          status: 'applied',
+          before: beforePatch,
+          after: cleanPatch,
+          inverse: {
+            kind: 'setRecord',
+            entity: String(entity || ''),
+            id: String(id || ''),
+            patch: beforePatch
+          },
+          note: 'sv_setRecord_v2'
+        });
+        undoLogDiag.logged = !!(undoRes && undoRes.ok);
+        undoLogDiag.logId = String((undoRes && undoRes.logId) || '');
+      } catch (undoErr) {
+        undoLogDiag.logged = false;
+        undoLogDiag.error = String(undoErr && (undoErr.message || undoErr) || 'undo_log_append_failed');
+      }
     }
+    if (res && typeof res === 'object') res.undoLog = undoLogDiag;
 
     return res;
   } catch (e) {
@@ -4390,6 +4407,14 @@ function sv_scheduler_commit_v2(payloadJson) {
     var cardData = payload.card;
     var skipUndoLog = !!(payload && payload.__skipUndoLog);
     var actorHint = payload && payload.actor;
+    var undoLogDiag = {
+      scope: 'scheduler',
+      attempted: false,
+      skipped: !!skipUndoLog,
+      logged: false,
+      logId: '',
+      error: ''
+    };
     var slotToInt_ = function(v, fallback) {
       var n = Math.round(Number(v));
       if (!isFinite(n)) return fallback;
@@ -4502,23 +4527,31 @@ function sv_scheduler_commit_v2(payloadJson) {
     };
     var appendSchedulerUndoLog_ = function(beforeCard, afterCard, inversePayload, noteText) {
       if (skipUndoLog) return;
-      _undo_appendLog_({
-        ts: _undo_nowIso_(),
-        actor: actorHint,
-        scope: 'scheduler',
-        action: String(action || ''),
-        targetSheet: String(activeID || ''),
-        entity: 'card',
-        targetId: String((afterCard && afterCard.id) || (beforeCard && beforeCard.id) || (cardData && cardData.id) || ''),
-        status: 'applied',
-        before: beforeCard || null,
-        after: afterCard || null,
-        inverse: {
-          kind: 'scheduler_commit',
-          payload: inversePayload || {}
-        },
-        note: noteText || 'sv_scheduler_commit_v2'
-      });
+      undoLogDiag.attempted = true;
+      try {
+        var undoRes = _undo_appendLog_({
+          ts: _undo_nowIso_(),
+          actor: actorHint,
+          scope: 'scheduler',
+          action: String(action || ''),
+          targetSheet: String(activeID || ''),
+          entity: 'card',
+          targetId: String((afterCard && afterCard.id) || (beforeCard && beforeCard.id) || (cardData && cardData.id) || ''),
+          status: 'applied',
+          before: beforeCard || null,
+          after: afterCard || null,
+          inverse: {
+            kind: 'scheduler_commit',
+            payload: inversePayload || {}
+          },
+          note: noteText || 'sv_scheduler_commit_v2'
+        });
+        undoLogDiag.logged = !!(undoRes && undoRes.ok);
+        undoLogDiag.logId = String((undoRes && undoRes.logId) || '');
+      } catch (undoErr) {
+        undoLogDiag.logged = false;
+        undoLogDiag.error = String(undoErr && (undoErr.message || undoErr) || 'undo_log_append_failed');
+      }
     };
 
     var diag = {
@@ -4570,9 +4603,9 @@ function sv_scheduler_commit_v2(payloadJson) {
           { action: 'create', card: beforeDelete || {} },
           'sv_scheduler_commit_v2:delete'
         );
-        return JSON.stringify({ ok: true, action: 'delete', diag: diag });
+        return JSON.stringify({ ok: true, action: 'delete', diag: diag, undoLog: undoLogDiag });
       }
-      return JSON.stringify({ ok: false, error: { message: 'Card not found for deletion' }, diag: diag });
+      return JSON.stringify({ ok: false, error: { message: 'Card not found for deletion' }, diag: diag, undoLog: undoLogDiag });
     }
 
     if (action === 'update') {
@@ -4603,7 +4636,7 @@ function sv_scheduler_commit_v2(payloadJson) {
         { action: 'update', card: beforeUpdate || {} },
         'sv_scheduler_commit_v2:update'
       );
-      return JSON.stringify({ ok: true, action: 'update', id: cardData.id, diag: diag });
+      return JSON.stringify({ ok: true, action: 'update', id: cardData.id, diag: diag, undoLog: undoLogDiag });
     }
 
     if (action === 'create') {
@@ -4633,7 +4666,7 @@ function sv_scheduler_commit_v2(payloadJson) {
         { action: 'delete', card: { id: afterCreate.id } },
         'sv_scheduler_commit_v2:create'
       );
-      return JSON.stringify({ ok: true, action: 'create', id: newId, diag: diag });
+      return JSON.stringify({ ok: true, action: 'create', id: newId, diag: diag, undoLog: undoLogDiag });
     }
   } catch (e) {
     return JSON.stringify({ ok: false, error: { message: e.toString() } });
