@@ -109,6 +109,7 @@
     /* Cards */
     .card { position: absolute; width: calc(var(--lane-w) - 10px); background: #2563eb; border-radius: 3px; font-size: 10px; color: #fff; padding: 2px 4px; overflow: hidden; cursor: grab; z-index: 5; box-shadow: 0 1px 3px rgba(0,0,0,0.5); display: flex; flex-direction: column; justify-content: center; }
     .card.selected { border: 1px solid #fbbf24; z-index: 20; }
+    .card.multi-selected { box-shadow: 0 0 0 1px rgba(110, 231, 255, 0.85), 0 1px 3px rgba(0,0,0,0.5); }
     .card.unsaved { border: 1px dashed #f59e0b; }
     .card:hover { z-index: 15; background: #3b82f6; }
     .card-close { position:absolute; top:0; right:2px; color:#ccc; font-weight:bold; cursor:pointer; display:none; }
@@ -142,6 +143,28 @@
       border-color: rgba(245, 158, 11, 0.45);
       background: rgba(245, 158, 11, 0.08);
     }
+    .drag-preview {
+      position: absolute;
+      width: calc(var(--lane-w) - 10px);
+      border: 1px dashed rgba(110, 231, 255, 0.95);
+      background: rgba(14, 165, 233, 0.22);
+      border-radius: 3px;
+      z-index: 60;
+      pointer-events: none;
+    }
+    .drag-preview.resize { border-color: rgba(250, 204, 21, 0.95); background: rgba(250, 204, 21, 0.18); }
+    .drag-preview.block { border-color: rgba(34, 197, 94, 0.95); background: rgba(34, 197, 94, 0.16); }
+    .drop-slot-line {
+      position: absolute;
+      height: 2px;
+      width: calc(var(--lane-w) - 10px);
+      background: #22d3ee;
+      box-shadow: 0 0 0 1px rgba(8, 47, 73, 0.65);
+      z-index: 61;
+      pointer-events: none;
+    }
+    .drop-slot-line.resize { background: #facc15; box-shadow: 0 0 0 1px rgba(113, 63, 18, 0.65); }
+    .drop-slot-line.block { background: #22c55e; box-shadow: 0 0 0 1px rgba(20, 83, 45, 0.65); }
     .lane-boundary-line {
       position: absolute;
       top: 0;
@@ -482,6 +505,8 @@ window.app = (function() {
     legacyOffsetWarned: false,
     gapSelection: null,
     assetCellSelection: null,
+    multiSelection: [],
+    dragPreview: null,
     requestedSchedId: '',
     requestedSchedApplied: false,
     commitQueueByCard: {},
@@ -1072,6 +1097,138 @@ window.app = (function() {
     };
   }
 
+  function normalizeCardIds_(ids) {
+    var out = [];
+    var seen = {};
+    (Array.isArray(ids) ? ids : []).forEach(function (id) {
+      var key = String(id || '').trim();
+      if (!key || seen[key] || !state.cards[key]) return;
+      seen[key] = true;
+      out.push(key);
+    });
+    return out;
+  }
+
+  function isCardInMultiSelection_(cardId) {
+    var key = String(cardId || '');
+    if (!key) return false;
+    return (state.multiSelection || []).indexOf(key) >= 0;
+  }
+
+  function toggleMultiSelection_(cardId) {
+    var key = String(cardId || '').trim();
+    if (!key || !state.cards[key]) return;
+    var next = normalizeCardIds_(state.multiSelection || []);
+    var idx = next.indexOf(key);
+    if (idx >= 0) next.splice(idx, 1);
+    else next.push(key);
+    state.multiSelection = next;
+  }
+
+  function getCardLengthSlots_(card) {
+    if (!card) return 1;
+    var s = Math.round(Number(card.start));
+    var e = Math.round(Number(card.end));
+    if (!isFinite(s) || !isFinite(e) || e < s) return 1;
+    return Math.max(1, e - s + 1);
+  }
+
+  function buildDragBlockForCard_(cardId) {
+    var key = String(cardId || '').trim();
+    if (!key || !state.cards[key]) return null;
+    var seed = isCardInMultiSelection_(key) ? normalizeCardIds_(state.multiSelection || []) : [key];
+    if (seed.length <= 1) return null;
+    var laneId = String(state.cards[key].laneId || '');
+    if (!laneId || laneId === 'unassigned') return null;
+    var cards = seed
+      .map(function (id) { return state.cards[id]; })
+      .filter(function (c) {
+        return !!c &&
+          String(c.laneId || '') === laneId &&
+          isFinite(Number(c.start)) &&
+          isFinite(Number(c.end));
+      })
+      .sort(function (a, b) {
+        if (Number(a.start) !== Number(b.start)) return Number(a.start) - Number(b.start);
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      });
+    if (cards.length <= 1) return null;
+    var baseStart = Math.round(Number(cards[0].start) || 1);
+    if (!isFinite(baseStart) || baseStart < 1) baseStart = 1;
+    var entries = cards.map(function (c) {
+      var len = getCardLengthSlots_(c);
+      var rel = Math.max(0, Math.round(Number(c.start) || baseStart) - baseStart);
+      return {
+        id: String(c.id || ''),
+        relStart: rel,
+        len: len
+      };
+    });
+    var anchorRel = 0;
+    entries.forEach(function (ent) {
+      if (String(ent.id || '') === key) anchorRel = ent.relStart;
+    });
+    var spanSlots = 1;
+    entries.forEach(function (ent) {
+      spanSlots = Math.max(spanSlots, ent.relStart + ent.len);
+    });
+    return {
+      laneId: laneId,
+      ids: entries.map(function (ent) { return ent.id; }),
+      entries: entries,
+      baseStart: baseStart,
+      anchorRelStart: anchorRel,
+      spanSlots: spanSlots
+    };
+  }
+
+  function pushDownLaneSuffixPreserveGaps_(laneId, insertStart, insertEnd, excludeIds) {
+    var laneKey = String(laneId || '');
+    if (!laneKey || !isFinite(Number(insertStart)) || !isFinite(Number(insertEnd))) return [];
+    var start = Math.max(1, Math.round(Number(insertStart)));
+    var end = Math.max(start, Math.round(Number(insertEnd)));
+    var exclude = {};
+    if (excludeIds && typeof excludeIds.forEach === 'function') {
+      excludeIds.forEach(function (id) { exclude[String(id || '')] = true; });
+    } else {
+      normalizeCardIds_(excludeIds || []).forEach(function (id) { exclude[id] = true; });
+    }
+    var laneCards = Object.values(state.cards || {})
+      .filter(function (c) {
+        return !!c &&
+          String(c.laneId || '') === laneKey &&
+          !exclude[String(c.id || '')] &&
+          isFinite(Number(c.start)) &&
+          isFinite(Number(c.end));
+      })
+      .sort(function (a, b) {
+        if (Number(a.start) !== Number(b.start)) return Number(a.start) - Number(b.start);
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      });
+    if (!laneCards.length) return [];
+    var firstIdx = -1;
+    for (var i = 0; i < laneCards.length; i++) {
+      var c = laneCards[i];
+      var cEnd = Math.round(Number(c.end) || 0);
+      if (cEnd >= start) {
+        firstIdx = i;
+        break;
+      }
+    }
+    if (firstIdx < 0) return [];
+    var firstStart = Math.round(Number(laneCards[firstIdx].start) || start);
+    var delta = (end - firstStart + 1);
+    if (!isFinite(delta) || delta <= 0) return [];
+    var shifted = [];
+    for (var j = firstIdx; j < laneCards.length; j++) {
+      var card = laneCards[j];
+      card.start = Math.max(1, Math.round(Number(card.start) || 1) + delta);
+      card.end = Math.max(card.start, Math.round(Number(card.end) || card.start) + delta);
+      shifted.push(card);
+    }
+    return shifted;
+  }
+
   function snapshotLaneLengths_(laneId) {
     var key = String(laneId || '');
     var map = {};
@@ -1156,6 +1313,21 @@ window.app = (function() {
     let snapped = Math.round(mins / snap.min) * snap.min;
     snapped = Math.max(0, Math.min(dayMinutes, snapped));
     return { minutes: snapped, snap: snap };
+  }
+
+  function setDragPreview_(preview) {
+    if (!preview || !preview.laneId || !isFinite(Number(preview.start)) || !isFinite(Number(preview.end))) {
+      state.dragPreview = null;
+      return;
+    }
+    var start = Math.max(1, Math.round(Number(preview.start)));
+    var end = Math.max(start, Math.round(Number(preview.end)));
+    state.dragPreview = {
+      laneId: String(preview.laneId || ''),
+      start: start,
+      end: end,
+      mode: String(preview.mode || 'move')
+    };
   }
 
   function formatYmd_(d) {
@@ -2357,6 +2529,7 @@ window.app = (function() {
     clearAssetCellSelection: (opts = {}) => {
       if (!state.assetCellSelection) return;
       state.assetCellSelection = null;
+      state.dragPreview = null;
       if (opts && opts.skipRender) return;
       render.grid();
       ui.renderInspector();
@@ -2365,6 +2538,7 @@ window.app = (function() {
     clearGapSelection: () => {
       if (!state.gapSelection) return;
       state.gapSelection = null;
+      state.dragPreview = null;
       state.assetCellSelection = null;
       render.grid();
       ui.renderInspector();
@@ -2377,6 +2551,7 @@ window.app = (function() {
       }
       state.selection = null;
       state.gapSelection = null;
+      state.multiSelection = [];
       state.assetCellSelection = {
         dateVal: String(selection.dateVal || ''),
         rawStart: Math.max(1, Math.round(Number(selection.rawStart))),
@@ -2404,6 +2579,7 @@ window.app = (function() {
       } catch (_) {}
       state.selection = null;
       state.assetCellSelection = null;
+      state.multiSelection = [];
       state.gapSelection = {
         laneId: String(gap.laneId),
         fromSlot: Math.max(1, Math.round(Number(gap.fromSlot))),
@@ -2449,9 +2625,31 @@ window.app = (function() {
       utils.saveStatus('saved', 'Gap closed');
     },
 
+    clearMultiSelection: () => {
+      if (!state.multiSelection || !state.multiSelection.length) return;
+      state.multiSelection = [];
+      render.grid();
+      ui.renderCardList();
+    },
+
+    toggleMultiSelection: (id) => {
+      const key = String(id || '').trim();
+      if (!key || !state.cards[key]) return;
+      toggleMultiSelection_(key);
+      if (!state.multiSelection.length) {
+        state.selection = key;
+      } else if (state.multiSelection.indexOf(String(state.selection || '')) < 0) {
+        state.selection = key;
+      }
+      render.grid();
+      ui.renderCardList();
+      ui.renderInspector();
+    },
+
     selectCard: (id, opts = {}) => {
       const key = String(id);
       if (!state.cards[key]) return;
+      if (opts && opts.clearMulti) state.multiSelection = [];
       state.gapSelection = null;
       state.assetCellSelection = null;
       if (String(state.selection || '') !== key) clearInspectorTimers_();
@@ -2590,41 +2788,13 @@ window.app = (function() {
       if (!state.autoPush) return;
       if (!movedCard || !movedCard.laneId || movedCard.laneId === 'unassigned') return;
       if (!isFinite(movedCard.start) || !isFinite(movedCard.end)) return;
-
-      const dur = movedCard.end - movedCard.start + 1;
-      if (!isFinite(dur) || dur <= 0) return;
-
-      const laneCards = Object.values(state.cards)
-        .filter(c => c.laneId === movedCard.laneId && isFinite(c.start) && isFinite(c.end));
-      if (!laneCards.length) return;
-
-      // Sort by start, but keep moved card after any other card with same start.
-      laneCards.sort((a, b) => {
-        if (a.start !== b.start) return a.start - b.start;
-        const aIsMoved = a.id === movedCard.id ? 1 : 0;
-        const bIsMoved = b.id === movedCard.id ? 1 : 0;
-        if (aIsMoved !== bIsMoved) return aIsMoved - bIsMoved;
-        return String(a.id).localeCompare(String(b.id));
-      });
-
-      let cursorEnd = 0;
-      laneCards.forEach(c => {
-        if (c.id === movedCard.id) {
-          if (c.start <= cursorEnd) {
-            c.start = cursorEnd + 1;
-            c.end = c.start + dur - 1;
-          }
-          cursorEnd = Math.max(cursorEnd, c.end);
-          return;
-        }
-        if (c.start <= cursorEnd) {
-          const len = c.end - c.start + 1;
-          c.start = cursorEnd + 1;
-          c.end = c.start + len - 1;
-          actions.commit(c.id, 'update');
-        }
-        cursorEnd = Math.max(cursorEnd, c.end);
-      });
+      var shifted = pushDownLaneSuffixPreserveGaps_(
+        movedCard.laneId,
+        movedCard.start,
+        movedCard.end,
+        [movedCard.id]
+      );
+      shifted.forEach(function (c) { actions.commit(c.id, 'update'); });
     },
 
     moveCard: (id, newStart, newLane) => {
@@ -2649,6 +2819,55 @@ window.app = (function() {
       if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) {
         ui.refreshInspectorValuesFromCard();
       }
+      queueAssetInspectorRefresh_();
+    },
+
+    moveCardBlock: (cardIds, targetStart, targetLane) => {
+      var ids = normalizeCardIds_(cardIds);
+      if (!ids.length) return;
+      var cards = ids
+        .map(function (id) { return state.cards[id]; })
+        .filter(function (c) { return !!c && isFinite(Number(c.start)) && isFinite(Number(c.end)); })
+        .sort(function (a, b) {
+          if (Number(a.start) !== Number(b.start)) return Number(a.start) - Number(b.start);
+          return String(a.id || '').localeCompare(String(b.id || ''));
+        });
+      if (!cards.length) return;
+      var laneId = String(targetLane || cards[0].laneId || '');
+      if (!laneId || laneId === 'unassigned') return;
+      var base = Math.round(Number(cards[0].start) || 1);
+      var entries = cards.map(function (c) {
+        var len = getCardLengthSlots_(c);
+        var relStart = Math.max(0, Math.round(Number(c.start) || base) - base);
+        return { id: String(c.id || ''), relStart: relStart, len: len };
+      });
+      var start = Math.max(1, Math.round(Number(targetStart) || 1));
+      var blockSpan = 1;
+      entries.forEach(function (ent) {
+        blockSpan = Math.max(blockSpan, ent.relStart + ent.len);
+      });
+      var blockEnd = start + blockSpan - 1;
+      var expectedById = {};
+      entries.forEach(function (ent) {
+        var card = state.cards[ent.id];
+        if (!card) return;
+        card.laneId = laneId;
+        card.start = start + ent.relStart;
+        card.end = card.start + ent.len - 1;
+        expectedById[String(card.id || '')] = ent.len;
+      });
+      var shifted = pushDownLaneSuffixPreserveGaps_(laneId, start, blockEnd, ids);
+      shifted.forEach(function (card) { actions.commit(card.id, 'update'); });
+      var fixed = enforceLaneLengthInvariant_(laneId, expectedById, 'moveCardBlock');
+      fixed.forEach(function (f) {
+        if (ids.indexOf(String(f.id || '')) < 0) actions.commit(f.id, 'update');
+      });
+      render.grid();
+      ui.renderCardList();
+      ids.forEach(function (cid) { actions.commit(cid, 'update'); });
+      state.selection = ids[0];
+      state.multiSelection = ids.slice();
+      ui.renderInspector();
       queueAssetInspectorRefresh_();
     },
 
@@ -2912,6 +3131,29 @@ window.app = (function() {
         }
       }
 
+      if (state.dragPreview && state.dragPreview.laneId) {
+        var p = state.dragPreview;
+        var laneIdxPreview = lanes.findIndex(function (l) { return String(l.id || '') === String(p.laneId || ''); });
+        var previewRect = slotRectForRawRange_(p.start, p.end, pxPerDay);
+        if (laneIdxPreview >= 0 && previewRect) {
+          var previewLeft = (laneIdxPreview * laneWidth) + 4;
+          var previewEl = document.createElement('div');
+          var modeClass = (p.mode === 'resize') ? 'resize' : (p.mode === 'block' ? 'block' : 'move');
+          previewEl.className = 'drag-preview ' + modeClass;
+          previewEl.style.left = previewLeft + 'px';
+          previewEl.style.top = previewRect.top + 'px';
+          previewEl.style.height = Math.max(8, previewRect.height - 1) + 'px';
+          previewEl.title = `Drop ${p.start}-${p.end}`;
+          els.canvas.appendChild(previewEl);
+
+          var lineEl = document.createElement('div');
+          lineEl.className = 'drop-slot-line ' + modeClass;
+          lineEl.style.left = previewLeft + 'px';
+          lineEl.style.top = Math.max(0, previewRect.top - 1) + 'px';
+          els.canvas.appendChild(lineEl);
+        }
+      }
+
       Object.values(state.cards).forEach(c => {
         if (c.start === null) return;
         const sNorm = utils.normalizeSlot(c.start, 'start');
@@ -2929,7 +3171,9 @@ window.app = (function() {
 
         const div = document.createElement('div');
         const conflictInfo = state.cardAssetConflictById[String(c.id)];
-        div.className = `card ${state.selection === c.id ? 'selected' : ''} ${conflictInfo ? 'asset-conflict' : ''}`;
+        const isPrimary = String(state.selection || '') === String(c.id || '');
+        const isMulti = isCardInMultiSelection_(c.id);
+        div.className = `card ${isPrimary ? 'selected' : ''} ${isMulti ? 'multi-selected' : ''} ${conflictInfo ? 'asset-conflict' : ''}`;
         div.style.top = top + 'px'; div.style.left = left + 'px';
         div.style.height = (h - 1) + 'px';
 
@@ -3875,10 +4119,79 @@ window.app = (function() {
   };
 
   let drag = null;
+  let dragPreviewNode = null;
+  let dragPreviewLineNode = null;
+
+  function clearDragPreviewNodes_() {
+    if (dragPreviewNode && dragPreviewNode.parentNode) dragPreviewNode.parentNode.removeChild(dragPreviewNode);
+    if (dragPreviewLineNode && dragPreviewLineNode.parentNode) dragPreviewLineNode.parentNode.removeChild(dragPreviewLineNode);
+    dragPreviewNode = null;
+    dragPreviewLineNode = null;
+    state.dragPreview = null;
+  }
+
+  function renderDragPreviewNodes_(preview) {
+    if (!els.canvas) return;
+    if (!preview || !preview.laneId || !isFinite(Number(preview.start)) || !isFinite(Number(preview.end))) {
+      clearDragPreviewNodes_();
+      return;
+    }
+    setDragPreview_(preview);
+    const p = state.dragPreview;
+    if (!p) {
+      clearDragPreviewNodes_();
+      return;
+    }
+    const lanes = state.lanes.filter((l) => l.visible);
+    const laneIdx = lanes.findIndex((l) => String(l.id || '') === String(p.laneId || ''));
+    const rect = slotRectForRawRange_(p.start, p.end, getPxPerDay_());
+    if (laneIdx < 0 || !rect) {
+      clearDragPreviewNodes_();
+      return;
+    }
+    const laneWidth = getLaneWidth_();
+    const left = (laneIdx * laneWidth) + 4;
+    const modeClass = (p.mode === 'resize') ? 'resize' : (p.mode === 'block' ? 'block' : 'move');
+    if (!dragPreviewNode) {
+      dragPreviewNode = document.createElement('div');
+      els.canvas.appendChild(dragPreviewNode);
+    }
+    if (!dragPreviewLineNode) {
+      dragPreviewLineNode = document.createElement('div');
+      els.canvas.appendChild(dragPreviewLineNode);
+    }
+    dragPreviewNode.className = 'drag-preview ' + modeClass;
+    dragPreviewNode.style.left = left + 'px';
+    dragPreviewNode.style.top = rect.top + 'px';
+    dragPreviewNode.style.height = Math.max(8, rect.height - 1) + 'px';
+    dragPreviewLineNode.className = 'drop-slot-line ' + modeClass;
+    dragPreviewLineNode.style.left = left + 'px';
+    dragPreviewLineNode.style.top = Math.max(0, rect.top - 1) + 'px';
+  }
+
+  function pointerToCanvas_(clientX, clientY) {
+    const rect = els.canvas.getBoundingClientRect();
+    const scrollX = els.gridScroll ? els.gridScroll.scrollLeft : 0;
+    const scrollY = els.gridScroll ? els.gridScroll.scrollTop : 0;
+    return {
+      x: (clientX - rect.left) + scrollX,
+      y: (clientY - rect.top) + scrollY
+    };
+  }
+
   function dragStart(e, card, el) {
     if (e.target.classList.contains('card-close')) return;
-    e.stopPropagation(); e.preventDefault();
     const isResizing = e.target.classList.contains('card-resizer');
+    if (!isResizing && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      e.stopPropagation();
+      actions.toggleMultiSelection(card.id);
+      actions.selectCard(card.id, { focus: false });
+      return;
+    }
+    e.stopPropagation();
+    e.preventDefault();
+    const block = (!isResizing) ? buildDragBlockForCard_(card.id) : null;
     drag = {
       card,
       el,
@@ -3887,83 +4200,151 @@ window.app = (function() {
       startTop: parseFloat(el.style.top),
       startHeight: parseFloat(el.style.height),
       isResizing,
+      isBlockMove: !!block,
+      block: block,
       didMove: false
     };
+    clearDragPreviewNodes_();
     document.addEventListener('mousemove', dragMove);
     document.addEventListener('mouseup', dragEnd);
   }
+
   function dragMove(e) {
     if (!drag) return;
     const dy = e.clientY - drag.startY;
     const dx = e.clientX - drag.startX;
     if (!drag.didMove && (Math.abs(dy) > 6 || Math.abs(dx) > 6)) drag.didMove = true;
     if (!drag.didMove) return;
+    const pxPerDay = getPxPerDay_();
     if (drag.isResizing) {
-      drag.el.style.height = (drag.startHeight + dy) + 'px';
-    } else {
-      drag.el.style.top = (drag.startTop + dy) + 'px';
-      drag.el.style.transform = 'translateX(' + dx + 'px)';
-    }
-  }
-  function dragEnd(e) {
-    document.removeEventListener('mousemove', dragMove); document.removeEventListener('mouseup', dragEnd);
-    if (drag) {
-      if (drag.el) drag.el.style.transform = '';
-      if (!drag.didMove) {
-        actions.selectCard(drag.card.id, { focus: false });
-        drag = null;
-        return;
-      }
+      const nextHeight = Math.max(6, drag.startHeight + dy);
+      drag.el.style.height = nextHeight + 'px';
       const top = parseFloat(drag.el.style.top);
-      const h = parseFloat(drag.el.style.height);
-      const pxPerDay = getPxPerDay_();
-      const rect = els.canvas.getBoundingClientRect();
-      const scrollX = els.gridScroll ? els.gridScroll.scrollLeft : 0;
-      const x = (e.clientX - rect.left) + scrollX;
-      const dropTarget = resolveDropTargetFromCanvas_(x, top);
+      const pt = pointerToCanvas_(e.clientX, e.clientY);
+      const dropTarget = resolveDropTargetFromCanvas_(pt.x, top);
       if (dropTarget) {
-        const newStart = dropTarget.newStart;
-        const newLane = dropTarget.newLane || drag.card.laneId;
         const snap = dropTarget.snapState.snap;
-
-        if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) {
-          state.selection = drag.card.id;
-        }
-        const prevStart = drag.card.start;
-        const prevEnd = drag.card.end;
-        const prevLane = drag.card.laneId;
-        let changed = false;
-        if (drag.isResizing) {
-          const hRatio = h / pxPerDay;
-          const durMins = hRatio * (config.workHours * 60);
-          let snappedDur = Math.round(durMins / snap.min) * snap.min;
-          if (snappedDur < snap.min) snappedDur = snap.min;
-          const slots = Math.max(1, Math.round(snappedDur / config.slotMin));
-          const nextEnd = drag.card.start + slots - 1;
-          if (nextEnd !== prevEnd) {
-            drag.card.end = nextEnd;
-            changed = true;
-          }
-        } else {
-          const len = drag.card.end - drag.card.start + 1;
-          const nextStart = newStart;
-          const nextEnd = newStart + len - 1;
-          if (nextStart !== prevStart || nextEnd !== prevEnd || String(newLane) !== String(prevLane)) {
-            drag.card.start = nextStart;
-            drag.card.end = nextEnd;
-            drag.card.laneId = newLane;
-            changed = true;
-          }
-        }
-        if (changed) {
-          actions.moveCard(drag.card.id, drag.card.start, drag.card.laneId);
-        } else {
-          render.grid();
-          ui.refreshInspectorValuesFromCard();
-        }
+        const hRatio = nextHeight / pxPerDay;
+        const durMins = hRatio * (config.workHours * 60);
+        let snappedDur = Math.round(durMins / snap.min) * snap.min;
+        if (snappedDur < snap.min) snappedDur = snap.min;
+        const slots = Math.max(1, Math.round(snappedDur / config.slotMin));
+        const previewStart = Math.max(1, Math.round(Number(drag.card.start) || 1));
+        const previewEnd = previewStart + slots - 1;
+        renderDragPreviewNodes_({
+          laneId: String(drag.card.laneId || ''),
+          start: previewStart,
+          end: previewEnd,
+          mode: 'resize'
+        });
       } else {
-         render.grid();
+        clearDragPreviewNodes_();
       }
+      return;
+    }
+
+    const top = drag.startTop + dy;
+    drag.el.style.top = top + 'px';
+    drag.el.style.transform = 'translateX(' + dx + 'px)';
+    const pt = pointerToCanvas_(e.clientX, e.clientY);
+    const dropTarget = resolveDropTargetFromCanvas_(pt.x, top);
+    if (!dropTarget) {
+      clearDragPreviewNodes_();
+      return;
+    }
+    const newStart = dropTarget.newStart;
+    const newLane = dropTarget.newLane || drag.card.laneId;
+    if (drag.isBlockMove && drag.block) {
+      var blockStart = Math.max(1, Math.round(Number(newStart) || 1) - Math.max(0, Math.round(Number(drag.block.anchorRelStart) || 0)));
+      renderDragPreviewNodes_({
+        laneId: String(newLane || drag.block.laneId || ''),
+        start: blockStart,
+        end: blockStart + drag.block.spanSlots - 1,
+        mode: 'block'
+      });
+      return;
+    }
+    const len = getCardLengthSlots_(drag.card);
+    renderDragPreviewNodes_({
+      laneId: String(newLane || drag.card.laneId || ''),
+      start: newStart,
+      end: newStart + len - 1,
+      mode: 'move'
+    });
+  }
+
+  function dragEnd(e) {
+    document.removeEventListener('mousemove', dragMove);
+    document.removeEventListener('mouseup', dragEnd);
+    if (!drag) return;
+    if (drag.el) drag.el.style.transform = '';
+    clearDragPreviewNodes_();
+    if (!drag.didMove) {
+      actions.selectCard(drag.card.id, { focus: false, clearMulti: true });
+      drag = null;
+      return;
+    }
+    const top = parseFloat(drag.el.style.top);
+    const h = parseFloat(drag.el.style.height);
+    const pt = pointerToCanvas_(e.clientX, e.clientY);
+    const dropTarget = resolveDropTargetFromCanvas_(pt.x, top);
+    if (!dropTarget) {
+      render.grid();
+      ui.refreshInspectorValuesFromCard();
+      drag = null;
+      return;
+    }
+    const newStart = dropTarget.newStart;
+    const newLane = dropTarget.newLane || drag.card.laneId;
+    const snap = dropTarget.snapState.snap;
+    if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) {
+      state.selection = drag.card.id;
+    }
+    if (drag.isResizing) {
+      const pxPerDay = getPxPerDay_();
+      const hRatio = h / pxPerDay;
+      const durMins = hRatio * (config.workHours * 60);
+      let snappedDur = Math.round(durMins / snap.min) * snap.min;
+      if (snappedDur < snap.min) snappedDur = snap.min;
+      const slots = Math.max(1, Math.round(snappedDur / config.slotMin));
+      const prevEnd = drag.card.end;
+      const nextEnd = drag.card.start + slots - 1;
+      if (nextEnd !== prevEnd) {
+        drag.card.end = nextEnd;
+        actions.moveCard(drag.card.id, drag.card.start, drag.card.laneId);
+      } else {
+        render.grid();
+        ui.refreshInspectorValuesFromCard();
+      }
+      drag = null;
+      return;
+    }
+    if (drag.isBlockMove && drag.block) {
+      var blockStart = Math.max(1, Math.round(Number(newStart) || 1) - Math.max(0, Math.round(Number(drag.block.anchorRelStart) || 0)));
+      const unchanged = (Math.round(Number(blockStart) || 1) === Math.round(Number(drag.block.baseStart) || 1)) &&
+        (String(newLane || '') === String(drag.block.laneId || ''));
+      if (!unchanged) actions.moveCardBlock(drag.block.ids, blockStart, newLane);
+      else {
+        render.grid();
+        ui.refreshInspectorValuesFromCard();
+      }
+      drag = null;
+      return;
+    }
+    const prevStart = drag.card.start;
+    const prevEnd = drag.card.end;
+    const prevLane = drag.card.laneId;
+    const len = getCardLengthSlots_(drag.card);
+    const nextStart = newStart;
+    const nextEnd = newStart + len - 1;
+    if (nextStart !== prevStart || nextEnd !== prevEnd || String(newLane) !== String(prevLane)) {
+      drag.card.start = nextStart;
+      drag.card.end = nextEnd;
+      drag.card.laneId = newLane;
+      actions.moveCard(drag.card.id, drag.card.start, drag.card.laneId);
+    } else {
+      render.grid();
+      ui.refreshInspectorValuesFromCard();
     }
     drag = null;
   }
@@ -3985,7 +4366,15 @@ window.app = (function() {
     if (!dropTarget) return;
     const newStart = dropTarget.newStart;
     const newLane = dropTarget.newLane || c.laneId;
-    var dur = (c.start !== null && c.end !== null && isFinite(c.end - c.start) && (c.end - c.start) >= 0) ? (c.end - c.start + 1) : Math.max(1, Math.round(dropTarget.snapState.snap.min / config.slotMin));
+    var block = buildDragBlockForCard_(c.id);
+    if (block) {
+      var blockStart = Math.max(1, Math.round(Number(newStart) || 1) - Math.max(0, Math.round(Number(block.anchorRelStart) || 0)));
+      actions.moveCardBlock(block.ids, blockStart, newLane);
+      return;
+    }
+    var dur = (c.start !== null && c.end !== null && isFinite(c.end - c.start) && (c.end - c.start) >= 0)
+      ? (c.end - c.start + 1)
+      : Math.max(1, Math.round(dropTarget.snapState.snap.min / config.slotMin));
     c.start = newStart;
     c.end = newStart + dur - 1;
     c.laneId = newLane;
@@ -4261,6 +4650,8 @@ window.app = (function() {
         setSettingsModalOpen_(false);
         actions.clearGapSelection();
         actions.clearAssetCellSelection({ skipRender: true });
+        actions.clearMultiSelection();
+        clearDragPreviewNodes_();
         ui.renderInspector();
       }
     });
