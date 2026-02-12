@@ -1073,6 +1073,66 @@ window.app = (function() {
     };
   }
 
+  function snapshotLaneLengths_(laneId) {
+    var key = String(laneId || '');
+    var map = {};
+    Object.values(state.cards || {}).forEach(function(card) {
+      if (!card) return;
+      if (String(card.laneId || '') !== key) return;
+      var s = Math.round(Number(card.start));
+      var e = Math.round(Number(card.end));
+      if (!isFinite(s) || !isFinite(e)) return;
+      if (e < s) return;
+      map[String(card.id || '')] = Math.max(1, e - s + 1);
+    });
+    return map;
+  }
+
+  function enforceLaneLengthInvariant_(laneId, expectedById, reason) {
+    var key = String(laneId || '');
+    var fixes = [];
+    var expected = expectedById || {};
+    Object.keys(expected).forEach(function(cardId) {
+      var c = state.cards && state.cards[cardId];
+      if (!c) return;
+      if (String(c.laneId || '') !== key) return;
+      var s = Math.round(Number(c.start));
+      var e = Math.round(Number(c.end));
+      var exp = Math.max(1, Math.round(Number(expected[cardId]) || 1));
+      if (!isFinite(s) || !isFinite(e)) return;
+      var cur = Math.max(1, e - s + 1);
+      if (cur === exp) return;
+      c.end = s + exp - 1;
+      fixes.push({ id: cardId, from: cur, to: exp });
+    });
+    if (fixes.length) {
+      console.warn('[MOTK][Scheduler][LEN_GUARD] corrected', {
+        laneId: key,
+        reason: String(reason || ''),
+        fixes: fixes
+      });
+    }
+    return fixes;
+  }
+
+  function focusSelectedGapHitbox_() {
+    if (!els.canvas || !state.gapSelection) return;
+    var g = state.gapSelection;
+    var laneId = String(g.laneId || '');
+    var from = String(Math.round(Number(g.fromSlot) || 0));
+    var to = String(Math.round(Number(g.toSlot) || 0));
+    var nodes = els.canvas.querySelectorAll('.gap-hitbox');
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      if (!n || !n.dataset) continue;
+      if (String(n.dataset.gapLaneId || '') !== laneId) continue;
+      if (String(n.dataset.gapFrom || '') !== from) continue;
+      if (String(n.dataset.gapTo || '') !== to) continue;
+      try { n.focus({ preventScroll: true }); } catch (_) { try { n.focus(); } catch (_) {} }
+      return;
+    }
+  }
+
   function getPxPerDay_() {
     return state.slotPx * getSlotsPerDay_();
   }
@@ -2399,6 +2459,7 @@ window.app = (function() {
       };
       render.grid();
       ui.renderInspector();
+      requestAnimationFrame(() => focusSelectedGapHitbox_());
     },
 
     closeSelectedGap: () => {
@@ -2658,11 +2719,19 @@ window.app = (function() {
     moveCard: (id, newStart, newLane) => {
       const c = state.cards[id];
       if (!c) return;
+      const laneBefore = String(c.laneId || '');
+      const laneAfter = String(newLane || laneBefore);
       const dur = c.end - c.start + 1;
+      const expectedById = snapshotLaneLengths_(laneAfter);
+      expectedById[String(id)] = Math.max(1, Math.round(Number(dur) || 1));
       c.start = newStart;
       c.end = newStart + dur - 1;
       c.laneId = newLane;
       actions.resolveCollisions(c);
+      const fixed = enforceLaneLengthInvariant_(laneAfter, expectedById, 'moveCard');
+      fixed.forEach((f) => {
+        if (String(f.id) !== String(id)) actions.commit(f.id, 'update');
+      });
       render.grid();
       ui.renderCardList();
       actions.commit(id, 'update');
@@ -2886,6 +2955,9 @@ window.app = (function() {
           if (!rect) continue;
           const hit = document.createElement('div');
           hit.className = 'gap-hitbox';
+          hit.tabIndex = 0;
+          hit.setAttribute('role', 'button');
+          hit.setAttribute('aria-label', `Gap ${from}-${to}`);
           hit.style.left = (laneIdx * laneWidth + 4) + 'px';
           hit.style.top = rect.top + 'px';
           hit.style.height = rect.height + 'px';
@@ -4287,9 +4359,9 @@ window.app = (function() {
       });
     }
     document.addEventListener('keydown', (e) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && state.gapSelection) {
-        if (isTypingElement_(e.target)) return;
+      if (state.gapSelection && (e.key === 'Delete' || (e.key === 'Backspace' && !isTypingElement_(e.target)))) {
         e.preventDefault();
+        e.stopPropagation();
         actions.closeSelectedGap();
         return;
       }
