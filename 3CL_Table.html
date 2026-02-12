@@ -4537,15 +4537,27 @@ window.applyData = applyData;
           return false;
         }
 
-        function retargetNodeAnchors_(n, href) {
+        function retargetNodeAnchors_(n, href, target) {
           try {
             if (!n || !href) return;
             if (n.nodeType !== 1) return;
             var tag = (n.tagName || '').toLowerCase();
-            if (tag === 'a') n.href = href;
+            if (tag === 'a') {
+              n.href = href;
+              if (target) {
+                n.target = target;
+                n.rel = 'noopener';
+              }
+            }
             if (n.querySelectorAll) {
               var anchors = n.querySelectorAll('a');
-              for (var ai = 0; ai < anchors.length; ai++) anchors[ai].href = href;
+              for (var ai = 0; ai < anchors.length; ai++) {
+                anchors[ai].href = href;
+                if (target) {
+                  anchors[ai].target = target;
+                  anchors[ai].rel = 'noopener';
+                }
+              }
             }
           } catch (_) { }
         }
@@ -4727,10 +4739,12 @@ window.applyData = applyData;
                 if (schedLike && Router && typeof Router.buildScheduleUrl === 'function') {
                   var schedHref = Router.buildScheduleUrl(rowId);
                   if (isNodeWithAnchor_(node)) {
-                    retargetNodeAnchors_(node, schedHref);
+                    retargetNodeAnchors_(node, schedHref, '_blank');
                   } else {
                     var a2s = document.createElement('a');
                     a2s.href = schedHref;
+                    a2s.target = '_blank';
+                    a2s.rel = 'noopener';
                     a2s.appendChild(node);
                     node = a2s;
                   }
@@ -5420,9 +5434,12 @@ window.applyData = applyData;
 
         if (!ent) { ent = guessEntityFromId(pid); }
 
-        // Use Router.buildEntityUrl to build the Detail URL.
+        // Use Router URL builders; sched should open in a new tab.
         var url = Router.buildEntityUrl(ent, pid);
-        return '<a href="' + escapeHTML(url) + '" title="' + escapeHTML(pid) + '">' + escapeHTML(label) + '</a>';
+        var target = (ent === 'sched' || ent === 'schedule' || ent === 'scheds' || ent === 'schedules')
+          ? ' target="_blank" rel="noopener"'
+          : '';
+        return '<a href="' + escapeHTML(url) + '"' + target + ' title="' + escapeHTML(pid) + '">' + escapeHTML(label) + '</a>';
       }
 
       function guessEntityFromId(id) {
