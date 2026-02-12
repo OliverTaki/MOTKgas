@@ -3769,8 +3769,10 @@ window.applyData = applyData;
         // Enforce new-tab open for schedule index links even if browser/frame rewrites target handling.
         tableWrap.addEventListener("click", function(ev) {
           try {
-            var a = ev.target && ev.target.closest ? ev.target.closest('a[data-sched-open-newtab="1"]') : null;
+            var a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
             if (!a) return;
+            var flagged = a.getAttribute && a.getAttribute('data-sched-open-newtab') === '1';
+            if (!flagged && !isScheduleEditorHref_(a.href)) return;
             if (ev.defaultPrevented) return;
             if (ev.button !== 0) return;
             if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
@@ -5480,6 +5482,19 @@ window.applyData = applyData;
       }
 
       function isRowIdLike(id) { return /^[a-z]{2}_[0-9]+$/i.test(String(id || '')); }
+
+      function isScheduleEditorHref_(href) {
+        try {
+          if (!href) return false;
+          var u = new URL(String(href), location.href);
+          var p = String(u.searchParams.get('p') || u.searchParams.get('page') || '').toLowerCase();
+          if (p !== 'schedule') return false;
+          var sid = String(u.searchParams.get('schedId') || u.searchParams.get('sid') || '').trim();
+          return !!sid;
+        } catch (_) {
+          return false;
+        }
+      }
 
       function isLinkColumn(header) { return /link/i.test(String(header || '')); }
 
