@@ -3553,8 +3553,63 @@ window.applyData = applyData;
             td.textContent = _toScalarText_(raw, { rowId: rowId, fid: fid, where: "renderCellIntoTd" });
             return;
           }
+          function nodeHasAnchor_(node) {
+            try {
+              if (!node) return false;
+              if ((node.nodeType === 1 || node.nodeType === 11) && node.tagName && String(node.tagName).toLowerCase() === 'a') return true;
+              return !!(node && node.querySelector && node.querySelector('a'));
+            } catch (_) {
+              return false;
+            }
+          }
+          function retargetNodeAnchors_(node, href, target) {
+            try {
+              if (!node || !href || (node.nodeType !== 1 && node.nodeType !== 11)) return;
+              if (node.nodeType === 1 && String(node.tagName || '').toLowerCase() === 'a') {
+                node.href = href;
+                if (target) {
+                  node.target = target;
+                  node.rel = 'noopener';
+                  node.setAttribute('data-sched-open-newtab', '1');
+                }
+              }
+              if (node.querySelectorAll) {
+                var anchors = node.querySelectorAll('a');
+                for (var ai = 0; ai < anchors.length; ai++) {
+                  anchors[ai].href = href;
+                  if (target) {
+                    anchors[ai].target = target;
+                    anchors[ai].rel = 'noopener';
+                    anchors[ai].setAttribute('data-sched-open-newtab', '1');
+                  }
+                }
+              }
+            } catch (_) { }
+          }
+          function ensureNodeLink_(node, href, target, isSched) {
+            if (!node || !href) return node;
+            if (nodeHasAnchor_(node)) {
+              retargetNodeAnchors_(node, href, target);
+              return node;
+            }
+            var a = document.createElement('a');
+            a.href = href;
+            if (target) {
+              a.target = target;
+              a.rel = 'noopener';
+            }
+            if (isSched) a.setAttribute('data-sched-open-newtab', '1');
+            a.appendChild(node);
+            return a;
+          }
+
           var entitySing = singularEntityFor(_entityForUI());
+          var canon = _canon(STATE && STATE.sheetName);
           var meta = getNormalizedFieldMeta_(STATE.sheetName, fid);
+          var fidIdx = indexOf((STATE && STATE.fieldIds) || [], fid);
+          var headTxt = '';
+          if (fidIdx >= 0 && STATE && Array.isArray(STATE.header)) headTxt = STATE.header[fidIdx] || '';
+          if (!headTxt) headTxt = (meta && (meta.label || meta.name || meta.field_name)) || fid;
           var rowObj = null;
           try { if (STATE && STATE.rowsById && STATE.rowsById[rowId]) rowObj = STATE.rowsById[rowId]; } catch (_) { }
           if (!rowObj) {
@@ -3590,7 +3645,22 @@ window.applyData = applyData;
               try { console.info('[MOTK][Table] render: ShotCode uses href=true'); } catch (_) { }
             }
           } else {
-            td.appendChild(CommonRenderer.renderCellByField(entitySing, fid, raw, m));
+            var node = CommonRenderer.renderCellByField(entitySing, fid, raw, m);
+            if (!(node && node.nodeType)) {
+              node = document.createTextNode(_toScalarText_(node, { rowId: rowId, fid: fid, where: "renderCellIntoTdNodeFallback" }));
+            }
+            if (shouldNameCellLinkToDetail(canon, headTxt, rowId) && window.__Router__) {
+              var ent = singularEntityFor(canon);
+              var isSchedLike = (ent === 'sched' || ent === 'schedule' || ent === 'scheds' || ent === 'schedules');
+              if (isSchedLike && typeof Router.buildScheduleUrl === 'function') {
+                node = ensureNodeLink_(node, Router.buildScheduleUrl(rowId), '_blank', true);
+              } else if (!nodeHasAnchor_(node) && typeof Router.buildEntityUrl === 'function') {
+                node = ensureNodeLink_(node, Router.buildEntityUrl(ent, rowId), '', false);
+              }
+            } else if (/shotcode/i.test(String(headTxt || '')) && isRowIdLike(rowId) && window.__Router__ && typeof Router.buildEntityUrl === 'function') {
+              node = ensureNodeLink_(node, Router.buildEntityUrl('shot', rowId), '', false);
+            }
+            td.appendChild(node);
           }
         } catch (_) {
           td.textContent = _toScalarText_(raw, { rowId: rowId, fid: fid, where: "renderCellIntoTdCatch" });

@@ -577,9 +577,14 @@ window.app = (function() {
     requestAnimationFrame(() => {
       state.assetInspectorRefreshQueued = false;
       if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) return;
+      var selStart = Math.max(1, Math.round(Number(state.assetCellSelection.rawStart) || 1));
+      var selEnd = Math.max(selStart, Math.round(Number(state.assetCellSelection.rawEnd) || selStart));
+      refreshAssetUsageState_();
+      state.assetCellSelection.rawStart = selStart;
+      state.assetCellSelection.rawEnd = selEnd;
       state.assetCellSelection.rows = summarizeAssetsForRawRange_(
-        state.assetCellSelection.rawStart,
-        state.assetCellSelection.rawEnd
+        selStart,
+        selEnd
       );
       ui.renderInspector();
     });
@@ -3593,6 +3598,7 @@ window.app = (function() {
         }
         const newEnd = utils.dateValToSlot(dateStr, slotNum, 'end');
         c.end = Math.max(c.start, newEnd);
+        actions.resolveCollisions(c);
         actions.commit(c.id, 'update');
         edit.fields.endDate = utils.fmtYmdText(d0);
         refreshEditFromCard_();
