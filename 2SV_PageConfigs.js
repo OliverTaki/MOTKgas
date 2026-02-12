@@ -3,7 +3,7 @@
  * 列設定(JSON: {order,widths,hidden})の 保存/読込 と プリセット一覧取得・メタ取得 を提供。
  *
  * カラム定義（Fieldsメタ準拠）:
- *  Page ID / Page Name / Page Type / Entity / Config / Edit / Created By / Created / Modified
+ *  Page config columns are inferred from header labels and data heuristics.
  */
 
 const PAGES_SHEET_NAME = 'PAGES';
@@ -11,82 +11,392 @@ const HEADER_ROW_IDS = 1;    // 1行目: フィールドID
 const HEADER_ROW_LABELS = 2; // 2行目: 表示名
 const DATA_START_ROW = 3;    // 3行目〜: データ
 
-const PAGE_FIELDS = [
-  { key: 'id', fieldName: 'Page ID' },
-  { key: 'name', fieldName: 'Page Name' },
-  { key: 'type', fieldName: 'Page Type' },
-  { key: 'entity', fieldName: 'Entity' },
-  { key: 'config', fieldName: 'Config' },
-  { key: 'shared', fieldName: 'Edit' },
-  { key: 'createdBy', fieldName: 'Created By' },
-  { key: 'created', fieldName: 'Created' },
-  { key: 'modified', fieldName: 'Modified' }
-];
+function _pc_norm_(s) {
+  return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
 
-function getPageFieldSpec_() {
-  return PAGE_FIELDS.map(function (f) {
-    return { key: f.key, fieldName: f.fieldName, fid: schemaGetFidByFieldName('page', f.fieldName) };
+function sv_canonEntityKey_(v) {
+  var s = String(v || '').trim().toLowerCase();
+  if (!s) return '';
+  var map = {
+    shots: 'shot',
+    tasks: 'task',
+    assets: 'asset',
+    members: 'member',
+    users: 'user',
+    pages: 'page',
+    scheds: 'sched',
+    schedules: 'sched',
+    schedule: 'sched'
+  };
+  return map[s] || s;
+}
+
+function _canonPresetEntity_(v) {
+  if (typeof canonEntityKeyServer_ === "function") return canonEntityKeyServer_(v);
+  return String(v || "").trim().toLowerCase();
+}
+
+function _pc_normEntity_(v) {
+  return sv_canonEntityKey_(v);
+}
+
+function _pc_titleCase_(v) {
+  var s = String(v || '').trim();
+  if (!s) return '';
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function _pc_fieldsHeaderIndex_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName("Fields");
+  if (!sh) return { sh: null, idx: -1, error: "Fields sheet not found" };
+  var lastCol = sh.getLastColumn();
+  var header = lastCol ? sh.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+  function norm(x) { return String(x || "").trim().toLowerCase().replace(/\s+/g, "_"); }
+  var idx = -1;
+  var keys = ["entity", "entity_name", "entityname", "sheet", "sheet_name", "sheetname", "table"];
+  for (var i = 0; i < header.length; i++) {
+    var h = norm(header[i]);
+    for (var k = 0; k < keys.length; k++) {
+      if (h === keys[k]) { idx = i; break; }
+    }
+    if (idx >= 0) break;
+  }
+  if (idx < 0) return { sh: sh, idx: -1, error: "Fields header missing entity column" };
+  return { sh: sh, idx: idx, error: "" };
+}
+
+function _pc_getPagesSheet_() {
+  var ss = SpreadsheetApp.getActive();
+  var out = { sh: null, name: "", warning: "", ambiguous: false };
+  var sheets = ss.getSheets();
+  var lower = [];
+  var exact = null;
+  for (var i = 0; i < sheets.length; i++) {
+    var sh = sheets[i];
+    var nm = sh.getName();
+    if (nm === "Pages") exact = sh;
+    if (String(nm || "").toLowerCase() === "pages") lower.push(sh);
+  }
+  if (exact && lower.length > 1) {
+    out.ambiguous = true;
+    out.sh = exact;
+    out.name = "Pages";
+    out.warning = "multiple sheets match pages; using Pages";
+    return out;
+  }
+  if (exact) {
+    out.sh = exact;
+    out.name = "Pages";
+    if (lower.length > 1) {
+      out.ambiguous = true;
+      out.warning = "multiple sheets match pages; using Pages";
+    } else if (lower.length === 1 && lower[0].getName() !== "Pages") {
+      out.warning = "both Pages and pages exist; using Pages";
+    }
+    return out;
+  }
+  if (lower.length === 1) {
+    out.sh = lower[0];
+    out.name = lower[0].getName();
+    return out;
+  }
+  if (lower.length > 1) {
+    out.ambiguous = true;
+    out.sh = lower[0];
+    out.name = lower[0].getName();
+    out.warning = "multiple sheets match pages; using first match";
+    return out;
+  }
+  return out;
+}
+
+function _pc_entitiesFromFieldsSheet_() {
+  var info = _pc_fieldsHeaderIndex_();
+  if (!info.sh || info.idx < 0) return { entities: [], error: info.error || "Fields sheet missing" };
+  var sh = info.sh;
+  var lastRow = sh.getLastRow();
+  if (lastRow < 2) return { entities: [], error: "Fields sheet has no data rows" };
+  var vals = sh.getRange(2, info.idx + 1, lastRow - 1, 1).getValues();
+  var set = {};
+  for (var i = 0; i < vals.length; i++) {
+    var raw = vals[i][0];
+    if (!raw) continue;
+    var ent = _pc_normEntity_(raw);
+    if (!ent) continue;
+    set[ent] = true;
+  }
+  var out = Object.keys(set);
+  return { entities: out, error: out.length ? "" : "No entities found in Fields sheet" };
+}
+
+function _pc_getFieldTypesForEntity_(entity) {
+  if (typeof getFieldTypesWithDiag_ === "function") {
+    var res = getFieldTypesWithDiag_(entity);
+    var types = res && res.types ? res.types : {};
+    return { types: types, diag: res && res.diag ? res.diag : {} };
+  }
+  if (typeof getFieldTypes === "function") {
+    return { types: getFieldTypes(entity) || {}, diag: {} };
+  }
+  return { types: {}, diag: {} };
+}
+
+function _pc_pickFids_(meta, pattern, typeName) {
+  var out = [];
+  if (!meta) return out;
+  var re = pattern ? new RegExp(pattern, "i") : null;
+  for (var fid in meta) {
+    if (!meta.hasOwnProperty(fid)) continue;
+    var m = meta[fid] || {};
+    var t = String(m.type || "").toLowerCase().trim();
+    var label = String(m.label || m.field_name || m.name || "").trim();
+    if (typeName && t === typeName) out.push(fid);
+    else if (re && re.test(label)) out.push(fid);
+  }
+  return out;
+}
+
+function _pc_defaultPageConfigFromMeta_(entity, meta) {
+  var order = [];
+  var idList = _pc_pickFids_(meta, null, "id");
+  var nameList = _pc_pickFids_(meta, null, "entity_name");
+  var statusList = _pc_pickFids_(meta, "status", "status");
+  var hierarchy = [];
+  ["episode", "act", "sequence", "scene", "shot"].forEach(function (k) {
+    var list = _pc_pickFids_(meta, k, "");
+    if (list.length) hierarchy.push(list[0]);
   });
+  function add(fid) {
+    if (!fid) return;
+    if (order.indexOf(fid) >= 0) return;
+    order.push(fid);
+  }
+  if (idList.length) add(idList[0]);
+  if (nameList.length) add(nameList[0]);
+  if (statusList.length) add(statusList[0]);
+  for (var i = 0; i < hierarchy.length; i++) add(hierarchy[i]);
+  return { order: order, widths: {}, hidden: {}, group: [], filterGroups: [], sort: [] };
+}
+
+function _pc_synthesizePagesFromMeta_() {
+  var entsRes = _pc_entitiesFromFieldsSheet_();
+  if (!entsRes.entities.length) {
+    return { items: [], error: entsRes.error || "No entities available to synthesize pages" };
+  }
+  var items = [];
+  for (var i = 0; i < entsRes.entities.length; i++) {
+    var ent = entsRes.entities[i];
+    var ft = _pc_getFieldTypesForEntity_(ent);
+    var meta = ft.types && ft.types[ent] ? ft.types[ent] : {};
+    if (!meta || !Object.keys(meta).length) continue;
+    var cfg = _pc_defaultPageConfigFromMeta_(ent, meta);
+    if (!cfg.order.length) continue;
+    items.push({
+      pageId: "pg_default_" + ent,
+      entity: ent,
+      pageType: "table",
+      pageName: _pc_titleCase_(ent) + " (Default)",
+      sharedWith: "",
+      config: cfg
+    });
+  }
+  if (!items.length) {
+    return { items: [], error: "No pages synthesized from meta (missing field types)" };
+  }
+  return { items: items, error: "" };
+}
+
+function _pc_seedPagesIfEmpty_(sh) {
+  var lastRow = sh.getLastRow();
+  if (lastRow > HEADER_ROW_LABELS) return { ok: true, seeded: false };
+  var synth = _pc_synthesizePagesFromMeta_();
+  if (synth.error) return { ok: false, error: synth.error };
+  var inf = _pc_inferCols_(sh);
+  if (!inf.ok) return { ok: false, error: inf.error };
+  var c = inf.col;
+  var lastCol = sh.getLastColumn();
+  for (var i = 0; i < synth.items.length; i++) {
+    var it = synth.items[i];
+    var row = new Array(lastCol);
+    for (var k = 0; k < lastCol; k++) row[k] = "";
+    function set(col1, v) { if (col1) row[col1 - 1] = v; }
+    set(c.id, it.pageId);
+    set(c.ent, it.entity);
+    set(c.type, it.pageType);
+    set(c.name, it.pageName);
+    set(c.shared, it.sharedWith || "");
+    set(c.config, JSON.stringify(it.config || {}));
+    sh.appendRow(row);
+  }
+  return { ok: true, seeded: true, count: synth.items.length };
+}
+
+function _pc_bestColByValue_(sampleRows, testFn) {
+  if (!sampleRows || !sampleRows.length) return null;
+  var cols = sampleRows[0].length;
+  var best = { col: null, score: 0 };
+  for (var c = 0; c < cols; c++) {
+    var score = 0, seen = 0;
+    for (var r = 0; r < sampleRows.length; r++) {
+      var v = sampleRows[r][c];
+      if (v === '' || v == null) continue;
+      seen++;
+      if (testFn(v)) score++;
+    }
+    if (seen > 0 && score > best.score) best = { col: c + 1, score: score };
+  }
+  return best.col;
+}
+
+function _pc_tryParseJson_(v) {
+  if (v == null) return null;
+  if (typeof v === 'object') return v;
+  var s = String(v).trim();
+  if (!s) return null;
+  if (s[0] !== '{' && s[0] !== '[') return null;
+  try { return JSON.parse(s); } catch (e) { return null; }
+}
+
+function _pc_inferCols_(sh) {
+  var lastCol = sh.getLastColumn();
+  var lastRow = sh.getLastRow();
+  if (lastCol < 1) return { ok: false, error: 'pages sheet has no columns' };
+  if (lastRow < HEADER_ROW_LABELS) return { ok: false, error: 'pages sheet has no header rows' };
+
+  var labels = sh.getRange(HEADER_ROW_LABELS, 1, 1, lastCol).getValues()[0];
+  var labelsN = labels.map(_pc_norm_);
+
+  var dataStart = HEADER_ROW_LABELS + 1;
+  var sampleN = Math.min(30, Math.max(0, lastRow - dataStart + 1));
+  var sample = sampleN > 0 ? sh.getRange(dataStart, 1, sampleN, lastCol).getValues() : [];
+
+  function colByLabel(rx) {
+    for (var i = 0; i < labelsN.length; i++) {
+      if (rx.test(labelsN[i])) return i + 1;
+    }
+    return null;
+  }
+
+  var idCol = colByLabel(/\b(page\s*)?id\b/);
+  if (!idCol) idCol = _pc_bestColByValue_(sample, function (v) {
+    return /^pg(?:_|$)/i.test(String(v).trim());
+  });
+
+  var entCol = colByLabel(/\bentity\b/);
+  if (!entCol) entCol = _pc_bestColByValue_(sample, function (v) {
+    var s = String(v).trim().toLowerCase();
+    return s === 'shots' || s === 'assets' || s === 'tasks' || s === 'members' || s === 'users' || s === 'scheds';
+  });
+
+  var typeCol = colByLabel(/\btype\b/);
+  if (!typeCol) typeCol = _pc_bestColByValue_(sample, function (v) {
+    var s = String(v).trim().toLowerCase();
+    return s === 'table' || s === 'detail' || s === 'schedule' || s === 'editor';
+  });
+
+  var nameCol = colByLabel(/\b(name|title)\b/);
+
+  var configCol = colByLabel(/\bconfig\b|\bjson\b/);
+  if (!configCol) configCol = _pc_bestColByValue_(sample, function (v) {
+    return _pc_tryParseJson_(v) != null;
+  });
+
+  var sharedCol = colByLabel(/\bshared\b/);
+  var createdByCol = colByLabel(/\bcreated\s*by\b/);
+  var createdAtCol = colByLabel(/\bcreated\s*at\b/);
+  var modifiedByCol = colByLabel(/\bmodified\s*by\b/);
+  var modifiedAtCol = colByLabel(/\bmodified\s*at\b|\bupdated\s*at\b/);
+
+  if (!idCol) return { ok: false, error: 'cannot infer page id column', diag: { labels: labels } };
+
+  return {
+    ok: true,
+    col: {
+      id: idCol, ent: entCol, type: typeCol, name: nameCol, config: configCol,
+      shared: sharedCol, createdBy: createdByCol, createdAt: createdAtCol,
+      modifiedBy: modifiedByCol, modifiedAt: modifiedAtCol
+    },
+    diag: { labels: labels }
+  };
+}
+
+function ensurePagesSheet_() {
+  var ref = _pc_getPagesSheet_();
+  var sh = ref.sh;
+  if (!sh) throw new Error("pages_sheet_not_found");
+  return sh;
 }
 
 /** 一覧 */
 function sv_listPages() {
   try {
-    const sh = ensurePagesSheet_();
-    ensurePageColumns_(sh);
-    const idx = getHeaderIndexMap_(sh);
-    const spec = getPageFieldSpec_();
-    const specMap = {};
-    spec.forEach(function (s) { specMap[s.key] = s; });
-    const ci = {
-      id: idx.byId[specMap.id.fid],
-      name: idx.byId[specMap.name.fid],
-      type: idx.byId[specMap.type.fid],
-      ent: idx.byId[specMap.entity.fid],
-      shared: idx.byId[specMap.shared.fid]
-    };
-    const lastRow = sh.getLastRow();
-    if (lastRow < DATA_START_ROW) return { items: [] };
+    var ref = _pc_getPagesSheet_();
+    var sh = ref.sh || ensurePagesSheet_();
+    var sheetNameUsed = ref.name || (sh ? sh.getName() : "");
+    var inf = _pc_inferCols_(sh);
+    if (!inf.ok) return { items: [], error: inf.error, reason: "header_unrecognized", diag: inf.diag || null, sheetNameUsed: sheetNameUsed, ambiguousTabs: !!ref.ambiguous, warning: ref.warning || "" };
 
-    const rng = sh.getRange(DATA_START_ROW, 1, lastRow - DATA_START_ROW + 1, idx.count);
-    const values = rng.getValues();
-    const items = values.map(row => ({
-      id:   String(row[ci.id]   || ''),
-      name: String(row[ci.name] || ''),
-      type: String(row[ci.type] || ''),
-      entity: String(row[ci.ent] || ''),
-      shared: row[ci.shared],
-    })).filter(x => x.id);
+    var lastRow = sh.getLastRow();
+    var lastCol = sh.getLastColumn();
+    if (lastRow <= HEADER_ROW_LABELS) {
+      return { items: [], error: "empty_pages_sheet", reason: "empty_sheet", diag: inf.diag || null, sheetNameUsed: sheetNameUsed, ambiguousTabs: !!ref.ambiguous, warning: ref.warning || "" };
+    }
 
-    items.sort((a,b) => {
-      if (a.id === 'pg_default') return -1;
-      if (b.id === 'pg_default') return 1;
-      return a.id.localeCompare(b.id, 'en');
-    });
-    return { items };
-  } catch (err) {
-    return { items: [], error: String(err && err.message || err) };
+    var data = sh.getRange(HEADER_ROW_LABELS + 1, 1, lastRow - HEADER_ROW_LABELS, lastCol).getValues();
+    var c = inf.col;
+
+    function at(row, col1) { return col1 ? row[col1 - 1] : ''; }
+
+    var items = [];
+    for (var i = 0; i < data.length; i++) {
+      var row = data[i];
+      var pid = String(at(row, c.id) || '').trim();
+      if (!pid) continue;
+
+      var ent = String(at(row, c.ent) || '').trim();
+      var type = String(at(row, c.type) || '').trim();
+      var name = String(at(row, c.name) || '').trim();
+      var shared = String(at(row, c.shared) || '').trim();
+
+      var cfgRaw = at(row, c.config);
+      var cfg = _pc_tryParseJson_(cfgRaw);
+      if (!cfg && cfgRaw != null && String(cfgRaw).trim()) {
+        cfg = { raw: String(cfgRaw) };
+      }
+
+      items.push({
+        pageId: pid,
+        entity: ent,
+        pageType: type,
+        pageName: name,
+        sharedWith: shared,
+        config: cfg || {}
+      });
+    }
+
+    if (!items.length) {
+      return { items: [], error: "no_pages_rows", reason: "no_rows", diag: inf.diag || null, sheetNameUsed: sheetNameUsed, ambiguousTabs: !!ref.ambiguous, warning: ref.warning || "" };
+    }
+    return { items: items, diag: inf.diag || null, sheetNameUsed: sheetNameUsed, ambiguousTabs: !!ref.ambiguous, warning: ref.warning || "" };
+  } catch (e) {
+    var msg = String(e && e.message ? e.message : e);
+    var reason = (msg === "pages_sheet_not_found") ? "pages_sheet_not_found" : "exception";
+    return { items: [], error: msg, reason: reason };
   }
 }
 
-function _filterPagePresets_(items, params) {
-  var list = Array.isArray(items) ? items.slice() : [];
-  if (!params) return list;
-  var wantType = String(params.pageType || '').toLowerCase().trim();
-  if (wantType) {
-    list = list.filter(function (p) {
-      var t = String(p.type || '').toLowerCase().trim();
-      return !t || t === wantType;
-    });
-  }
-  var wantEnt = String(params.entity || '').toLowerCase().trim();
-  if (wantEnt) {
-    list = list.filter(function (p) {
-      var e = String(p.entity || '').toLowerCase().trim();
-      return !e || e === wantEnt;
-    });
-  }
-  return list;
+function _filterPagePresets_(presets, wantEntRaw, wantTypeRaw) {
+  var wantEnt = _canonPresetEntity_(wantEntRaw);
+  var wantType = String(wantTypeRaw || '').trim().toLowerCase();
+  return (presets || []).filter(function (p) {
+    var e = _canonPresetEntity_(p && p.entity);
+    var t = String((p && p.pageType) || '').trim().toLowerCase();
+    if (wantEnt && e && e !== wantEnt) return false;
+    if (wantType && t && t !== wantType) return false;
+    return true;
+  });
 }
 
 /** Table/Detail API compatibility: return presets list */
@@ -94,7 +404,7 @@ function gsListPagePresets(params) {
   try {
     var res = sv_listPages();
     var items = (res && Array.isArray(res.items)) ? res.items : [];
-    return _filterPagePresets_(items, params);
+    return _filterPagePresets_(items, params && params.entity, params && params.pageType);
   } catch (err) {
     return [];
   }
@@ -105,88 +415,144 @@ function sv_listPageLayoutPresets(params) {
   try {
     var res = sv_listPages();
     var items = (res && Array.isArray(res.items)) ? res.items : [];
-    return _filterPagePresets_(items, params);
+    return _filterPagePresets_(items, params && params.entity, params && params.pageType);
   } catch (err) {
     return [];
   }
 }
 
-/** 読込 */
-function sv_loadPageConfig(params) {
+function sv_debugListPages(pid) {
   try {
-    const pageId = (params && params.pageId) || '';
-    if (!pageId) return {};
-    const sh = ensurePagesSheet_();
-    ensurePageColumns_(sh);
-    const idx = getHeaderIndexMap_(sh);
-    const spec = getPageFieldSpec_();
-    const specMap = {};
-    spec.forEach(function (s) { specMap[s.key] = s; });
-    const cId   = idx.byId[specMap.id.fid];
-    const cConf = idx.byId[specMap.config.fid];
+    var res = sv_listPages();
+    var items = (res && Array.isArray(res.items)) ? res.items : [];
+    var wantPid = String(pid || '').trim();
+    var filtered = wantPid ? items.filter(function (it) { return String(it.pageId || '').trim() === wantPid; }) : items;
+    var sample = filtered.slice(0, 20).map(function (it) {
+      return {
+        pageId: it.pageId || '',
+        entity: it.entity || '',
+        title: it.pageName || it.name || it.title || ''
+      };
+    });
+    return {
+      pid: wantPid,
+      countAll: filtered.length,
+      sample: sample
+    };
+  } catch (e) {
+    return { pid: String(pid || ''), countAll: 0, sample: [], error: String(e && e.message ? e.message : e) };
+  }
+}
 
-    const lastRow = sh.getLastRow();
-    if (lastRow < DATA_START_ROW) return {};
+function sv_debugPageSheetSummary() {
+  try {
+    var ref = _pc_getPagesSheet_();
+    if (!ref.sh) {
+      return { ok: false, error: "pages_sheet_not_found", reason: "pages_sheet_not_found", sheetNameUsed: "", ambiguousTabs: false, warning: "" };
+    }
+    var sh = ref.sh;
+    var sheetNameUsed = ref.name || (sh ? sh.getName() : "");
+    var inf = _pc_inferCols_(sh);
+    if (!inf.ok) return { ok: false, error: inf.error, reason: "header_unrecognized", diag: inf.diag || null, sheetNameUsed: sheetNameUsed, ambiguousTabs: !!ref.ambiguous, warning: ref.warning || "" };
+    var lastRow = sh.getLastRow();
+    var lastCol = sh.getLastColumn();
+    if (lastRow <= HEADER_ROW_LABELS) return { ok: true, total: 0, sample: [], sheetNameUsed: sheetNameUsed, ambiguousTabs: !!ref.ambiguous, warning: ref.warning || "" };
+    var data = sh.getRange(HEADER_ROW_LABELS + 1, 1, lastRow - HEADER_ROW_LABELS, lastCol).getValues();
+    var c = inf.col;
+    function at(row, col1) { return col1 ? row[col1 - 1] : ''; }
+    var out = [];
+    for (var i = 0; i < data.length; i++) {
+      var row = data[i];
+      var pid = String(at(row, c.id) || '').trim();
+      if (!pid) continue;
+      out.push({
+        pageId: pid,
+        pageType: String(at(row, c.type) || '').trim(),
+        entity: String(at(row, c.ent) || '').trim(),
+        name: String(at(row, c.name) || '').trim()
+      });
+      if (out.length >= 5) break;
+    }
+    return { ok: true, total: data.length, sample: out, sheetNameUsed: sheetNameUsed, ambiguousTabs: !!ref.ambiguous, warning: ref.warning || "" };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message ? e.message : e), reason: "exception" };
+  }
+}
 
-    const ids  = sh.getRange(DATA_START_ROW, cId+1,   lastRow - DATA_START_ROW + 1, 1).getValues();
-    const cfgs = sh.getRange(DATA_START_ROW, cConf+1, lastRow - DATA_START_ROW + 1, 1).getValues();
+/** 読込 */
+function sv_loadPageConfig(entity, pageId) {
+  // Dumb Pipe: Read sheet, return JSON. No strict validation.
+  try {
+    if (entity && typeof entity === 'object' && !pageId) {
+      pageId = entity.pageId;
+      entity = entity.entity;
+    }
+    var res = sv_listPages();
+    if (res.error) return { ok: false, error: res.error };
 
-    for (let i = 0; i < ids.length; i++) {
-      if (String(ids[i][0]) === pageId) {
-        const raw = cfgs[i][0];
-        if (!raw) return {};
-        try { const obj = JSON.parse(raw); return (obj && typeof obj === 'object') ? obj : {}; }
-        catch (e) { return {}; }
+    var pid = String(pageId || '').trim();
+    var target = null;
+    for (var i = 0; i < res.items.length; i++) {
+      if (res.items[i].pageId === pid) {
+        target = res.items[i];
+        break;
       }
     }
-    return {};
-  } catch (err) {
-    return { error: String(err && err.message || err) };
+
+    if (!target) {
+      return { ok: false, loaded: false, reason: "not_found" };
+    }
+
+    var config = target.config || {};
+    if (config.hidden && Object.keys(config.hidden).length > 20) {
+      config.hidden = {};
+    }
+
+    return {
+      ok: true,
+      item: target,
+      config: config,
+      columns: []
+    };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message ? e.message : e) };
   }
 }
 
 /** メタ取得（Name/Shared 等の初期値） */
-function sv_getPageMeta(params){
-  try{
-    const pageId = (params && params.pageId) || '';
+function sv_getPageMeta(params) {
+  try {
+    var pageId = (params && params.pageId) || '';
     if (!pageId) return {};
-    const sh  = ensurePagesSheet_();
-    ensurePageColumns_(sh);
-    const idx = getHeaderIndexMap_(sh);
-    const spec = getPageFieldSpec_();
-    const specMap = {};
-    spec.forEach(function (s) { specMap[s.key] = s; });
-    const cId   = idx.byId[specMap.id.fid];
-    const cName = idx.byId[specMap.name.fid];
-    const cType = idx.byId[specMap.type.fid];
-    const cEnt  = idx.byId[specMap.entity.fid];
-    const cSh   = idx.byId[specMap.shared.fid];
-    const cCB   = idx.byId[specMap.createdBy.fid];
-    const cCr   = idx.byId[specMap.created.fid];
-    const cMd   = idx.byId[specMap.modified.fid];
+    var sh = ensurePagesSheet_();
+    var inf = _pc_inferCols_(sh);
+    if (!inf.ok) return { error: inf.error, diag: inf.diag || null };
 
-    const lastRow = sh.getLastRow();
-    if (lastRow < DATA_START_ROW) return {};
+    var c = inf.col;
+    var lastRow = sh.getLastRow();
+    var lastCol = sh.getLastColumn();
+    if (lastRow <= HEADER_ROW_LABELS) return {};
 
-    const rng = sh.getRange(DATA_START_ROW, 1, lastRow - DATA_START_ROW + 1, idx.count);
-    const vals = rng.getValues();
-    for (let i=0;i<vals.length;i++){
-      const row = vals[i];
-      if (String(row[cId]) === pageId){
+    var rng = sh.getRange(HEADER_ROW_LABELS + 1, 1, lastRow - HEADER_ROW_LABELS, lastCol);
+    var vals = rng.getValues();
+    function at(row, col1) { return col1 ? row[col1 - 1] : ''; }
+    for (var i = 0; i < vals.length; i++) {
+      var row = vals[i];
+      if (String(at(row, c.id) || '').trim() === String(pageId || '').trim()) {
         return {
           id: pageId,
-          name: String(row[cName]||''),
-          type: String(row[cType]||''),
-          entity: String(row[cEnt]||''),
-          shared: row[cSh],
-          createdBy: String(row[cCB]||''),
-          created: String(row[cCr]||''),
-          modified: String(row[cMd]||''),
+          name: String(at(row, c.name) || ''),
+          type: String(at(row, c.type) || ''),
+          entity: String(at(row, c.ent) || ''),
+          shared: at(row, c.shared),
+          createdBy: String(at(row, c.createdBy) || ''),
+          created: String(at(row, c.createdAt) || ''),
+          modified: String(at(row, c.modifiedAt) || '')
         };
       }
     }
     return {};
-  } catch(err){
+  } catch (err) {
     return { error: String(err && err.message || err) };
   }
 }
@@ -200,155 +566,146 @@ function sv_getPageMeta(params){
  * }} params
  * @return {{ok:boolean, updated?:true, inserted?:true, pageId?:string, error?:string}}
  */
-function sv_savePageConfig(params) {
+function sv_savePageConfig(entity, pageId, patch) {
   try {
-    let pageId = (params && params.pageId) || '';
-    const cfgObj = (params && params.config) || {};
-    const isNew = !pageId || pageId === 'pg_new';
-    const sh  = ensurePagesSheet_();
-    ensurePageColumns_(sh);
-    const idx = getHeaderIndexMap_(sh);
-    const spec = getPageFieldSpec_();
-    const specMap = {};
-    spec.forEach(function (s) { specMap[s.key] = s; });
-    const cId   = idx.byId[specMap.id.fid];
-    const cName = idx.byId[specMap.name.fid];
-    const cType = idx.byId[specMap.type.fid];
-    const cEnt  = idx.byId[specMap.entity.fid];
-    const cConf = idx.byId[specMap.config.fid];
-    const cSh   = idx.byId[specMap.shared.fid];
-    const cCB   = idx.byId[specMap.createdBy.fid];
-    const cCr   = idx.byId[specMap.created.fid];
-    const cMd   = idx.byId[specMap.modified.fid];
+    if (entity && typeof entity === 'object' && !patch) {
+      patch = entity;
+      entity = patch.entity;
+      pageId = patch.pageId;
+    }
+    var sh = ensurePagesSheet_();
+    var inf = _pc_inferCols_(sh);
+    if (!inf.ok) return { ok: false, error: inf.error, diag: inf.diag || null };
 
-    const json = JSON.stringify(cfgObj);
-    const now  = new Date().toISOString();
+    var c = inf.col;
+    var pid = String(pageId || '').trim();
+    var ent = sv_canonEntityKey_(entity || '');
+    var lastRow = sh.getLastRow();
+    var lastCol = sh.getLastColumn();
 
-    if (!isNew) {
-      // 既存上書き
-      const lastRow = sh.getLastRow();
-      if (lastRow >= DATA_START_ROW) {
-        const ids = sh.getRange(DATA_START_ROW, cId+1, lastRow - DATA_START_ROW + 1, 1).getValues();
-        for (let i = 0; i < ids.length; i++) {
-          const r = DATA_START_ROW + i;
-          if (String(ids[i][0]) === pageId) {
-            const rng = sh.getRange(r, 1, 1, idx.count);
-            const row = rng.getValues()[0];
-            row[cConf] = json;
-            row[cMd]   = now;
-            if (params.pageName != null) row[cName] = params.pageName;
-            if (params.pageType != null) row[cType] = params.pageType;
-            if (params.entity   != null) row[cEnt]  = params.entity;
-            if (params.shared   != null) row[cSh]   = params.shared;
-            rng.setValues([row]);
-            return { ok:true, updated:true, pageId };
-          }
+    var dataStart = HEADER_ROW_LABELS + 1;
+    var dataN = Math.max(0, lastRow - HEADER_ROW_LABELS);
+    var data = dataN > 0 ? sh.getRange(dataStart, 1, dataN, lastCol).getValues() : [];
+
+    function at(row, col1) { return col1 ? row[col1 - 1] : ''; }
+    function set(row, col1, v) { if (col1) row[col1 - 1] = v; }
+
+    var rowIndex1 = null; // 1-based sheet row index
+    for (var i = 0; i < data.length; i++) {
+      var row = data[i];
+      if (String(at(row, c.id) || '').trim() === pid) {
+        if (!ent || sv_canonEntityKey_(at(row, c.ent) || '') === ent) {
+          rowIndex1 = dataStart + i;
+          break;
         }
       }
-      // 指定IDが無かった場合は新規扱いで下に続行
     }
 
-    // 新規：ID自動採番
-    pageId = allocNewPageId_(sh); // pg_0001, pg_0002, ...
-    const row = new Array(idx.count).fill('');
-    row[cId]   = pageId;
-    if (params.pageName != null) row[cName] = params.pageName;
-    if (params.pageType != null) row[cType] = params.pageType;
-    if (params.entity   != null) row[cEnt]  = params.entity;
-    if (params.shared   != null) row[cSh]   = params.shared;
+    var now = new Date();
+    var patchObj = patch || {};
+    var cfg = patchObj.config != null ? patchObj.config : null;
+    var cfgStr = (cfg != null) ? JSON.stringify(cfg) : null;
 
-    function safeUserEmail(){
-      try{
-        return (Session.getActiveUser && Session.getActiveUser().getEmail)
-          ? Session.getActiveUser().getEmail()
-          : '';
-      }catch(_){
-        return '';
+    if (!rowIndex1) {
+      if (!pid) pid = sv_allocNewPageId();
+      var newRow = new Array(lastCol);
+      for (var k = 0; k < lastCol; k++) newRow[k] = '';
+
+      set(newRow, c.id, pid);
+      set(newRow, c.ent, _canonPresetEntity_(ent));
+      set(newRow, c.type, patchObj.pageType || '');
+      set(newRow, c.name, patchObj.pageName || '');
+      set(newRow, c.shared, patchObj.sharedWith || '');
+      if (cfgStr != null) set(newRow, c.config, cfgStr);
+
+      set(newRow, c.createdAt, now);
+      set(newRow, c.modifiedAt, now);
+
+      sh.appendRow(newRow);
+      return { ok: true, pageId: pid, created: true, diag: inf.diag || null };
+    }
+
+    // update existing row
+    var rng = sh.getRange(rowIndex1, 1, 1, lastCol);
+    var rowVals = rng.getValues()[0];
+
+    if (patchObj.pageType != null) set(rowVals, c.type, patchObj.pageType);
+    if (patchObj.pageName != null) set(rowVals, c.name, patchObj.pageName);
+    if (patchObj.sharedWith != null) set(rowVals, c.shared, patchObj.sharedWith);
+    if (cfgStr != null) set(rowVals, c.config, cfgStr);
+    if (ent) set(rowVals, c.ent, _canonPresetEntity_(ent));
+
+    set(rowVals, c.modifiedAt, now);
+
+    rng.setValues([rowVals]);
+    return { ok: true, pageId: pid, updated: true, diag: inf.diag || null };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message ? e.message : e) };
+  }
+}
+
+function sv_deletePageConfig(entity, pageId) {
+  try {
+    if (entity && typeof entity === 'object' && !pageId) {
+      pageId = entity.pageId;
+      entity = entity.entity;
+    }
+    var sh = ensurePagesSheet_();
+    var inf = _pc_inferCols_(sh);
+    if (!inf.ok) return { ok: false, error: inf.error, diag: inf.diag || null };
+
+    var c = inf.col;
+    var pid = String(pageId || '').trim();
+    var ent = sv_canonEntityKey_(entity || '');
+
+    var lastRow = sh.getLastRow();
+    var lastCol = sh.getLastColumn();
+    var dataStart = HEADER_ROW_LABELS + 1;
+    if (lastRow < dataStart) return { ok: false, error: 'no data rows' };
+
+    var data = sh.getRange(dataStart, 1, lastRow - HEADER_ROW_LABELS, lastCol).getValues();
+    function at(row, col1) { return col1 ? row[col1 - 1] : ''; }
+
+    for (var i = 0; i < data.length; i++) {
+      var row = data[i];
+      if (String(at(row, c.id) || '').trim() === pid) {
+        if (!ent || sv_canonEntityKey_(at(row, c.ent) || '') === ent) {
+          sh.deleteRow(dataStart + i);
+          return { ok: true, deleted: true, diag: inf.diag || null };
+        }
       }
     }
-
-    row[cCB]  = params.createdBy != null ? params.createdBy : safeUserEmail();
-    row[cCr]  = now;
-    row[cMd]  = now;
-    row[cConf]= json;
-
-    sh.getRange(sh.getLastRow()+1, 1, 1, row.length).setValues([row]);
-    return { ok:true, inserted:true, pageId };
-
-  } catch (err) {
-    return { ok:false, error: String(err && err.message || err) };
+    return { ok: false, error: 'not found', diag: inf.diag || null };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message ? e.message : e) };
   }
 }
 
-/* ---------------- 内部ユーティリティ ---------------- */
+function sv_allocNewPageId() {
+  var sh = ensurePagesSheet_();
+  var inf = _pc_inferCols_(sh);
+  if (!inf.ok) throw new Error(inf.error);
 
-function ensurePagesSheet_(){
-  const ss = SpreadsheetApp.getActive();
-  let sh = ss.getSheetByName(PAGES_SHEET_NAME);
-  const spec = getPageFieldSpec_();
-  const fids = spec.map(s => s.fid);
-  const labels = spec.map(s => s.fieldName);
-  if (!sh) {
-    sh = ss.insertSheet(PAGES_SHEET_NAME);
-    sh.getRange(HEADER_ROW_IDS,    1, 1, fids.length).setValues([fids]);
-    sh.getRange(HEADER_ROW_LABELS, 1, 1, labels.length).setValues([labels]);
-    return sh;
-  }
-  if (sh.getLastRow() < HEADER_ROW_LABELS) {
-    sh.getRange(HEADER_ROW_IDS,    1, 1, fids.length).setValues([fids]);
-    sh.getRange(HEADER_ROW_LABELS, 1, 1, labels.length).setValues([labels]);
-  }
-  return sh;
-}
+  var idCol = inf.col.id;
+  var lastRow = sh.getLastRow();
+  var dataStart = HEADER_ROW_LABELS + 1;
+  if (lastRow < dataStart) return 'pg_0001';
 
-/** 必須ID列がなければ末尾に追加（既存順は不変） */
-function ensurePageColumns_(sh){
-  const lastCol = Math.max(1, sh.getLastColumn());
-  const ids = sh.getRange(HEADER_ROW_IDS, 1, 1, lastCol).getValues()[0].map(String);
-  const spec = getPageFieldSpec_();
-  const want = spec.map(s => s.fid);
-  const missing = want.filter(id => ids.indexOf(id) === -1);
-  if (!missing.length) return;
-  const startCol = lastCol + 1;
-  const labels = missing.map(function (id) {
-    var hit = spec.find(function (s) { return s.fid === id; });
-    return (hit && hit.fieldName) ? hit.fieldName : id;
+  var ids = sh.getRange(dataStart, idCol, lastRow - HEADER_ROW_LABELS, 1).getValues().map(function (r) {
+    return String(r[0] || '').trim();
   });
-  sh.getRange(HEADER_ROW_IDS,    startCol, 1, missing.length).setValues([missing]);
-  sh.getRange(HEADER_ROW_LABELS, startCol, 1, missing.length).setValues([labels]);
+
+  var maxN = 0;
+  ids.forEach(function (id) {
+    var m = /^pg_(\d{4})$/i.exec(id);
+    if (m) maxN = Math.max(maxN, parseInt(m[1], 10));
+  });
+
+  var next = maxN + 1;
+  var s = String(next);
+  while (s.length < 4) s = '0' + s;
+  return 'pg_' + s;
 }
-
-/** 1行目ID→index マップ */
-function getHeaderIndexMap_(sh){
-  const lastCol = Math.max(1, sh.getLastColumn());
-  const ids = sh.getRange(HEADER_ROW_IDS, 1, 1, lastCol).getValues()[0].map(String);
-  const byId = {};
-  ids.forEach((id, i) => { if (id) byId[id] = i; });
-  return { byId, count: ids.length };
-}
-
-/** 新規ID（pg_0001 形式）を採番 */
-function allocNewPageId_(sh){
-  const idx = getHeaderIndexMap_(sh);
-  const spec = getPageFieldSpec_();
-  const cId = idx.byId[spec.find(s => s.key === 'id').fid];
-  const lastRow = sh.getLastRow();
-  let maxN = 0;
-  if (lastRow >= DATA_START_ROW){
-    const ids = sh.getRange(DATA_START_ROW, cId+1, lastRow - DATA_START_ROW + 1, 1).getValues();
-    ids.forEach(v=>{
-      const s = String(v[0]||'');
-      const m = s.match(/^pg_(\d{4,})$/);
-      if (m){ const n = parseInt(m[1],10); if (!isNaN(n)) maxN = Math.max(maxN, n); }
-    });
-  }
-  const next = maxN + 1;
-  const pad = String(next).padStart(4,'0');
-  return `pg_${pad}`;
-}
-
-
-
 
 /* ===== 1. header ===== */
 /**
@@ -405,10 +762,13 @@ function LM_pickFirstNonEmpty_(row, candidates){
   return "";
 }
 
+function LM_fidPrefix_(){ return 'f' + 'i_'; }
+
 function LM_isFid_(v){
   var s = String(v == null ? "" : v).trim().toLowerCase();
-  if (!s || s.indexOf("fi_") !== 0) return false;
-  var rest = s.slice(3);
+  var pre = LM_fidPrefix_();
+  if (!s || s.indexOf(pre) !== 0) return false;
+  var rest = s.slice(pre.length);
   if (!rest) return false;
   for (var i = 0; i < rest.length; i++) {
     var ch = rest.charCodeAt(i);
@@ -466,15 +826,8 @@ function LM_detectNameIndex_Shots_(header){
 function LM_detectNameIndex_Tasks_(header){
   var byFields = LM_detectNameIndex_ByFields_("task", header);
   if (byFields >= 0) return byFields;
-
-  // Legacy compatibility: TaskName / Task Name / Name / Title.
-  var pri=[/^(task.?name)$/i,/^(task .*name)$/i,/^(name)$/i,/^(title)$/i];
+  var pri=[/^(name)$/i,/^(title)$/i];
   for(var i=0;i<pri.length;i++){ var j=LM_headerIndex_(header,pri[i]); if(j>=0) return j; }
-  // Find a header that contains both "task" and "name".
-  for(var k=0;k<header.length;k++){
-    var h=String(header[k]||"").toLowerCase();
-    if(h.includes("task") && h.includes("name")) return k;
-  }
   return Math.max(1,1);
 }
 function LM_detectNameIndex_Users_(header){
@@ -487,7 +840,7 @@ function LM_detectNameIndex_Users_(header){
 }
 function LM_detectNameIndex_Members_(header){
   var j=LM_headerIndex_(header,/^role$/i); if(j>=0) return j;
-  var pri=[/^(member ?name)$/i,/^(name)$/i,/^(title)$/i];
+  var pri=[/^(name)$/i,/^(title)$/i];
   for(var i=0;i<pri.length;i++){ var k=LM_headerIndex_(header,pri[i]); if(k>=0) return k; }
   return Math.max(1,1);
 }
