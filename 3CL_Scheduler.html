@@ -318,7 +318,7 @@
           <div style="font-size:10px; color:#8b8f98;">Range / End: whichever you change later is applied.</div>
           <div class="pop-row">
             <label for="inp-zoom">Zoom</label>
-            <input id="inp-zoom" type="range" min="1" max="200" value="60" style="flex:1;">
+            <input id="inp-zoom" type="range" min="1" max="100" value="60" style="flex:1;">
             <input id="inp-zoom-val" type="number" value="60" class="inp-dark" style="width:58px; text-align:center;">
           </div>
           <div class="pop-row" style="justify-content:flex-end;">
@@ -876,7 +876,7 @@ window.app = (function() {
     },
     calcSlotPx: (val) => {
       const n = Number(val);
-      return Math.max(1, Math.min(200, n));
+      return Math.max(1, Math.min(100, n));
     },
     setCacheStatus: () => {}
   };
