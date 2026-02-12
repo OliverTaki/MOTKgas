@@ -513,6 +513,7 @@ window.app = (function() {
     requestedSchedId: '',
     requestedSchedApplied: false,
     undoBusy: false,
+    undoPhase: '',
     commitOpId: '',
     commitQueue: [],
     commitInflight: null,
@@ -2385,7 +2386,7 @@ window.app = (function() {
   };
 
   function flushCommitQueue_() {
-    if (state.undoBusy && !state.commitInflight) return;
+    if (state.undoBusy && state.undoPhase === 'rpc' && !state.commitInflight) return;
     if (state.commitInflight) return;
     const item = state.commitQueue.shift();
     if (!item || !item.payload) return;
@@ -2394,7 +2395,7 @@ window.app = (function() {
     const finalize_ = () => {
       state.commitInflight = null;
       queueAssetInspectorRefresh_();
-      if (state.undoBusy) return;
+      if (state.undoBusy && state.undoPhase === 'rpc') return;
       flushCommitQueue_();
     };
     const retry_ = (reason) => {
@@ -2646,11 +2647,6 @@ window.app = (function() {
     undoLast: () => {
       if (state.undoBusy) return;
       clearInspectorTimers_();
-      var droppedPending = Array.isArray(state.commitQueue) ? state.commitQueue.length : 0;
-      if (droppedPending > 0) {
-        console.warn('[MOTK][Scheduler][Undo] dropped pending commits before undo', { droppedPending: droppedPending });
-        state.commitQueue = [];
-      }
       if (state.inspEdit) {
         state.inspEdit.isEditingStart = false;
         state.inspEdit.isEditingEnd = false;
@@ -2663,8 +2659,10 @@ window.app = (function() {
         if (ae && typeof ae.blur === 'function') ae.blur();
       } catch (_) {}
       state.undoBusy = true;
+      state.undoPhase = 'waiting_queue';
       const beginTs = Date.now();
       const startUndoRpc_ = () => {
+        state.undoPhase = 'rpc';
         setBlockingOverlay_(true, 'Undo...');
         utils.saveStatus('saving', 'Undo...');
         google.script.run
@@ -2684,6 +2682,7 @@ window.app = (function() {
                 forceNetwork: true,
                 onDone: () => {
                   state.undoBusy = false;
+                  state.undoPhase = '';
                   setBlockingOverlay_(false);
                   flushCommitQueue_();
                 }
@@ -2694,6 +2693,7 @@ window.app = (function() {
             console.warn('[MOTK][Scheduler][Undo] failed', { response: res });
             utils.saveStatus('error', msg);
             state.undoBusy = false;
+            state.undoPhase = '';
             setBlockingOverlay_(false);
             flushCommitQueue_();
           })
@@ -2701,6 +2701,7 @@ window.app = (function() {
             console.error('[MOTK][Scheduler][Undo] network failure', err);
             utils.saveStatus('error', String(err && (err.message || err) || 'Undo failed'));
             state.undoBusy = false;
+            state.undoPhase = '';
             setBlockingOverlay_(false);
             flushCommitQueue_();
           })
@@ -2717,6 +2718,7 @@ window.app = (function() {
           console.warn('[MOTK][Scheduler][Undo] commit queue timeout', q);
           utils.saveStatus('error', 'Undo timeout (save queue busy)');
           state.undoBusy = false;
+          state.undoPhase = '';
           setBlockingOverlay_(false);
           return;
         }
