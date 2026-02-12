@@ -128,6 +128,20 @@
       z-index: 4;
       pointer-events: none;
     }
+    .gap-hitbox {
+      position: absolute;
+      width: calc(var(--lane-w) - 10px);
+      border: 1px dashed rgba(245, 158, 11, 0.18);
+      background: rgba(245, 158, 11, 0.02);
+      border-radius: 3px;
+      z-index: 30;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+    .gap-hitbox:hover {
+      border-color: rgba(245, 158, 11, 0.45);
+      background: rgba(245, 158, 11, 0.08);
+    }
     .lane-boundary-line {
       position: absolute;
       top: 0;
@@ -1039,6 +1053,24 @@ window.app = (function() {
       }
     }
     return null;
+  }
+
+  function slotRectForRawRange_(fromRaw, toRaw, pxPerDay) {
+    var s = utils.normalizeSlot(fromRaw, 'start');
+    var e = utils.normalizeSlot(toRaw, 'end');
+    if (!s || !e) return null;
+    var sDayIdx = state.workDayMap.findIndex(function(wd) { return formatYmd_(wd) === s.dateVal; });
+    var eDayIdx = state.workDayMap.findIndex(function(wd) { return formatYmd_(wd) === e.dateVal; });
+    if (sDayIdx < 0 || eDayIdx < 0 || eDayIdx < sDayIdx) return null;
+    var sSpd = Math.max(1, Number(s.slotsPerDay) || getSlotsPerDay_());
+    var eSpd = Math.max(1, Number(e.slotsPerDay) || getSlotsPerDay_());
+    var top = (sDayIdx * pxPerDay) + (((Math.max(1, Number(s.slotVal) || 1) - 1) / sSpd) * pxPerDay);
+    var bottom = (eDayIdx * pxPerDay) + ((Math.max(1, Number(e.slotVal) || 1) / eSpd) * pxPerDay);
+    if (!isFinite(top) || !isFinite(bottom) || bottom <= top) return null;
+    return {
+      top: top,
+      height: Math.max(6, bottom - top)
+    };
   }
 
   function getPxPerDay_() {
@@ -2832,22 +2864,59 @@ window.app = (function() {
         els.canvas.appendChild(sep);
       });
 
+      lanes.forEach((lane, laneIdx) => {
+        const laneCards = Object.values(state.cards || {})
+          .filter((c) => String(c && c.laneId || '') === String(lane.id || '') && isFinite(Number(c && c.start)) && isFinite(Number(c && c.end)))
+          .sort((a, b) => Number(a.start) - Number(b.start));
+        if (laneCards.length < 2) return;
+        for (let gi = 0; gi < laneCards.length - 1; gi++) {
+          const a = laneCards[gi];
+          const b = laneCards[gi + 1];
+          const from = Math.round(Number(a.end)) + 1;
+          const to = Math.round(Number(b.start)) - 1;
+          if (!(isFinite(from) && isFinite(to)) || from > to) continue;
+          const rect = slotRectForRawRange_(from, to, pxPerDay);
+          if (!rect) continue;
+          const hit = document.createElement('div');
+          hit.className = 'gap-hitbox';
+          hit.style.left = (laneIdx * laneWidth + 4) + 'px';
+          hit.style.top = rect.top + 'px';
+          hit.style.height = rect.height + 'px';
+          hit.title = `Gap ${from}-${to} (${to - from + 1})`;
+          hit.dataset.gapLaneId = String(lane.id || '');
+          hit.dataset.gapFrom = String(from);
+          hit.dataset.gapTo = String(to);
+          hit.addEventListener('mousedown', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+          });
+          hit.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            actions.selectGap({
+              laneId: String(lane.id || ''),
+              fromSlot: from,
+              toSlot: to,
+              sizeSlots: (to - from + 1),
+              prevCardId: String(a.id || ''),
+              nextCardId: String(b.id || '')
+            });
+          });
+          els.canvas.appendChild(hit);
+        }
+      });
+
       if (state.gapSelection && state.gapSelection.sizeSlots > 0) {
         const g = state.gapSelection;
-        const gapStart = utils.normalizeSlot(g.fromSlot, 'start');
         const laneIdx = lanes.findIndex((l) => String(l.id || '') === String(g.laneId || ''));
-        const gapDayIdx = gapStart ? state.workDayMap.findIndex((wd) => formatYmd_(wd) === gapStart.dateVal) : -1;
-        if (laneIdx >= 0 && gapDayIdx >= 0) {
-          const startRatio = gapStart.slotsPerDay > 0 ? ((gapStart.slotVal - 1) / gapStart.slotsPerDay) : 0;
-          const top = (gapDayIdx * pxPerDay) + (startRatio * pxPerDay);
-          const spanSlots = Math.max(1, Math.round(Number(g.toSlot) - Number(g.fromSlot) + 1));
-          const h = Math.max(8, (spanSlots / Math.max(1, gapStart.slotsPerDay)) * pxPerDay);
+        const rect = slotRectForRawRange_(g.fromSlot, g.toSlot, pxPerDay);
+        if (laneIdx >= 0 && rect) {
           const left = (laneIdx * laneWidth) + 4;
           const gapEl = document.createElement('div');
           gapEl.className = 'gap-marker';
-          gapEl.style.top = top + 'px';
+          gapEl.style.top = rect.top + 'px';
           gapEl.style.left = left + 'px';
-          gapEl.style.height = Math.max(6, h - 1) + 'px';
+          gapEl.style.height = Math.max(6, rect.height - 1) + 'px';
           gapEl.title = `Gap ${g.fromSlot}-${g.toSlot} (${g.sizeSlots})`;
           els.canvas.appendChild(gapEl);
         }
