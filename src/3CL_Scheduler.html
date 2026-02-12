@@ -470,7 +470,7 @@
 
 <div id="loadingSpinner">
   <div class="spinner"></div>
-  <div style="color:#fff; font-size:11px; margin-top:10px;">Loading...</div>
+  <div id="loadingSpinnerText" style="color:#fff; font-size:11px; margin-top:10px;">Loading...</div>
 </div>
 
 <script>
@@ -513,6 +513,7 @@ window.app = (function() {
     requestedSchedId: '',
     requestedSchedApplied: false,
     undoBusy: false,
+    commitOpId: '',
     commitQueueByCard: {},
     inspEdit: { active: false, cardId: null, fields: {}, dirty: {}, commitLock: false, isTyping: false, isEditingStart: false, isEditingEnd: false, needsResyncAfterEdit: false, refs: {}, timers: {} }
   };
@@ -2415,6 +2416,22 @@ window.app = (function() {
       .sv_scheduler_commit_v2(JSON.stringify(payload));
   }
 
+  function createCommitOpId_(tag) {
+    const base = String(tag || 'op').replace(/[^a-z0-9_-]/ig, '').toLowerCase() || 'op';
+    return `op_${base}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function withCommitOp_(tag, fn) {
+    const prev = String(state.commitOpId || '');
+    const next = prev || createCommitOpId_(tag);
+    state.commitOpId = next;
+    try {
+      return fn(next);
+    } finally {
+      state.commitOpId = prev;
+    }
+  }
+
   function enqueueCommit_(payload) {
     const cardId = (payload && payload.card && payload.card.id != null) ? String(payload.card.id) : '__global__';
     if (!state.commitQueueByCard[cardId]) {
@@ -2422,6 +2439,31 @@ window.app = (function() {
     }
     state.commitQueueByCard[cardId].pending = payload;
     flushCommitQueue_(cardId);
+  }
+
+  function getCommitQueueStats_() {
+    const keys = Object.keys(state.commitQueueByCard || {});
+    let inflight = 0;
+    let pending = 0;
+    for (let i = 0; i < keys.length; i++) {
+      const entry = state.commitQueueByCard[keys[i]];
+      if (!entry) continue;
+      if (entry.inflight) inflight++;
+      if (entry.pending) pending++;
+    }
+    return { keys: keys.length, inflight: inflight, pending: pending };
+  }
+
+  function isCommitQueueIdle_() {
+    const stats = getCommitQueueStats_();
+    return (stats.inflight === 0 && stats.pending === 0);
+  }
+
+  function setBlockingOverlay_(visible, text) {
+    const sp = document.getElementById('loadingSpinner');
+    const label = document.getElementById('loadingSpinnerText');
+    if (label) label.textContent = String(text || 'Loading...');
+    if (sp) sp.style.display = visible ? 'flex' : 'none';
   }
 
   const actions = {
@@ -2458,6 +2500,15 @@ window.app = (function() {
     },
     load: (opts) => {
       opts = opts || {};
+      const onDone = (typeof opts.onDone === 'function') ? opts.onDone : null;
+      let doneCalled = false;
+      const done_ = () => {
+        if (doneCalled) return;
+        doneCalled = true;
+        if (onDone) {
+          try { onDone(); } catch (_) {}
+        }
+      };
       utils.saveStatus('saving', 'Loading...');
       const sp = document.getElementById('loadingSpinner');
       if (sp) sp.style.display='flex';
@@ -2519,7 +2570,7 @@ window.app = (function() {
               if (exists && active && active !== requested) {
                 state.requestedSchedApplied = true;
                 google.script.run
-                  .withSuccessHandler(function () { actions.load(); })
+                  .withSuccessHandler(function () { actions.load(opts); })
                   .withFailureHandler(function (err) {
                     const msg = 'Requested schedule switch failed';
                     console.error('[MOTK][Scheduler] ' + msg, { requested: requested, err: err });
@@ -2528,6 +2579,7 @@ window.app = (function() {
                     diag.error = msg;
                     if (!cacheUsed) utils.saveStatus('error', msg);
                     try { sessionStorage.setItem(SCHED_LOAD_DIAG_KEY, JSON.stringify(diag, null, 2)); } catch (_) { }
+                    done_();
                   })
                   .sv_scheduler_switch_active(requested);
                 return;
@@ -2551,6 +2603,7 @@ window.app = (function() {
             }
           }
           try { sessionStorage.setItem(SCHED_LOAD_DIAG_KEY, JSON.stringify(diag, null, 2)); } catch (_) { }
+          done_();
         })
         .withFailureHandler(e => {
           const tNetEnd = Date.now();
@@ -2565,6 +2618,7 @@ window.app = (function() {
             utils.saveStatus('saved', 'Loaded');
           }
           try { sessionStorage.setItem(SCHED_LOAD_DIAG_KEY, JSON.stringify(diag, null, 2)); } catch (_) { }
+          done_();
         })
         .sv_scheduler_load_v2();
     },
@@ -2572,34 +2626,71 @@ window.app = (function() {
     undoLast: () => {
       if (state.undoBusy) return;
       state.undoBusy = true;
-      utils.saveStatus('saving', 'Undo...');
-      google.script.run
-        .withSuccessHandler((str) => {
-          let res = null;
-          try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
-          if (res && res.ok) {
-            utils.saveStatus('saved', 'Undone');
-            actions.load({ forceNetwork: true });
-          } else {
+      const beginTs = Date.now();
+      const startUndoRpc_ = () => {
+        setBlockingOverlay_(true, 'Undo...');
+        utils.saveStatus('saving', 'Undo...');
+        google.script.run
+          .withSuccessHandler((str) => {
+            let res = null;
+            try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
+            if (res && res.ok) {
+              const undoneCount = Math.max(1, Math.round(Number(res.undoneCount || 1)));
+              utils.saveStatus('saved', undoneCount > 1 ? ('Undone ×' + undoneCount) : 'Undone');
+              actions.load({
+                forceNetwork: true,
+                onDone: () => {
+                  state.undoBusy = false;
+                  setBlockingOverlay_(false);
+                }
+              });
+              return;
+            }
             const msg = (res && (res.error || (res.result && res.result.error))) ? String(res.error || res.result.error) : 'Undo failed';
             console.warn('[MOTK][Scheduler][Undo] failed', { response: res });
             utils.saveStatus('error', msg);
-          }
+            state.undoBusy = false;
+            setBlockingOverlay_(false);
+          })
+          .withFailureHandler((err) => {
+            console.error('[MOTK][Scheduler][Undo] network failure', err);
+            utils.saveStatus('error', String(err && (err.message || err) || 'Undo failed'));
+            state.undoBusy = false;
+            setBlockingOverlay_(false);
+          })
+          .sv_undo_last_v2(JSON.stringify({ scope: 'scheduler' }));
+      };
+      const waitQueueAndUndo_ = () => {
+        if (isCommitQueueIdle_()) {
+          startUndoRpc_();
+          return;
+        }
+        const elapsed = Date.now() - beginTs;
+        if (elapsed > 10000) {
+          const q = getCommitQueueStats_();
+          console.warn('[MOTK][Scheduler][Undo] commit queue timeout', q);
+          utils.saveStatus('error', 'Undo timeout (save queue busy)');
           state.undoBusy = false;
-        })
-        .withFailureHandler((err) => {
-          console.error('[MOTK][Scheduler][Undo] network failure', err);
-          utils.saveStatus('error', String(err && (err.message || err) || 'Undo failed'));
-          state.undoBusy = false;
-        })
-        .sv_undo_last_v2(JSON.stringify({ scope: 'scheduler' }));
+          setBlockingOverlay_(false);
+          return;
+        }
+        setBlockingOverlay_(true, 'Waiting save queue...');
+        setTimeout(waitQueueAndUndo_, 60);
+      };
+      waitQueueAndUndo_();
     },
 
-    commit: (id, type) => {
+    commit: (id, type, opts = {}) => {
+      if (state.undoBusy) {
+        utils.saveStatus('saving', 'Undo in progress...');
+        return;
+      }
       const c = state.cards[id];
       if (!c && type !== 'delete') return;
+      const opId = String((opts && opts.opId) || state.commitOpId || createCommitOpId_('single'));
       const payload = {
         action: type,
+        opId: opId,
         card: {
           id: id,
           taskId: c ? c.taskId : '',
@@ -2698,15 +2789,17 @@ window.app = (function() {
         actions.clearGapSelection();
         return;
       }
-      targets.forEach((c) => {
-        const oldStart = Math.round(Number(c.start));
-        const oldEnd = Math.round(Number(c.end));
-        const nextStart = Math.max(1, oldStart - shift);
-        const nextEnd = Math.max(nextStart, oldEnd - shift);
-        if (nextStart === oldStart && nextEnd === oldEnd) return;
-        c.start = nextStart;
-        c.end = nextEnd;
-        actions.commit(c.id, 'update');
+      withCommitOp_('close_gap', () => {
+        targets.forEach((c) => {
+          const oldStart = Math.round(Number(c.start));
+          const oldEnd = Math.round(Number(c.end));
+          const nextStart = Math.max(1, oldStart - shift);
+          const nextEnd = Math.max(nextStart, oldEnd - shift);
+          if (nextStart === oldStart && nextEnd === oldEnd) return;
+          c.start = nextStart;
+          c.end = nextEnd;
+          actions.commit(c.id, 'update');
+        });
       });
       state.gapSelection = null;
       render.grid();
@@ -2913,79 +3006,83 @@ window.app = (function() {
     moveCard: (id, newStart, newLane) => {
       const c = state.cards[id];
       if (!c) return;
-      const laneBefore = String(c.laneId || '');
-      const laneAfter = String(newLane || laneBefore);
-      const dur = c.end - c.start + 1;
-      const requestedStart = Math.max(1, Math.round(Number(newStart) || 1));
-      const resolvedStart = resolveInsertStartByEarlyCards_(laneAfter, requestedStart, [id]);
-      const expectedById = snapshotLaneLengths_(laneAfter);
-      expectedById[String(id)] = Math.max(1, Math.round(Number(dur) || 1));
-      c.start = resolvedStart;
-      c.end = resolvedStart + dur - 1;
-      c.laneId = newLane;
-      actions.resolveCollisions(c);
-      const fixed = enforceLaneLengthInvariant_(laneAfter, expectedById, 'moveCard');
-      fixed.forEach((f) => {
-        if (String(f.id) !== String(id)) actions.commit(f.id, 'update');
+      withCommitOp_('move_card', () => {
+        const laneBefore = String(c.laneId || '');
+        const laneAfter = String(newLane || laneBefore);
+        const dur = c.end - c.start + 1;
+        const requestedStart = Math.max(1, Math.round(Number(newStart) || 1));
+        const resolvedStart = resolveInsertStartByEarlyCards_(laneAfter, requestedStart, [id]);
+        const expectedById = snapshotLaneLengths_(laneAfter);
+        expectedById[String(id)] = Math.max(1, Math.round(Number(dur) || 1));
+        c.start = resolvedStart;
+        c.end = resolvedStart + dur - 1;
+        c.laneId = newLane;
+        actions.resolveCollisions(c);
+        const fixed = enforceLaneLengthInvariant_(laneAfter, expectedById, 'moveCard');
+        fixed.forEach((f) => {
+          if (String(f.id) !== String(id)) actions.commit(f.id, 'update');
+        });
+        render.grid();
+        ui.renderCardList();
+        actions.commit(id, 'update');
+        if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) {
+          ui.refreshInspectorValuesFromCard();
+        }
+        queueAssetInspectorRefresh_();
       });
-      render.grid();
-      ui.renderCardList();
-      actions.commit(id, 'update');
-      if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) {
-        ui.refreshInspectorValuesFromCard();
-      }
-      queueAssetInspectorRefresh_();
     },
 
     moveCardBlock: (cardIds, targetStart, targetLane) => {
       var ids = normalizeCardIds_(cardIds);
       if (!ids.length) return;
-      var cards = ids
-        .map(function (id) { return state.cards[id]; })
-        .filter(function (c) { return !!c && isFinite(Number(c.start)) && isFinite(Number(c.end)); })
-        .sort(function (a, b) {
-          if (Number(a.start) !== Number(b.start)) return Number(a.start) - Number(b.start);
-          return String(a.id || '').localeCompare(String(b.id || ''));
+      withCommitOp_('move_block', () => {
+        var cards = ids
+          .map(function (id) { return state.cards[id]; })
+          .filter(function (c) { return !!c && isFinite(Number(c.start)) && isFinite(Number(c.end)); })
+          .sort(function (a, b) {
+            if (Number(a.start) !== Number(b.start)) return Number(a.start) - Number(b.start);
+            return String(a.id || '').localeCompare(String(b.id || ''));
+          });
+        if (!cards.length) return;
+        var laneId = String(targetLane || cards[0].laneId || '');
+        if (!laneId || laneId === 'unassigned') return;
+        var base = Math.round(Number(cards[0].start) || 1);
+        var entries = cards.map(function (c) {
+          var len = getCardLengthSlots_(c);
+          var relStart = Math.max(0, Math.round(Number(c.start) || base) - base);
+          return { id: String(c.id || ''), relStart: relStart, len: len };
         });
-      if (!cards.length) return;
-      var laneId = String(targetLane || cards[0].laneId || '');
-      if (!laneId || laneId === 'unassigned') return;
-      var base = Math.round(Number(cards[0].start) || 1);
-      var entries = cards.map(function (c) {
-        var len = getCardLengthSlots_(c);
-        var relStart = Math.max(0, Math.round(Number(c.start) || base) - base);
-        return { id: String(c.id || ''), relStart: relStart, len: len };
+        var requestedStart = Math.max(1, Math.round(Number(targetStart) || 1));
+        var start = resolveInsertStartByEarlyCards_(laneId, requestedStart, ids);
+        var blockSpan = 1;
+        entries.forEach(function (ent) {
+          blockSpan = Math.max(blockSpan, ent.relStart + ent.len);
+        });
+        var blockEnd = start + blockSpan - 1;
+        var expectedById = {};
+        entries.forEach(function (ent) {
+          var card = state.cards[ent.id];
+          if (!card) return;
+          card.laneId = laneId;
+          card.start = start + ent.relStart;
+          card.end = card.start + ent.len - 1;
+          expectedById[String(card.id || '')] = ent.len;
+        });
+        var shifted = pushDownLaneSuffixPreserveGaps_(laneId, start, blockEnd, ids);
+        shifted.forEach(function (card) { actions.commit(card.id, 'update'); });
+        var fixed = enforceLaneLengthInvariant_(laneId, expectedById, 'moveCardBlock');
+        fixed.forEach(function (f) {
+          if (ids.indexOf(String(f.id || '')) < 0) actions.commit(f.id, 'update');
+        });
+        render.grid();
+        ui.renderCardList();
+        ids.forEach(function (cid) { actions.commit(cid, 'update'); });
+        state.selection = ids[0];
+        state.multiSelection = ids.slice();
+        state.multiAnchorCardId = ids[0];
+        ui.renderInspector();
+        queueAssetInspectorRefresh_();
       });
-      var requestedStart = Math.max(1, Math.round(Number(targetStart) || 1));
-      var start = resolveInsertStartByEarlyCards_(laneId, requestedStart, ids);
-      var blockSpan = 1;
-      entries.forEach(function (ent) {
-        blockSpan = Math.max(blockSpan, ent.relStart + ent.len);
-      });
-      var blockEnd = start + blockSpan - 1;
-      var expectedById = {};
-      entries.forEach(function (ent) {
-        var card = state.cards[ent.id];
-        if (!card) return;
-        card.laneId = laneId;
-        card.start = start + ent.relStart;
-        card.end = card.start + ent.len - 1;
-        expectedById[String(card.id || '')] = ent.len;
-      });
-      var shifted = pushDownLaneSuffixPreserveGaps_(laneId, start, blockEnd, ids);
-      shifted.forEach(function (card) { actions.commit(card.id, 'update'); });
-      var fixed = enforceLaneLengthInvariant_(laneId, expectedById, 'moveCardBlock');
-      fixed.forEach(function (f) {
-        if (ids.indexOf(String(f.id || '')) < 0) actions.commit(f.id, 'update');
-      });
-      render.grid();
-      ui.renderCardList();
-      ids.forEach(function (cid) { actions.commit(cid, 'update'); });
-      state.selection = ids[0];
-      state.multiSelection = ids.slice();
-      state.multiAnchorCardId = ids[0];
-      ui.renderInspector();
-      queueAssetInspectorRefresh_();
     },
 
     toggleLane: (id) => {
@@ -3912,13 +4009,15 @@ window.app = (function() {
         }
         setDateError_(errSD, '');
         edit.isTypingStartDate = false;
-        const dateStr = formatYmd_(d);
-        const newStart = utils.dateValToSlot(dateStr, edit.fields.startSlot, 'start');
-        const len = c.end - c.start + 1;
-        c.start = newStart;
-        c.end = newStart + len - 1;
-        actions.resolveCollisions(c);
-        actions.commit(c.id, 'update');
+        withCommitOp_('inspector_start', () => {
+          const dateStr = formatYmd_(d);
+          const newStart = utils.dateValToSlot(dateStr, edit.fields.startSlot, 'start');
+          const len = c.end - c.start + 1;
+          c.start = newStart;
+          c.end = newStart + len - 1;
+          actions.resolveCollisions(c);
+          actions.commit(c.id, 'update');
+        });
         edit.fields.startDate = utils.fmtYmdText(d);
         refreshEditFromCard_();
         syncInputs_();
@@ -4032,22 +4131,24 @@ window.app = (function() {
         }
         setDateError_(errED, '');
         edit.isTypingEndDate = false;
-        let dateStr = formatYmd_(d0);
-        if (!isFinite(slotNum)) slotNum = slotsPerDay;
-        if (slotNum <= 0) {
-          slotNum = slotsPerDay;
-          const d = utils.parseDateTime(dateStr);
-          if (d && !isNaN(d)) {
-            d.setHours(0,0,0,0);
-            const adj = utils.adjustWeekend(d, 'end');
-            const prev = utils.shiftWorkdays(adj, -1);
-            dateStr = formatYmd_(prev);
+        withCommitOp_('inspector_end', () => {
+          let dateStr = formatYmd_(d0);
+          if (!isFinite(slotNum)) slotNum = slotsPerDay;
+          if (slotNum <= 0) {
+            slotNum = slotsPerDay;
+            const d = utils.parseDateTime(dateStr);
+            if (d && !isNaN(d)) {
+              d.setHours(0,0,0,0);
+              const adj = utils.adjustWeekend(d, 'end');
+              const prev = utils.shiftWorkdays(adj, -1);
+              dateStr = formatYmd_(prev);
+            }
           }
-        }
-        const newEnd = utils.dateValToSlot(dateStr, slotNum, 'end');
-        c.end = Math.max(c.start, newEnd);
-        actions.resolveCollisions(c);
-        actions.commit(c.id, 'update');
+          const newEnd = utils.dateValToSlot(dateStr, slotNum, 'end');
+          c.end = Math.max(c.start, newEnd);
+          actions.resolveCollisions(c);
+          actions.commit(c.id, 'update');
+        });
         edit.fields.endDate = utils.fmtYmdText(d0);
         refreshEditFromCard_();
         syncInputs_();
@@ -4761,6 +4862,13 @@ window.app = (function() {
       });
     }
     document.addEventListener('keydown', (e) => {
+      if (state.undoBusy) {
+        if (e.key === 'Delete' || e.key === 'Backspace' || e.key === 'Escape' || e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
       if (state.gapSelection && (e.key === 'Delete' || (e.key === 'Backspace' && !isTypingElement_(e.target)))) {
         e.preventDefault();
         e.stopPropagation();

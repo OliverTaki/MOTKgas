@@ -2965,8 +2965,22 @@ function _undo_isRecordConflict_(log) {
   return false;
 }
 
-function sv_undo_last_v2(reqPayload) {
+function _undo_getSchedulerOpId_(log) {
   try {
+    if (!log || String(log.scope || '').toLowerCase() !== 'scheduler') return '';
+    var inv = (log.inverse && typeof log.inverse === 'object') ? log.inverse : {};
+    var payload = (inv.payload && typeof inv.payload === 'object') ? inv.payload : {};
+    return String(payload.opId || '').trim();
+  } catch (e) {
+    return '';
+  }
+}
+
+function sv_undo_last_v2(reqPayload) {
+  var lock = null;
+  try {
+    lock = LockService.getScriptLock();
+    lock.waitLock(10000);
     var req = reqPayload;
     if (typeof reqPayload === 'string') req = _undo_parseJson_(reqPayload, {});
     req = req || {};
@@ -2981,6 +2995,10 @@ function sv_undo_last_v2(reqPayload) {
     for (var i = 0; i < logs.length; i++) {
       var row = logs[i];
       if (String(row.status || '') !== 'applied') continue;
+      var actionName = String(row.action || '').toLowerCase();
+      // Undo stack should walk back user-applied operations only.
+      // Do not pick prior undo records as undo targets (prevents undo<->redo toggling).
+      if (actionName === 'undo' || actionName === 'undo_group') continue;
       if (scope !== 'all' && scope && String(row.scope || '').toLowerCase() !== scope) continue;
       if (!admin && String(row.actor || '') !== actor) continue;
       picked = row;
@@ -2990,31 +3008,61 @@ function sv_undo_last_v2(reqPayload) {
       return JSON.stringify({ ok: false, error: 'No undo target', scope: scope, actor: actor, admin: admin });
     }
 
-    if (!force && _undo_isRecordConflict_(picked)) {
-      return JSON.stringify({
-        ok: false,
-        error: 'Conflict detected; use force/admin undo',
-        code: 'UNDO_CONFLICT',
-        logId: picked.logId
-      });
+    var targets = [picked];
+    var opId = _undo_getSchedulerOpId_(picked);
+    if (String(scope) === 'scheduler' && opId) {
+      var grouped = [];
+      for (var gi = 0; gi < logs.length; gi++) {
+        var row = logs[gi];
+        if (String(row.status || '') !== 'applied') continue;
+        var groupedAction = String(row.action || '').toLowerCase();
+        if (groupedAction === 'undo' || groupedAction === 'undo_group') continue;
+        if (String(row.scope || '').toLowerCase() !== 'scheduler') continue;
+        if (!admin && String(row.actor || '') !== actor) continue;
+        if (_undo_getSchedulerOpId_(row) !== opId) continue;
+        grouped.push(row);
+      }
+      if (grouped.length) targets = grouped;
     }
 
-    var applied = _undo_applyInverse_(picked.inverse, { actor: actor, force: force, undoOf: picked.logId });
-    if (!applied || !applied.ok) {
-      return JSON.stringify({
-        ok: false,
-        error: (applied && applied.error) ? applied.error : 'Undo apply failed',
-        result: applied && applied.result ? applied.result : null,
-        logId: picked.logId
-      });
+    if (!force) {
+      for (var ci = 0; ci < targets.length; ci++) {
+        if (_undo_isRecordConflict_(targets[ci])) {
+          return JSON.stringify({
+            ok: false,
+            error: 'Conflict detected; use force/admin undo',
+            code: 'UNDO_CONFLICT',
+            logId: targets[ci].logId
+          });
+        }
+      }
     }
 
-    _undo_markUndone_(picked.row, actor);
+    var appliedCount = 0;
+    var undoneIds = [];
+    for (var ai = 0; ai < targets.length; ai++) {
+      var target = targets[ai];
+      var applied = _undo_applyInverse_(target.inverse, { actor: actor, force: force, undoOf: target.logId });
+      if (!applied || !applied.ok) {
+        return JSON.stringify({
+          ok: false,
+          error: (applied && applied.error) ? applied.error : 'Undo apply failed',
+          result: applied && applied.result ? applied.result : null,
+          logId: target.logId,
+          undoneCount: appliedCount,
+          undoneLogIds: undoneIds
+        });
+      }
+      _undo_markUndone_(target.row, actor);
+      appliedCount++;
+      undoneIds.push(String(target.logId || ''));
+    }
+
     _undo_appendLog_({
       ts: _undo_nowIso_(),
       actor: actor,
       scope: picked.scope,
-      action: 'undo',
+      action: (targets.length > 1) ? 'undo_group' : 'undo',
       targetSheet: picked.targetSheet,
       entity: picked.entity,
       targetId: picked.targetId,
@@ -3022,12 +3070,15 @@ function sv_undo_last_v2(reqPayload) {
       before: picked.after,
       after: picked.before,
       inverse: picked.inverse,
-      note: force ? 'undo(force)' : 'undo(safe)',
+      note: (force ? 'undo(force)' : 'undo(safe)') + (targets.length > 1 ? (' opId=' + opId + ' count=' + targets.length) : ''),
       undoOf: picked.logId
     });
 
     return JSON.stringify({
       ok: true,
+      undoneCount: appliedCount,
+      undoneLogIds: undoneIds,
+      opId: opId || '',
       undone: {
         logId: picked.logId,
         scope: picked.scope,
@@ -3037,6 +3088,10 @@ function sv_undo_last_v2(reqPayload) {
     });
   } catch (e) {
     return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
+  } finally {
+    if (lock) {
+      try { lock.releaseLock(); } catch (_) {}
+    }
   }
 }
 
@@ -4439,6 +4494,7 @@ function sv_scheduler_commit_v2(payloadJson) {
     var payload = JSON.parse(payloadJson);
     var action = payload.action;
     var cardData = payload.card;
+    var opId = String(payload.opId || '').trim();
     var skipUndoLog = !!(payload && payload.__skipUndoLog);
     var actorHint = payload && payload.actor;
     var undoLogDiag = {
@@ -4576,7 +4632,11 @@ function sv_scheduler_commit_v2(payloadJson) {
           after: afterCard || null,
           inverse: {
             kind: 'scheduler_commit',
-            payload: inversePayload || {}
+            payload: (function () {
+              var inv = (inversePayload && typeof inversePayload === 'object') ? inversePayload : {};
+              if (opId) inv.opId = opId;
+              return inv;
+            })()
           },
           note: noteText || 'sv_scheduler_commit_v2'
         });
