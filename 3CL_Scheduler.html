@@ -1182,6 +1182,29 @@ window.app = (function() {
     };
   }
 
+  function resolveInsertStartByEarlyCards_(laneId, desiredStart, excludeIds) {
+    var laneKey = String(laneId || '');
+    var start = Math.max(1, Math.round(Number(desiredStart) || 1));
+    if (!laneKey) return start;
+    var exclude = {};
+    normalizeCardIds_(excludeIds || []).forEach(function (id) { exclude[id] = true; });
+    var maxEarlyEnd = null;
+    Object.values(state.cards || {}).forEach(function (c) {
+      if (!c) return;
+      var id = String(c.id || '');
+      if (exclude[id]) return;
+      if (String(c.laneId || '') !== laneKey) return;
+      var cStart = Math.round(Number(c.start));
+      var cEnd = Math.round(Number(c.end));
+      if (!isFinite(cStart) || !isFinite(cEnd)) return;
+      if (cEnd < cStart) return;
+      if (cStart >= start) return;
+      if (maxEarlyEnd === null || cEnd > maxEarlyEnd) maxEarlyEnd = cEnd;
+    });
+    if (maxEarlyEnd !== null && maxEarlyEnd >= start) return maxEarlyEnd + 1;
+    return start;
+  }
+
   function pushDownLaneSuffixPreserveGaps_(laneId, insertStart, insertEnd, excludeIds) {
     var laneKey = String(laneId || '');
     if (!laneKey || !isFinite(Number(insertStart)) || !isFinite(Number(insertEnd))) return [];
@@ -2803,10 +2826,12 @@ window.app = (function() {
       const laneBefore = String(c.laneId || '');
       const laneAfter = String(newLane || laneBefore);
       const dur = c.end - c.start + 1;
+      const requestedStart = Math.max(1, Math.round(Number(newStart) || 1));
+      const resolvedStart = resolveInsertStartByEarlyCards_(laneAfter, requestedStart, [id]);
       const expectedById = snapshotLaneLengths_(laneAfter);
       expectedById[String(id)] = Math.max(1, Math.round(Number(dur) || 1));
-      c.start = newStart;
-      c.end = newStart + dur - 1;
+      c.start = resolvedStart;
+      c.end = resolvedStart + dur - 1;
       c.laneId = newLane;
       actions.resolveCollisions(c);
       const fixed = enforceLaneLengthInvariant_(laneAfter, expectedById, 'moveCard');
@@ -2841,7 +2866,8 @@ window.app = (function() {
         var relStart = Math.max(0, Math.round(Number(c.start) || base) - base);
         return { id: String(c.id || ''), relStart: relStart, len: len };
       });
-      var start = Math.max(1, Math.round(Number(targetStart) || 1));
+      var requestedStart = Math.max(1, Math.round(Number(targetStart) || 1));
+      var start = resolveInsertStartByEarlyCards_(laneId, requestedStart, ids);
       var blockSpan = 1;
       entries.forEach(function (ent) {
         blockSpan = Math.max(blockSpan, ent.relStart + ent.len);
@@ -4255,7 +4281,8 @@ window.app = (function() {
     const newStart = dropTarget.newStart;
     const newLane = dropTarget.newLane || drag.card.laneId;
     if (drag.isBlockMove && drag.block) {
-      var blockStart = Math.max(1, Math.round(Number(newStart) || 1) - Math.max(0, Math.round(Number(drag.block.anchorRelStart) || 0)));
+      var blockStartRaw = Math.max(1, Math.round(Number(newStart) || 1) - Math.max(0, Math.round(Number(drag.block.anchorRelStart) || 0)));
+      var blockStart = resolveInsertStartByEarlyCards_(String(newLane || drag.block.laneId || ''), blockStartRaw, drag.block.ids);
       renderDragPreviewNodes_({
         laneId: String(newLane || drag.block.laneId || ''),
         start: blockStart,
@@ -4265,10 +4292,11 @@ window.app = (function() {
       return;
     }
     const len = getCardLengthSlots_(drag.card);
+    const previewStart = resolveInsertStartByEarlyCards_(String(newLane || drag.card.laneId || ''), newStart, [drag.card.id]);
     renderDragPreviewNodes_({
       laneId: String(newLane || drag.card.laneId || ''),
-      start: newStart,
-      end: newStart + len - 1,
+      start: previewStart,
+      end: previewStart + len - 1,
       mode: 'move'
     });
   }
@@ -4320,7 +4348,8 @@ window.app = (function() {
       return;
     }
     if (drag.isBlockMove && drag.block) {
-      var blockStart = Math.max(1, Math.round(Number(newStart) || 1) - Math.max(0, Math.round(Number(drag.block.anchorRelStart) || 0)));
+      var blockStartRaw = Math.max(1, Math.round(Number(newStart) || 1) - Math.max(0, Math.round(Number(drag.block.anchorRelStart) || 0)));
+      var blockStart = resolveInsertStartByEarlyCards_(String(newLane || drag.block.laneId || ''), blockStartRaw, drag.block.ids);
       const unchanged = (Math.round(Number(blockStart) || 1) === Math.round(Number(drag.block.baseStart) || 1)) &&
         (String(newLane || '') === String(drag.block.laneId || ''));
       if (!unchanged) actions.moveCardBlock(drag.block.ids, blockStart, newLane);
@@ -4335,13 +4364,10 @@ window.app = (function() {
     const prevEnd = drag.card.end;
     const prevLane = drag.card.laneId;
     const len = getCardLengthSlots_(drag.card);
-    const nextStart = newStart;
-    const nextEnd = newStart + len - 1;
+    const nextStart = resolveInsertStartByEarlyCards_(String(newLane || drag.card.laneId || ''), newStart, [drag.card.id]);
+    const nextEnd = nextStart + len - 1;
     if (nextStart !== prevStart || nextEnd !== prevEnd || String(newLane) !== String(prevLane)) {
-      drag.card.start = nextStart;
-      drag.card.end = nextEnd;
-      drag.card.laneId = newLane;
-      actions.moveCard(drag.card.id, drag.card.start, drag.card.laneId);
+      actions.moveCard(drag.card.id, nextStart, newLane);
     } else {
       render.grid();
       ui.refreshInspectorValuesFromCard();
@@ -4368,20 +4394,16 @@ window.app = (function() {
     const newLane = dropTarget.newLane || c.laneId;
     var block = buildDragBlockForCard_(c.id);
     if (block) {
-      var blockStart = Math.max(1, Math.round(Number(newStart) || 1) - Math.max(0, Math.round(Number(block.anchorRelStart) || 0)));
+      var blockStartRaw = Math.max(1, Math.round(Number(newStart) || 1) - Math.max(0, Math.round(Number(block.anchorRelStart) || 0)));
+      var blockStart = resolveInsertStartByEarlyCards_(String(newLane || block.laneId || ''), blockStartRaw, block.ids);
       actions.moveCardBlock(block.ids, blockStart, newLane);
       return;
     }
-    var dur = (c.start !== null && c.end !== null && isFinite(c.end - c.start) && (c.end - c.start) >= 0)
-      ? (c.end - c.start + 1)
-      : Math.max(1, Math.round(dropTarget.snapState.snap.min / config.slotMin));
-    c.start = newStart;
-    c.end = newStart + dur - 1;
-    c.laneId = newLane;
+    var resolvedStart = resolveInsertStartByEarlyCards_(String(newLane || c.laneId || ''), newStart, [c.id]);
     if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) {
       state.selection = c.id;
     }
-    actions.moveCard(c.id, c.start, c.laneId);
+    actions.moveCard(c.id, resolvedStart, newLane);
   }
 
   function bindEvents() {
