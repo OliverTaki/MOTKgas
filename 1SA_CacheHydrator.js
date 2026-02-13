@@ -1,7 +1,6 @@
-/* ===== TAKE84 + v3 FastBoot: Cache Hydrator & BootCache Storage ===== */
-/* * 役割:
- * 1. 定期実行によるキャッシュ暖機 (Originals URL, Proxy Index)
- * 2. v3 Fast Boot のための BootCache シートへの読み書き (sv_saveBootPack, sv_getBootPack)
+/* ===== TAKE84: Cache Hydrator ===== */
+/* * Role:
+ * 1. Scheduled cache warming (Originals URL, Proxy Index)
  */
 
 /* =========================================
@@ -27,6 +26,25 @@ function SA_uninstallCacheHydratorTriggers() {
       removed++;
     }
   }
+  return { ok: true, removed: removed };
+}
+
+function SA_removeLegacyHydratorTriggers() {
+  var triggers = ScriptApp.getProjectTriggers();
+  var removed = [];
+  var targets = [
+    'SA_runCacheHydrationDaily',
+    'SA_hydrateProxyIndexLatest',
+    'SA_hydrateOriginalsUrls'
+  ];
+  for (var i = 0; i < triggers.length; i++) {
+    var fn = triggers[i].getHandlerFunction();
+    if (targets.indexOf(fn) >= 0) {
+      ScriptApp.deleteTrigger(triggers[i]);
+      removed.push(fn);
+    }
+  }
+  try { Logger.log('[MOTK][Hydrator] removed triggers=%s', JSON.stringify(removed)); } catch (_) { }
   return { ok: true, removed: removed };
 }
 
@@ -297,168 +315,4 @@ function SA_hydrateProxyIndexLatest() {
   };
   try { Logger.log('[MOTK][ProxyIndex][Warm] %s', JSON.stringify(out)); } catch (_) { }
   return out;
-}
-
-
-/* =========================================
- * Part 2: BootCache Storage (v3 FastBoot)
- * ========================================= */
-
-const BOOT_CACHE_SHEET_NAME = 'BootCache';
-const BC_HEADERS = [
-  'Key',          // A
-  'Kind',         // B
-  'Entity',       // C
-  'PageId',       // D
-  'SchemaSig',    // E
-  'PageSig',      // F
-  'ChunkIndex',   // G
-  'ChunkCount',   // H
-  'UpdatedAt',    // I
-  'PayloadChunk'  // J
-];
-
-/**
- * 公開API: BootPackを取得する
- * @param {Object} request { key: "bp:..." }
- */
-function sv_getBootPack_v3(request) {
-  const key = request && request.key;
-  if (!key) return { ok: false, reason: 'no-key' };
-
-  try {
-    const sh = _getBootCacheSheet_();
-    if (!sh) return { ok: false, reason: 'no-sheet' };
-
-    // 全データを取得してメモリ上でフィルタ（GASの行数制限内ならこれが最速）
-    const data = sh.getDataRange().getValues();
-    if (data.length < 2) return { ok: false, reason: 'empty' };
-
-    // ヘッダ行を除外してキーで検索
-    const rows = data.slice(1).filter(r => r[0] === key);
-    if (!rows.length) return { ok: false, reason: 'miss' };
-
-    // チャンクを結合
-    rows.sort((a, b) => Number(a[6]) - Number(b[6])); 
-    
-    // 整合性チェック
-    const count = Number(rows[0][7]);
-    if (rows.length !== count) {
-      return { ok: false, reason: 'broken-chunks' };
-    }
-
-    let joinedJson = '';
-    for (let i = 0; i < rows.length; i++) {
-      joinedJson += String(rows[i][9]); // J列
-    }
-
-    const payload = JSON.parse(joinedJson);
-    return {
-      ok: true,
-      payload: payload,
-      meta: {
-        updatedAt: rows[0][8],
-        schemaSig: rows[0][4],
-        pageSig: rows[0][5],
-        source: 'sheet-boot-cache'
-      }
-    };
-
-  } catch (e) {
-    console.warn('[BootCache] get failed', e);
-    return { ok: false, reason: 'error', message: e.message };
-  }
-}
-
-/**
- * 公開API: BootPackを保存する
- * @param {Object} params { key, kind, entity, pageId, schemaSig, pageSig, payload }
- */
-function sv_saveBootPack_v3(params) {
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(5000)) return { ok: false, error: 'lock-timeout' };
-
-  try {
-    const sh = _ensureBootCacheSheet_();
-    const key = params.key;
-    const json = JSON.stringify(params.payload || {});
-    const now = new Date().toISOString();
-    
-    // 既存のエントリを削除
-    _deleteRowsByKey_(sh, key);
-
-    // チャンク分割 (40k文字)
-    const chunkSize = 40000;
-    const chunks = [];
-    for (let i = 0; i < json.length; i += chunkSize) {
-      chunks.push(json.substring(i, i + chunkSize));
-    }
-
-    const newRows = chunks.map((chunk, idx) => {
-      return [
-        key,
-        params.kind || 'BOOTPACK',
-        params.entity || '',
-        params.pageId || '',
-        params.schemaSig || '',
-        params.pageSig || '',
-        idx,
-        chunks.length,
-        now,
-        chunk
-      ];
-    });
-
-    if (newRows.length > 0) {
-      sh.getRange(sh.getLastRow() + 1, 1, newRows.length, newRows[0].length).setValues(newRows);
-    }
-    
-    // お掃除
-    _pruneBootCache_(sh);
-
-    return { ok: true, chunks: chunks.length };
-
-  } catch (e) {
-    console.error('[BootCache] save failed', e);
-    return { ok: false, error: e.message };
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-function _getBootCacheSheet_() {
-  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(BOOT_CACHE_SHEET_NAME);
-}
-
-function _ensureBootCacheSheet_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sh = ss.getSheetByName(BOOT_CACHE_SHEET_NAME);
-  if (!sh) {
-    sh = ss.insertSheet(BOOT_CACHE_SHEET_NAME);
-    sh.getRange(1, 1, 1, BC_HEADERS.length).setValues([BC_HEADERS]);
-    sh.setFrozenRows(1);
-  }
-  return sh;
-}
-
-function _deleteRowsByKey_(sh, key) {
-  // TextFinderでキー一致行を全削除
-  const finder = sh.getRange("A:A").createTextFinder(key).matchEntireCell(true);
-  const ranges = finder.findAll();
-  // 逆順ループで削除
-  for (let i = ranges.length - 1; i >= 0; i--) {
-    const row = ranges[i].getRow();
-    if (row > 1) sh.deleteRow(row);
-  }
-}
-
-function _pruneBootCache_(sh) {
-  const maxRows = 3000;
-  const deleteCount = 500;
-  const lastRow = sh.getLastRow();
-  
-  if (lastRow > maxRows) {
-    // 追記型なので上(古いもの)から削除
-    sh.deleteRows(2, deleteCount);
-  }
 }

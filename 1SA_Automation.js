@@ -44,19 +44,24 @@ function onEdit(e) {
     handleFieldsSheetEdit(e);
     return;
   }
-  if (!P[k]) return;
-
-  // ヘッダ行（2行目）の編集
-  if (e.range.getRow() === 2) {
-    handleHeaderEdit(e);
-    return;
-  }
-  // データ行（3行目以降）の編集
-  if (e.range.getRow() > 2) {
-    handleDataEdit(e); // ID付与
-    if (k === "shots") {
-      recalcCodes(sh); // ShotCodeは編集時に常に再計算
+  if (P[k]) {
+    // ヘッダ行（2行目）の編集
+    if (e.range.getRow() === 2) {
+      handleHeaderEdit(e);
+      return;
     }
+    // データ行（3行目以降）の編集
+    if (e.range.getRow() > 2) {
+      handleDataEdit(e); // ID付与
+      if (k === "shots") {
+        recalcCodes(sh); // ShotCodeは編集時に常に再計算
+      }
+    }
+  }
+  try {
+    _normalizeDateRangeOnEdit_(e);
+  } catch (err) {
+    try { Logger.log("[MOTK][onEdit][DateNormalize] %s", String(err && err.message ? err.message : err)); } catch (_) { }
   }
 }
 
@@ -152,13 +157,15 @@ function handleFieldsSheetEdit(e) {
   const r = e.range.getRow();
   if (r < 2) return;
   const fieldsSheet = F();
-  const row = fieldsSheet.getRange(r, 1, 1, 3).getValues()[0];
-  if (row[1] && row[2] && !row[0]) {
+  const row = getMetaRowByIndex_(r);
+  if (!row) return;
+  if (row.entity && row.name && !row.fid) {
     const id = newFid();
     fieldsSheet.getRange(r, 1).setValue(id);
-    applyField(id, row[2], row[1]);
-  } else if (row[0] && row[1] && row[2]) {
-    applyField(row[0], row[2], row[1]);
+    row.fid = id;
+    applyField(id, row.name, row.entity, row.type, row.options);
+  } else if (row.fid && row.entity && row.name) {
+    applyField(row.fid, row.name, row.entity, row.type, row.options);
   }
 }
 function handleHeaderEdit(e) {
@@ -192,6 +199,33 @@ function handleDataEdit(e) {
   const k = sh.getName().toLowerCase();
   const rows = e.range.getNumRows();
   const start = e.range.getRow();
+  const hasMeaningfulRowContent_ = (arr) => {
+    if (!Array.isArray(arr)) return false;
+    for (let i = 0; i < arr.length; i++) {
+      const v = arr[i];
+      if (v === null || v === undefined) continue;
+      if (typeof v === "string") {
+        if (v.trim() !== "") return true;
+        continue;
+      }
+      if (typeof v === "boolean") {
+        // Checkbox FALSE alone should not trigger auto-id generation.
+        if (v === true) return true;
+        continue;
+      }
+      if (typeof v === "number") {
+        if (isFinite(v)) return true;
+        continue;
+      }
+      if (v instanceof Date) {
+        if (!isNaN(v.getTime())) return true;
+        continue;
+      }
+      // Fallback for unexpected primitive/object values
+      if (String(v).trim() !== "") return true;
+    }
+    return false;
+  };
   for (let i = 0; i < rows; i++) {
     const r = start + i;
     const idCell = sh.getRange(r, 1);
@@ -199,7 +233,7 @@ function handleDataEdit(e) {
       const rowData = sh
         .getRange(r, 2, 1, sh.getLastColumn() - 1)
         .getValues()[0];
-      if (rowData.some((v) => v !== "")) {
+      if (hasMeaningfulRowContent_(rowData)) {
         idCell.setValue(genId(sh, k));
       }
     }
@@ -248,9 +282,195 @@ function getMetaRows() {
     .getValues()
     .filter((r) => r[0] && r[1] && r[2]);
 }
+
+function _fieldsNormHeader_(name) {
+  return String(name || "").trim().toLowerCase().replace(/[\s_\-]+/g, "");
+}
+
+function _isFieldIdToken_(v) {
+  return /^fi_\d{4,}$/i.test(String(v || "").trim());
+}
+
+function _pickFieldsIndex_(header, aliases) {
+  const keys = aliases.map(_fieldsNormHeader_);
+  for (let i = 0; i < header.length; i++) {
+    if (keys.indexOf(_fieldsNormHeader_(header[i])) !== -1) return i;
+  }
+  return -1;
+}
+
+function _getFieldsHeaderMap_() {
+  const fSheet = F();
+  if (!fSheet) return null;
+  const lastCol = fSheet.getLastColumn();
+  if (lastCol < 1) return null;
+  const header = fSheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  return {
+    lastCol,
+    fid: _pickFieldsIndex_(header, ["field_id", "fieldid", "fid", "id"]),
+    entity: _pickFieldsIndex_(header, ["entity", "entity_name", "sheet", "sheet_name"]),
+    name: _pickFieldsIndex_(header, ["field_name", "fieldname", "name", "label", "display_name"]),
+    type: _pickFieldsIndex_(header, ["type", "field_type", "fieldtype"]),
+    options: _pickFieldsIndex_(header, ["options", "option", "values"]),
+  };
+}
+
+function getMetaRowsWithType_() {
+  const fSheet = F();
+  const map = _getFieldsHeaderMap_();
+  if (!fSheet || !map || map.fid < 0 || map.entity < 0 || map.name < 0) return [];
+  const lastRow = fSheet.getLastRow();
+  if (lastRow < 2) return [];
+  const rows = fSheet.getRange(2, 1, lastRow - 1, map.lastCol).getValues();
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    const src = rows[i];
+    const fid = String(src[map.fid] || "").trim();
+    const entity = String(src[map.entity] || "").trim();
+    const name = String(src[map.name] || "").trim();
+    if (!fid || !entity || !name) continue;
+    out.push({
+      row: i + 2,
+      fid,
+      entity,
+      name,
+      type: map.type >= 0 ? String(src[map.type] || "").trim().toLowerCase() : "",
+      options: map.options >= 0 ? src[map.options] : "",
+    });
+  }
+  return out;
+}
+
+function _buildTypeByFidMap_() {
+  const out = {};
+  const rows = getMetaRowsWithType_();
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i] || {};
+    const fid = String(row.fid || "").trim();
+    if (!fid) continue;
+    out[fid] = String(row.type || "").trim().toLowerCase();
+  }
+  return out;
+}
+
+function _buildLocalDateFromYmd_(y, m, d) {
+  const yy = Number(y), mm = Number(m), dd = Number(d);
+  if (!isFinite(yy) || !isFinite(mm) || !isFinite(dd)) return null;
+  const dt = new Date(yy, mm - 1, dd);
+  if (isNaN(dt.getTime())) return null;
+  if (dt.getFullYear() !== yy || dt.getMonth() !== (mm - 1) || dt.getDate() !== dd) return null;
+  return dt;
+}
+
+function _parseDateTextForOnEdit_(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})T/);
+  if (m) return _buildLocalDateFromYmd_(m[1], m[2], m[3]);
+  m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:[ T].*)?$/);
+  if (m) return _buildLocalDateFromYmd_(m[1], m[2], m[3]);
+  m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m) return _buildLocalDateFromYmd_(m[1], m[2], m[3]);
+  return null;
+}
+
+function _sameLocalYmd_(a, b) {
+  return !!(a instanceof Date) && !!(b instanceof Date) &&
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+}
+
+function _normalizeDateRangeOnEdit_(e) {
+  if (!e || !e.range) return;
+  const sh = e.range.getSheet();
+  if (!sh) return;
+  const sheetName = String(sh.getName() || "").toLowerCase();
+  if (sheetName === META.toLowerCase()) return;
+
+  const r0 = e.range.getRow();
+  const c0 = e.range.getColumn();
+  const nr = e.range.getNumRows();
+  const nc = e.range.getNumColumns();
+  const r1 = r0 + nr - 1;
+  if (r1 < 3) return;
+
+  const lastCol = sh.getLastColumn();
+  if (lastCol < 1) return;
+  const headerFids = sh.getRange(1, 1, 1, lastCol).getValues()[0] || [];
+
+  const touched = [];
+  for (let c = c0; c <= c0 + nc - 1; c++) {
+    if (c < 1 || c > headerFids.length) continue;
+    const fid = String(headerFids[c - 1] || "").trim();
+    if (_isFieldIdToken_(fid)) touched.push({ col: c, fid: fid });
+  }
+  if (!touched.length) return;
+
+  const typeByFid = _buildTypeByFidMap_();
+  const dateCols = touched
+    .filter((x) => String(typeByFid[x.fid] || "").toLowerCase() === "date")
+    .map((x) => x.col);
+  if (!dateCols.length) return;
+
+  const dataStart = Math.max(3, r0);
+  const dataRows = r1 - dataStart + 1;
+  if (dataRows <= 0) return;
+
+  dateCols.forEach((col) => {
+    const rg = sh.getRange(dataStart, col, dataRows, 1);
+    const vals = rg.getValues();
+    let changed = false;
+    for (let i = 0; i < vals.length; i++) {
+      const raw = vals[i][0];
+      if (raw === null || raw === undefined || raw === "") continue;
+      let dt = null;
+      if (raw instanceof Date) {
+        if (!isNaN(raw.getTime())) dt = _buildLocalDateFromYmd_(raw.getFullYear(), raw.getMonth() + 1, raw.getDate());
+      } else if (typeof raw === "string") {
+        dt = _parseDateTextForOnEdit_(raw);
+      } else if (typeof raw === "number" && isFinite(raw)) {
+        const serialDate = new Date(Date.UTC(1899, 11, 30) + Math.round(Number(raw) * 86400000));
+        if (!isNaN(serialDate.getTime())) dt = _buildLocalDateFromYmd_(serialDate.getUTCFullYear(), serialDate.getUTCMonth() + 1, serialDate.getUTCDate());
+      }
+      if (!dt) continue;
+      if (_sameLocalYmd_(raw, dt)) continue;
+      vals[i][0] = dt;
+      changed = true;
+    }
+    if (changed) {
+      rg.setValues(vals);
+      rg.setNumberFormat("yyyy/mm/dd");
+    }
+  });
+}
+
+function getMetaRowByIndex_(rowIndex) {
+  const rows = getMetaRowsWithType_();
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].row === rowIndex) return rows[i];
+  }
+  const fSheet = F();
+  const map = _getFieldsHeaderMap_();
+  if (!fSheet || !map || rowIndex < 2) return null;
+  const src = fSheet.getRange(rowIndex, 1, 1, map.lastCol).getValues()[0];
+  return {
+    row: rowIndex,
+    fid: map.fid >= 0 ? String(src[map.fid] || "").trim() : "",
+    entity: map.entity >= 0 ? String(src[map.entity] || "").trim() : "",
+    name: map.name >= 0 ? String(src[map.name] || "").trim() : "",
+    type: map.type >= 0 ? String(src[map.type] || "").trim().toLowerCase() : "",
+    options: map.options >= 0 ? src[map.options] : "",
+  };
+}
+
 const newFid = () =>
   `${P.fields}_${pad(free(getMetaRows().map((r) => +String(r[0]).split("_")[1] || 0)), 4)}`;
 function entSheet(ent) {
+  const key = String(ent || "").trim().toLowerCase().replace(/[^\w]+/g, "_");
+  if (key === "member" || key === "members" || key === "projectmember" || key === "projectmembers" || key === "project_members" || key === "memder" || key === "memders") {
+    return SpreadsheetApp.getActive().getSheetByName("ProjectMembers");
+  }
   const s1 = ent.charAt(0).toUpperCase() + ent.slice(1);
   const s2 = s1.endsWith("s") ? s1 : s1 + "s";
   return (
@@ -258,7 +478,7 @@ function entSheet(ent) {
     SpreadsheetApp.getActive().getSheetByName(s2)
   );
 }
-function applyField(fid, name, ent) {
+function applyField(fid, name, ent, fieldType, optionsRaw) {
   const sh = entSheet(ent);
   if (!sh) return;
   const headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
@@ -269,9 +489,16 @@ function applyField(fid, name, ent) {
   }
   sh.getRange(1, col).setValue(fid);
   sh.getRange(2, col).setValue(name);
+  try {
+    if (typeof applyFieldColumnFormat_ === "function") {
+      applyFieldColumnFormat_(ent, fid, fieldType, optionsRaw);
+    }
+  } catch (err) {
+    try { Logger.log("[MOTK][FieldFormat] apply failed fid=%s entity=%s err=%s", fid, ent, String(err && err.message ? err.message : err)); } catch (_) { }
+  }
 }
 function syncHeaders() {
-  getMetaRows().forEach(([f, e, n]) => applyField(f, n, e));
+  getMetaRowsWithType_().forEach((row) => applyField(row.fid, row.name, row.entity, row.type, row.options));
 }
 
 // ---【維持】Shot Code関連 (Field ID基準) ---

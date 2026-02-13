@@ -44,7 +44,10 @@
         } catch (e) { }
 
         try {
-          return location.origin + location.pathname;
+          var p = String(location.pathname || '');
+          if (/\/userCodeAppPanel\b/i.test(p)) return location.origin + '/exec';
+          if (/\/exec\b/i.test(p)) return location.origin + p;
+          return location.origin + p;
         } catch (e) {
           console.error('[MOTK][Router] resolveBaseUrl failed', e);
           return '';
@@ -73,6 +76,9 @@
       };
 
       Router.buildEntityUrl = function (entity, id) {
+        if (String(entity || '').toLowerCase() === 'sched') {
+          return Router.buildScheduleUrl(id);
+        }
         var base = Router.baseUrl();
         var url = new URL(base);
         url.searchParams.set('page', Router.entityPageName(entity));
@@ -80,6 +86,14 @@
         if (id) {
           url.searchParams.set('id', id);
         }
+        return url.toString();
+      };
+
+      Router.buildScheduleUrl = function (schedId) {
+        var base = Router.baseUrl();
+        var url = new URL(base);
+        url.searchParams.set('p', 'schedule');
+        if (schedId) url.searchParams.set('schedId', String(schedId));
         return url.toString();
       };
 

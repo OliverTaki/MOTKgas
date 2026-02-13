@@ -155,8 +155,9 @@
       /* ===== 1. グローバル初期化（scriptUrl / SPA ナビ導入フック） ===== */
 
       try {
+        try { window.__SCRIPT_URL_SERVER__ = "<?= ScriptApp.getService().getUrl() ?>"; } catch (_) { }
         window.scriptUrl = (function () {
-          try { return "<?= ScriptApp.getService().getUrl() ?>"; }
+          try { return location.origin + location.pathname; }
           catch (e) { return location.pathname; }
         })();
       } catch (e) {
@@ -273,6 +274,7 @@
         if (s === 'tasks' || s === 'task') return 'task';
         if (s === 'users' || s === 'user') return 'user';
         if (s === 'projectmembers' || s === 'projectmember' || s === 'members' || s === 'member') return 'member';
+        if (s === 'scheds' || s === 'sched' || s === 'schedules' || s === 'schedule') return 'sched';
         return '';
       }
 
@@ -288,6 +290,7 @@
         if (s === 'task') return 'Tasks';
         if (s === 'user') return 'Users';
         if (s === 'member') return 'ProjectMembers';
+        if (s === 'sched') return 'Scheds';
         return 'Shots';
       }
 
@@ -327,7 +330,7 @@
         } catch (_) { return ''; }
       }
 
-      var _CANON_ENTITIES_ = ['shot', 'asset', 'task', 'member', 'user'];
+      var _CANON_ENTITIES_ = ['shot', 'asset', 'task', 'member', 'user', 'sched'];
 
       function normalizeEntityToken_(raw) {
         var s = String(raw || '').trim();
@@ -576,6 +579,44 @@
         return o;
       }
 
+      function getFixedColumnsEnabled_() {
+        try {
+          if (window.__MOTK_FIXED_COLUMNS_ENABLED__ === false) return false;
+        } catch (_) { }
+        return true;
+      }
+
+      function logFixedColumnsBoot_(enabled, entity, pageId, sourceTag) {
+        try {
+          if (window.__MOTK_FIXED_COLUMNS_LOGGED__) return;
+          window.__MOTK_FIXED_COLUMNS_LOGGED__ = true;
+          console.info("[TAKE223][FIXED] enabled=" + enabled + " route=table entity=" + String(entity || "") + " pageId=" + String(pageId || "") + " source=" + String(sourceTag || ""));
+        } catch (_) { }
+      }
+
+      function ensureFixedColumnsManifest_(pageId, entity, fieldIds, sourceTag) {
+        try {
+          if (!pageId) return null;
+          var mf = loadColManifest_(pageId);
+          if (mf && Array.isArray(mf.fieldIds) && mf.fieldIds.length) return mf;
+          var ids = Array.isArray(fieldIds) ? fieldIds.slice() : [];
+          if (!ids.length && STATE && Array.isArray(STATE.fieldIds) && STATE.fieldIds.length) {
+            ids = STATE.fieldIds.slice();
+          }
+          if (!ids.length) {
+            try {
+              var snap = readStoredViewerSnapshot_();
+              if (snap && Array.isArray(snap.fieldIds) && snap.fieldIds.length) ids = snap.fieldIds.slice();
+              else if (snap && snap.colsKey) ids = String(snap.colsKey || '').split('|').filter(Boolean);
+            } catch (_) { }
+          }
+          if (!ids.length) return null;
+          return saveColManifest_(pageId, entity, ids, sourceTag || 'init');
+        } catch (_) {
+          return null;
+        }
+      }
+
       function applyColManifestToNormalized_(p, sourceTag) {
         if (!p || !Array.isArray(p.ids) || !p.ids.length) return p;
 
@@ -584,7 +625,20 @@
         if (!pageId) return p;
 
         var ids = p.ids.slice();
+        var minCols = 0;
+        try {
+          var idFid0 = resolveIdFieldId_();
+          if (idFid0) minCols = 1;
+        } catch (_) { }
+        var isMinimal = (ids.length <= Math.max(1, minCols || 1));
+        var fixedEnabled = getFixedColumnsEnabled_();
+        logFixedColumnsBoot_(fixedEnabled, entity, pageId, sourceTag || 'init');
+        if (fixedEnabled && STATE.__FIXED_COLUMNS__ !== true) STATE.__FIXED_COLUMNS__ = true;
         var mf = loadColManifest_(pageId);
+        if (fixedEnabled) {
+          var created = ensureFixedColumnsManifest_(pageId, entity, ids, sourceTag || 'init');
+          if (created) mf = created;
+        }
         try {
           var allowed = buildAllowedFieldIdSetForEntity_(entity);
           if (allowed && mf && Array.isArray(mf.fieldIds)) {
@@ -597,9 +651,20 @@
 
         // First successful payload becomes the manifest (fixed columns)
         if (!mf) {
+          if (isMinimal) {
+            STATE.__COLS_KEY__ = ids.join('|');
+            STATE.__MINIMAL_FIELDS__ = true;
+            if (p.meta) {
+              p.meta.colsKey = p.meta.colsKey || STATE.__COLS_KEY__;
+              p.meta.fieldIdsHash = ids.join('|');
+            }
+            if (fixedEnabled) STATE.__FIXED_COLUMNS__ = true;
+            return p;
+          }
           mf = saveColManifest_(pageId, entity, ids, sourceTag || 'init');
           STATE.__FIXED_COLUMNS__ = true;
           STATE.__COLS_KEY__ = mf.colsKey;
+          STATE.__MINIMAL_FIELDS__ = false;
           return p;
         }
 
@@ -671,6 +736,7 @@
         p.ids = finalIds;
         STATE.__FIXED_COLUMNS__ = true;
         STATE.__COLS_KEY__ = (mf && mf.colsKey) ? mf.colsKey : finalIds.join('|');
+        STATE.__MINIMAL_FIELDS__ = false;
         if (p.meta) {
           p.meta.colsKey = p.meta.colsKey || STATE.__COLS_KEY__;
           p.meta.fieldIdsHash = finalIds.join('|');
@@ -695,6 +761,44 @@
           window.__MOTK_LAST_TABLE_BOOTPACK__ = bp;
           _ssSet_(LAST_TABLE_BOOTPACK_KEY, JSON.stringify(bp));
         } catch (e) {}
+      }
+
+      function buildBootSnapshot_(reason) {
+        try {
+          var st = STATE || {};
+          var ent = canonEntityKey_(st.sheetName || '', '');
+          var proj = getProjectId_() || 'unknown';
+          var colsKey = st.__COLS_KEY__ || (Array.isArray(st.fieldIds) ? st.fieldIds.join('|') : '');
+          return {
+            ts: Date.now(),
+            reason: String(reason || ''),
+            projectId: proj,
+            pageId: String(st.pageId || ''),
+            entity: ent,
+            sheetName: String(st.sheetName || ''),
+            colsKey: String(colsKey || ''),
+            navTimings: window.__MOTK_TABLE_NAV_TIMINGS__ || {},
+            perfMarks: window.__MOTK_TABLE_PERF_MARKS__ || {},
+            perfMeasures: window.__MOTK_TABLE_PERF_MEASURES__ || {},
+            perf: window.__MOTK_LAST_TABLE_PERF__ || {}
+          };
+        } catch (_) {
+          return null;
+        }
+      }
+
+      function persistBootSnapshot_(reason) {
+        try {
+          var snap = buildBootSnapshot_(reason);
+          if (!snap) return;
+          window.__MOTK_LAST_TABLE_BOOTSTATE__ = snap;
+          _ssSet_('MOTK_LAST_TABLE_BOOTSTATE_V1', JSON.stringify(snap));
+          try { _lsSet_('MOTK_LAST_TABLE_BOOTSTATE_V1', JSON.stringify(snap)); } catch (_) { }
+          try {
+            var key = 'MOTK_LAST_TABLE_BOOTSTATE_V1:' + snap.projectId + ':' + snap.entity + ':' + snap.pageId;
+            _lsSet_(key, JSON.stringify(snap));
+          } catch (_) { }
+        } catch (_) { }
       }
 
       function recordFooterLabelTrace_(label, stage) {
@@ -833,6 +937,10 @@
             if (isLoading) document.body.setAttribute('aria-busy', 'true');
             else document.body.setAttribute('aria-busy', 'false');
           }
+          try {
+            var t = _perfNow_();
+            console.info('[TAKE213][TABLE][OVERLAY_STATE]', { t: t, loading: !!isLoading });
+          } catch (_) { }
         } catch (_) { }
       }
 
@@ -1031,6 +1139,11 @@
 
       function invalidateAndRefetch_(key, reason, opts) {
         try {
+          try {
+            var rejectReason = String(reason || 'unknown');
+            STATE.__LAST_APPLY_REJECT_REASON__ = rejectReason;
+            STATE.__LAST_APPLY_REJECT_AT__ = Date.now();
+          } catch (_) { }
           if (key && !(opts && opts.preserveCache)) LSC_deleteEnvelope(key);
           STATE.__REFETCH_KEYS__ = STATE.__REFETCH_KEYS__ || {};
           if (key && STATE.__REFETCH_KEYS__[key]) return;
@@ -1215,8 +1328,8 @@
       function writeUrlState(usp) {
         if (!usp) usp = new URLSearchParams(location.search);
 
-        // Canonical URL policy: never expose internal `pid` in the browser URL.
-        usp.delete('pid');
+        if (STATE.pageId) usp.set('pid', STATE.pageId);
+        else usp.delete('pid');
 
         if (STATE.page > 1) usp.set('pg', String(STATE.page));
         else usp.delete('pg');
@@ -1235,8 +1348,6 @@
       /* ===== 8A. URL utilities (getUrlParam) ===== */
 
       function getRouteParam_(k) {
-        // Canonical URL policy: never read `pid` from the browser URL.
-        if (k === 'pid') return '';
         var key = String(k || '').trim();
         if (!key) return '';
         var val = '';
@@ -1361,27 +1472,7 @@
     try { payloadFieldIdsHash = (p && p.meta && p.meta.fieldIdsHash) ? String(p.meta.fieldIdsHash) : ''; } catch (_) { payloadFieldIdsHash = ''; }
     try { requestFieldIdsHash = String(p && p.__requestFieldIdsHash || (p.meta && p.meta.__requestFieldIdsHash) || '') || ''; } catch (_) { requestFieldIdsHash = ''; }
     try { responseFieldIdsHash = String(p && p.__responseFieldIdsHash || payloadFieldIdsHash || '') || ''; } catch (_) { responseFieldIdsHash = ''; }
-      if (requestFieldIdsHash) {
-      var responseHashToCheck = responseFieldIdsHash || computedFieldIdsHash;
-      if (responseHashToCheck && responseHashToCheck !== requestFieldIdsHash) {
-        try {
-          console.warn("[MOTK][Table] drop payload due to request/response schema mismatch", {
-            request: requestFieldIdsHash,
-            response: responseFieldIdsHash || '(missing)',
-            computed: computedFieldIdsHash
-          });
-        } catch (_) { }
-        try { state.__LAST_APPLY_FAILURE__ = 'fieldIdsHash-mismatch'; } catch (_) { }
-        invalidateAndRefetch_(incomingKey, 'fieldIdsHash-mismatch', { preserveCache: true });
-        return false;
-      }
-    } else if (payloadFieldIdsHash && payloadFieldIdsHash !== computedFieldIdsHash) {
-      try { console.warn("[MOTK][Table] drop payload due to fieldIdsHash mismatch", { expected: computedFieldIdsHash, got: payloadFieldIdsHash }); } catch (_) { }
-      try { state.__LAST_APPLY_FAILURE__ = 'fieldIdsHash-mismatch'; } catch (_) { }
-      invalidateAndRefetch_(incomingKey, 'fieldIdsHash-mismatch', { preserveCache: true });
-      return false;
-    }
-
+      // [TAKE241] Disable strict fieldIdsHash mismatch drops; accept server payload as-is.
     if (nextFieldIds.length && nextRows.length) {
       var rowLenMismatch = nextRows.some(function (r) { return Array.isArray(r) && r.length < nextFieldIds.length; });
       if (rowLenMismatch) {
@@ -1436,17 +1527,34 @@
             }
           }
 
-          if (cfgKey && fieldIdsKey) {
-            window.__MOTK_TABLE_CFG_CACHE__[cfgKey] = {
-              fieldIdsKey: fieldIdsKey,
-              fieldsMeta: deepCopy(nextFieldsMeta),
-              headersByFid: copy(nextHeadersByFid)
-            };
-          }
+        if (cfgKey && fieldIdsKey) {
+          window.__MOTK_TABLE_CFG_CACHE__[cfgKey] = {
+            fieldIdsKey: fieldIdsKey,
+            fieldsMeta: deepCopy(nextFieldsMeta),
+            headersByFid: copy(nextHeadersByFid)
+          };
         }
+      }
+
+        try { ensureFieldTypesFromFieldsMeta_(state.sheetName, nextFieldsMeta, 'applyData'); } catch (_) { }
 
         var idIdx = indexOf(nextFieldIds, resolveIdFieldId_());
         if (idIdx < 0 && nextFieldIds.length) idIdx = 0;
+        var entityKeyForRows = canonEntityKey_(state.sheetName || (p && p.entity) || '', '');
+        if (entityKeyForRows === 'sched' && idIdx >= 0 && nextRows.length) {
+          var filteredSchedRows = nextRows.filter(function (row) {
+            return !!String(row && row[idIdx] || '').trim();
+          });
+          if (filteredSchedRows.length !== nextRows.length) {
+            try {
+              console.warn('[MOTK][Table] filtered blank sched rows', {
+                before: nextRows.length,
+                after: filteredSchedRows.length
+              });
+            } catch (_) { }
+            nextRows = filteredSchedRows;
+          }
+        }
         var nextRowsById = {};
         if (idIdx >= 0 && nextRows.length) {
           for (var ri = 0; ri < nextRows.length; ri++) {
@@ -1532,6 +1640,9 @@
 
         var total = Number(p.total);
         var nextTotal = (isFinite(total) && total >= 0) ? total : nextRows.length;
+        if (entityKeyForRows === 'sched') {
+          nextTotal = nextRows.length;
+        }
         var nextVersion = incomingVersion || (state.__TABLE_VERSION__ + 1);
 
         state.fieldIds = nextFieldIds;
@@ -1864,16 +1975,65 @@ window.applyData = applyData;
         return merged;
       }
 
-      function maybeRender() {
-        if (!(STATE && STATE._dataReady && (STATE._cfgReady || STATE.__BOOT_CACHE_RENDERED__))) return;
-        if (typeof showStatus === 'function') showStatus('applying page…');
-        raf(function () {
-          try { renderCurrentPage(true); }
-          catch (_) { }
-        });
+      function ensureFieldTypesFromFieldsMeta_(entityKey, fieldsMeta, reason) {
+        try {
+          var ent = canonEntityKey_(entityKey || STATE.sheetName || '', '');
+          if (!ent) return false;
+          var existing = window.FIELD_TYPES && window.FIELD_TYPES[ent] ? window.FIELD_TYPES[ent] : null;
+          if (existing && Object.keys(existing).length) return false;
+          if (!fieldsMeta || typeof fieldsMeta !== 'object') return false;
+          var fids = Object.keys(fieldsMeta);
+          if (!fids.length) return false;
+          var map = {};
+          for (var i = 0; i < fids.length; i++) {
+            var fid = fids[i];
+            var m = fieldsMeta[fid] || {};
+            var t = String(m.type || m.field_type || '').trim().toLowerCase();
+            if (!t) continue;
+            map[fid] = {
+              label: String(m.label || m.name || m.field_name || fid),
+              field_name: String(m.field_name || m.name || m.label || ''),
+              column_name: String(m.column_name || ''),
+              type: t,
+              editable: m.editable,
+              required: m.required,
+              options: m.options,
+              isCore: m.isCore,
+              uiSection: String(m.uiSection || ''),
+              order: (m.order != null ? m.order : ''),
+              isLink: m.isLink,
+              entity: ent
+            };
+          }
+          if (!Object.keys(map).length) return false;
+          window.FIELD_TYPES = window.FIELD_TYPES || {};
+          window.FIELD_TYPES[ent] = Object.assign({}, map, window.FIELD_TYPES[ent] || {});
+          if (!window.__MOTK_FIELD_TYPES_SOURCE__) window.__MOTK_FIELD_TYPES_SOURCE__ = 'columns:fallback';
+          try { console.warn('[Table] derived FIELD_TYPES from columns meta', { entity: ent, count: Object.keys(map).length, reason: reason || '' }); } catch (_) { }
+          return true;
+        } catch (_) {
+          return false;
+        }
       }
 
-      var LAST_VIEW_CACHE_TTL = 30 * 24 * 60 * 60 * 1000;
+      function maybeRender() {
+        try {
+          var okData = !!(STATE && STATE._dataReady);
+          var okCfg = !!(STATE && (STATE._cfgReady || STATE.__BOOT_CACHE_RENDERED__));
+          console.info('[TAKE213][TABLE][MAYBE_RENDER]', { t: _perfNow_(), dataReady: okData, cfgReady: okCfg, pageId: (STATE && STATE.pageId) || '', fieldIdsCount: (STATE && Array.isArray(STATE.fieldIds)) ? STATE.fieldIds.length : 0 });
+          if (!(okData && okCfg)) return;
+        } catch (_) { return; }
+        if (typeof showStatus === 'function') showStatus('applying page…');
+        raf(function () {
+          try {
+            renderCurrentPage(true);
+            console.info('[TAKE213][TABLE][RENDER_OK]', { t: _perfNow_(), rows: (STATE && Array.isArray(STATE.rows)) ? STATE.rows.length : 0 });
+          } catch (e) {
+            console.error('[TAKE213][TABLE][RENDER_ERR]', e && e.stack ? e.stack : e);
+            try { setTableBanner_('error', 'Render error: ' + String(e && (e.message || e) || 'unknown')); } catch (_) { }
+          }
+        });
+      }
 
       function ensureFilterGroupDefaults() {
         if (!Array.isArray(STATE.filterGroups) || STATE.filterGroups.length === 0) {
@@ -1904,55 +2064,9 @@ window.applyData = applyData;
           }
         } catch (_) { }
       }
-      function applyLastViewFallback() {
-        try {
-          var saved = LSC_get('motk:lastView', LAST_VIEW_CACHE_TTL);
-          if (!saved) return;
-
-          // [FIX] Strict Guard: URL or Server Context has entity?
-          // Check URL first
-          var hasPid = !!getRouteParam_('pid');
-          var urlE = getRouteParam_('e') || getRouteParam_('entity');
-          var urlP = getRouteParam_('p') || getRouteParam_('page');
-          var raw = urlE || urlP || '';
-          var isEntity = !!normalizeEntityToken_(raw);
-          var isPageEnt = !!normalizeEntityToken_(urlP);
-
-          // [FIX] Strict return: If ANY entity indicator is present, ignore LS completely.
-          if (urlE || isPageEnt || isEntity) {
-            if (MOTK_DEBUG) console.log('[MOTK] applyLastViewFallback: SKIPPED due to explicit entity context');
-            return;
-          }
-
-          if (!STATE.pageId && saved.pid && !hasPid) {
-            STATE.pageId = saved.pid;
-          }
-
-          if ((!STATE.sheetName || !STATE.sheetName.length) && saved.sheet) {
-            STATE.sheetName = canonEntityKey_(saved.sheet, '') || STATE.sheetName;
-          }
-
-          if (saved.perPage && !hasPid) {
-            STATE.perPage = normalizePerPageValue(saved.perPage);
-          }
-          if (!window.__MOTK_ENTITY_SOURCE__) window.__MOTK_ENTITY_SOURCE__ = 'storage';
-        } catch (_) { }
-      }
-
-      function getFastPidFromLocalCache_(entity) {
-        try {
-          var ent = canonEntityKey_(entity || '', '');
-          if (!ent) return '';
-          var cached = LSC_get('motk:lastPidByEntity:' + ent, LAST_VIEW_CACHE_TTL);
-          if (cached && cached.pid) return String(cached.pid);
-        } catch (_) { }
-        return '';
-      }
 
       function defaultPidForEntity_(entity) {
-        var ent = canonEntityKey_(entity || '', '');
-        if (ent === 'user') return 'pg_default_user';
-        return 'pg_default';
+        return '';
       }
 
 
@@ -2275,8 +2389,10 @@ window.applyData = applyData;
 
       /* ===== 12. GAS 呼び出しヘルパ（callFirst） ===== */
 
-      function callFirst(names, params, onOk, onFail) {
+      function callFirst(names, params, onOk, onFail, opts) {
         onOk = onOk || function () { }; onFail = onFail || function () { };
+        opts = opts || {};
+        var timeoutMs = (opts && isFinite(opts.timeoutMs)) ? Number(opts.timeoutMs) : 20000;
         if (!hasGoogle()) { onFail(new Error("google script unavailable")); return; }
         var trace = { startedAt: Date.now(), attempts: [] };
         var lastErr = null;
@@ -2285,21 +2401,58 @@ window.applyData = applyData;
             window.__MOTK_LAST_CALLFIRST_TRACE_V1 = trace;
             var raw = JSON.stringify(trace);
             try { sessionStorage.setItem('MOTK_LAST_CALLFIRST_TRACE_V1', raw); } catch (_) { }
+            try {
+              window.__CALL_FIRST_TRACE__ = window.__CALL_FIRST_TRACE__ || [];
+              window.__CALL_FIRST_TRACE__.push(trace);
+              if (window.__CALL_FIRST_TRACE__.length > 20) {
+                window.__CALL_FIRST_TRACE__ = window.__CALL_FIRST_TRACE__.slice(-20);
+              }
+              sessionStorage.setItem('MOTK_CALLFIRST_TRACE_BUF_V1', JSON.stringify(window.__CALL_FIRST_TRACE__));
+            } catch (_) { }
           } catch (_) { }
         }
         var i = 0; (function next(err) {
           if (err) lastErr = err;
-          if (i >= names.length) { onFail(lastErr); return; }
+          if (i >= names.length) {
+            trace.ok = false;
+            trace.errorMessage = String(lastErr && (lastErr.message || lastErr));
+            trace.finishedAt = Date.now();
+            persistTrace_();
+            onFail(lastErr);
+            return;
+          }
           var fnName = names[i++]; if (typeof google.script.run[fnName] !== 'function') { next(); return; }
-          var attempt = { fnName: fnName, tStart: _perfNow_() };
+          var attempt = { fnName: fnName, tStart: _perfNow_(), timeoutMs: timeoutMs };
           trace.attempts.push(attempt);
+          var timer = null;
+          function finishAttempt_() {
+            if (attempt.done) return false;
+            attempt.done = true;
+            if (timer) clearTimeout(timer);
+            return true;
+          }
+          if (timeoutMs > 0) {
+            timer = setTimeout(function () {
+              if (!finishAttempt_()) return;
+              attempt.ok = false;
+              attempt.timeout = true;
+              attempt.ms = Math.round(_perfNow_() - attempt.tStart);
+              attempt.errorMessage = 'timeout';
+              persistTrace_();
+              next(new Error('timeout'));
+            }, timeoutMs);
+          }
           try {
+            try { console.info('[TAKE213][RPC][CALL]', { name: fnName, t: attempt.tStart }); } catch (_) { }
             google.script.run
               .withSuccessHandler(function (res) {
+                if (!finishAttempt_()) return;
                 attempt.ok = true;
                 attempt.ms = Math.round(_perfNow_() - attempt.tStart);
+                try { console.info('[TAKE213][RPC][CB]', { name: fnName, dt: attempt.ms, ok: true }); } catch (_) { }
                 trace.ok = true;
                 trace.fnUsed = fnName;
+                trace.finishedAt = Date.now();
                 persistTrace_();
                 try {
                   if (res && typeof res === "object") res.__fnUsed__ = fnName;
@@ -2307,39 +2460,27 @@ window.applyData = applyData;
                 onOk(res);
               })
               .withFailureHandler(function (err) {
+                if (!finishAttempt_()) return;
                 attempt.ok = false;
                 attempt.ms = Math.round(_perfNow_() - attempt.tStart);
                 attempt.errorMessage = String(err && (err.message || err));
+                try { console.info('[TAKE213][RPC][CB]', { name: fnName, dt: attempt.ms, ok: false }); } catch (_) { }
+                persistTrace_();
                 next(err);
               })[fnName](params || {});
           } catch (e) {
+            if (!finishAttempt_()) return;
             attempt.ok = false;
             attempt.ms = Math.round(_perfNow_() - attempt.tStart);
             attempt.errorMessage = String(e && (e.message || e));
+            try { console.info('[TAKE213][RPC][CB]', { name: fnName, dt: attempt.ms, ok: false, error: attempt.errorMessage }); } catch (_) { }
+            persistTrace_();
             next(e);
           }
         })();
       }
 
       /* ===== 13. データソース判定 & 正規化（normalizeRowsPayload） ===== */
-
-      function detectSourceByIds(ids, header) {
-        try {
-          function hasFid(arr) {
-            if (!Array.isArray(arr)) return false;
-            for (var i = 0; i < arr.length; i++) {
-              var s = String(arr[i] || '');
-              try {
-                if (window.SchemaResolver && SchemaResolver.hasFid && SchemaResolver.hasFid(s)) return true;
-              } catch (_) { }
-            }
-            return false;
-          }
-          if (hasFid(ids)) return 'DataHub';
-          if (hasFid(header)) return 'DataHub';
-        } catch (e) { }
-        return 'Sheet';
-      }
 
       function normalizeRowsPayload(res, entitySingular) {
         var ent = singularEntityFor(
@@ -3279,6 +3420,10 @@ window.applyData = applyData;
         if (!force && !_shouldEmitNavPerfSnapshot_()) return;
         flags.snapshotLogged = true;
         var store = _navPerfStore_();
+        var havePaint = (store.table_painted_ms != null) || (store.render_first_paint_ms != null);
+        if (reason === 'timeout' && (havePaint || (STATE && STATE.__TABLE_RENDERED__))) {
+          reason = havePaint ? 'table_painted' : 'marks_missing';
+        }
         try { window.__MOTK_TABLE_NAV_TIMINGS__ = store; } catch (_) { }
         var snapshot = {
           reason: reason || 'navigation',
@@ -3302,6 +3447,7 @@ window.applyData = applyData;
             shotview_ready_ms: store.shotview_ready_ms
           }
         };
+        if (reason === 'marks_missing') snapshot.hint = 'marks missing; check performance.mark calls';
         try { console.info('[MOTK][PERF][NAV]', snapshot); } catch (_) { }
         try {
           var r0 = snapshot.marks.table_painted_ms;
@@ -3332,6 +3478,7 @@ window.applyData = applyData;
             marks: snapshot.marks || null
           };
           window.__MOTK_LAST_TABLE_NAV_V1__ = navPayload;
+          try { persistBootSnapshot_('nav_snapshot'); } catch (_) { }
         } catch (e3) { }
       }
 
@@ -3351,6 +3498,7 @@ window.applyData = applyData;
         };
         try { sessionStorage.setItem("MOTK_LAST_TABLE_DIAG_V1", JSON.stringify(diag)); } catch (e3) {}
         try { localStorage.setItem("MOTK_LAST_TABLE_DIAG_LS_V1", JSON.stringify(diag)); } catch (e4) {}
+        try { persistBootSnapshot_('nav_storage'); } catch (_) { }
       }
       function scheduleNavPerfSnapshot_(delayMs, reason) {
         var flags = _navPerfFlags_();
@@ -3374,6 +3522,36 @@ window.applyData = applyData;
         return (window.performance && typeof performance.now === 'function') ? performance.now() : Date.now();
       }
 
+      function perfMark_(name) {
+        try {
+          if (!window.performance || typeof performance.mark !== 'function') return;
+          performance.mark(name);
+          window.__MOTK_TABLE_PERF_MARKS__ = window.__MOTK_TABLE_PERF_MARKS__ || {};
+          window.__MOTK_TABLE_PERF_MARKS__[name] = {
+            ts: Date.now(),
+            t: _perfNow_()
+          };
+        } catch (_) { }
+      }
+
+      function computePerfMeasures_() {
+        try {
+          var marks = window.__MOTK_TABLE_PERF_MARKS__ || {};
+          if (!marks.boot_start || !marks.table_painted) return null;
+          var out = {};
+          Object.keys(marks).forEach(function (k) {
+            if (k === 'boot_start') return;
+            var m = marks[k];
+            if (!m || typeof m.t !== 'number') return;
+            out[k + '_ms'] = Math.round((m.t - marks.boot_start.t) * 1000) / 1000;
+          });
+          window.__MOTK_TABLE_PERF_MEASURES__ = out;
+          return out;
+        } catch (_) {
+          return null;
+        }
+      }
+
       function _perfLog_(name, t0) {
         var ms = Math.round((_perfNow_() - t0) * 1000) / 1000;
         console.log('[MOTK][PERF] ' + name + '_ms=' + ms);
@@ -3393,8 +3571,63 @@ window.applyData = applyData;
             td.textContent = _toScalarText_(raw, { rowId: rowId, fid: fid, where: "renderCellIntoTd" });
             return;
           }
+          function nodeHasAnchor_(node) {
+            try {
+              if (!node) return false;
+              if ((node.nodeType === 1 || node.nodeType === 11) && node.tagName && String(node.tagName).toLowerCase() === 'a') return true;
+              return !!(node && node.querySelector && node.querySelector('a'));
+            } catch (_) {
+              return false;
+            }
+          }
+          function retargetNodeAnchors_(node, href, target) {
+            try {
+              if (!node || !href || (node.nodeType !== 1 && node.nodeType !== 11)) return;
+              if (node.nodeType === 1 && String(node.tagName || '').toLowerCase() === 'a') {
+                node.href = href;
+                if (target) {
+                  node.target = target;
+                  node.rel = 'noopener';
+                  node.setAttribute('data-sched-open-newtab', '1');
+                }
+              }
+              if (node.querySelectorAll) {
+                var anchors = node.querySelectorAll('a');
+                for (var ai = 0; ai < anchors.length; ai++) {
+                  anchors[ai].href = href;
+                  if (target) {
+                    anchors[ai].target = target;
+                    anchors[ai].rel = 'noopener';
+                    anchors[ai].setAttribute('data-sched-open-newtab', '1');
+                  }
+                }
+              }
+            } catch (_) { }
+          }
+          function ensureNodeLink_(node, href, target, isSched) {
+            if (!node || !href) return node;
+            if (nodeHasAnchor_(node)) {
+              retargetNodeAnchors_(node, href, target);
+              return node;
+            }
+            var a = document.createElement('a');
+            a.href = href;
+            if (target) {
+              a.target = target;
+              a.rel = 'noopener';
+            }
+            if (isSched) a.setAttribute('data-sched-open-newtab', '1');
+            a.appendChild(node);
+            return a;
+          }
+
           var entitySing = singularEntityFor(_entityForUI());
+          var canon = _canon(STATE && STATE.sheetName);
           var meta = getNormalizedFieldMeta_(STATE.sheetName, fid);
+          var fidIdx = indexOf((STATE && STATE.fieldIds) || [], fid);
+          var headTxt = '';
+          if (fidIdx >= 0 && STATE && Array.isArray(STATE.header)) headTxt = STATE.header[fidIdx] || '';
+          if (!headTxt) headTxt = (meta && (meta.label || meta.name || meta.field_name)) || fid;
           var rowObj = null;
           try { if (STATE && STATE.rowsById && STATE.rowsById[rowId]) rowObj = STATE.rowsById[rowId]; } catch (_) { }
           if (!rowObj) {
@@ -3430,7 +3663,22 @@ window.applyData = applyData;
               try { console.info('[MOTK][Table] render: ShotCode uses href=true'); } catch (_) { }
             }
           } else {
-            td.appendChild(CommonRenderer.renderCellByField(entitySing, fid, raw, m));
+            var node = CommonRenderer.renderCellByField(entitySing, fid, raw, m);
+            if (!(node && node.nodeType)) {
+              node = document.createTextNode(_toScalarText_(node, { rowId: rowId, fid: fid, where: "renderCellIntoTdNodeFallback" }));
+            }
+            if (shouldNameCellLinkToDetail(canon, headTxt, rowId) && window.__Router__) {
+              var ent = singularEntityFor(canon);
+              var isSchedLike = (ent === 'sched' || ent === 'schedule' || ent === 'scheds' || ent === 'schedules');
+              if (isSchedLike && typeof Router.buildScheduleUrl === 'function') {
+                node = ensureNodeLink_(node, Router.buildScheduleUrl(rowId), '_blank', true);
+              } else if (!nodeHasAnchor_(node) && typeof Router.buildEntityUrl === 'function') {
+                node = ensureNodeLink_(node, Router.buildEntityUrl(ent, rowId), '', false);
+              }
+            } else if (/shotcode/i.test(String(headTxt || '')) && isRowIdLike(rowId) && window.__Router__ && typeof Router.buildEntityUrl === 'function') {
+              node = ensureNodeLink_(node, Router.buildEntityUrl('shot', rowId), '', false);
+            }
+            td.appendChild(node);
           }
         } catch (_) {
           td.textContent = _toScalarText_(raw, { rowId: rowId, fid: fid, where: "renderCellIntoTdCatch" });
@@ -3535,6 +3783,21 @@ window.applyData = applyData;
         window.__MOTK_TABLE_DEBUG__.isInlineEditBound = function() {
           return !!window.__MOTK_TABLE_INLINE_EDIT_BOUND;
         };
+
+        // Enforce new-tab open for schedule index links even if browser/frame rewrites target handling.
+        tableWrap.addEventListener("click", function(ev) {
+          try {
+            var a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
+            if (!a) return;
+            var flagged = a.getAttribute && a.getAttribute('data-sched-open-newtab') === '1';
+            if (!flagged && !isScheduleEditorHref_(a.href)) return;
+            if (ev.defaultPrevented) return;
+            if (ev.button !== 0) return;
+            if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+            ev.preventDefault();
+            window.open(a.href, '_blank', 'noopener');
+          } catch (_) { }
+        }, true);
 
         function logInlineEditSkip_(reason, detail) {
           var bucket = window.__MOTK_INLINE_EDIT_LOG__ = window.__MOTK_INLINE_EDIT_LOG__ || {};
@@ -4369,12 +4632,41 @@ window.applyData = applyData;
         function isNodeWithAnchor_(n) {
           try {
             if (!n) return false;
-            if (n.nodeType === 1) {
+            if (n.nodeType === 1 || n.nodeType === 11) {
               if (n.tagName && String(n.tagName).toLowerCase() === 'a') return true;
               return !!(n.querySelector && n.querySelector('a'));
             }
           } catch (_) { }
           return false;
+        }
+
+        function retargetNodeAnchors_(n, href, target) {
+          try {
+            if (!n || !href) return;
+            if (n.nodeType !== 1 && n.nodeType !== 11) return;
+            if (n.nodeType === 1) {
+              var tag = (n.tagName || '').toLowerCase();
+              if (tag === 'a') {
+                n.href = href;
+                if (target) {
+                  n.target = target;
+                  n.rel = 'noopener';
+                  n.setAttribute('data-sched-open-newtab', '1');
+                }
+              }
+            }
+            if (n.querySelectorAll) {
+              var anchors = n.querySelectorAll('a');
+              for (var ai = 0; ai < anchors.length; ai++) {
+                anchors[ai].href = href;
+                if (target) {
+                  anchors[ai].target = target;
+                  anchors[ai].rel = 'noopener';
+                  anchors[ai].setAttribute('data-sched-open-newtab', '1');
+                }
+              }
+            }
+          } catch (_) { }
         }
 
         function renderCellNode_(entitySing, fid, raw, meta, rowId, rowObj) {
@@ -4548,12 +4840,28 @@ window.applyData = applyData;
                 aPM.href = Router.buildEntityUrl('member', rowId);
                 aPM.appendChild(node);
                 node = aPM;
-              } else if (shouldNameCellLinkToDetail(canon, headTxt, rowId) && !isNodeWithAnchor_(node)) {
+              } else if (shouldNameCellLinkToDetail(canon, headTxt, rowId)) {
                 var ent = singularEntityFor(canon);
-                var a2 = document.createElement('a');
-                a2.href = Router.buildEntityUrl(ent, rowId);
-                a2.appendChild(node);
-                node = a2;
+                var schedLike = (ent === 'sched' || ent === 'schedule' || ent === 'scheds' || ent === 'schedules');
+                if (schedLike && Router && typeof Router.buildScheduleUrl === 'function') {
+                  var schedHref = Router.buildScheduleUrl(rowId);
+                  if (isNodeWithAnchor_(node)) {
+                    retargetNodeAnchors_(node, schedHref, '_blank');
+                  } else {
+                    var a2s = document.createElement('a');
+                    a2s.href = schedHref;
+                    a2s.target = '_blank';
+                    a2s.rel = 'noopener';
+                    a2s.setAttribute('data-sched-open-newtab', '1');
+                    a2s.appendChild(node);
+                    node = a2s;
+                  }
+                } else if (!isNodeWithAnchor_(node)) {
+                  var a2 = document.createElement('a');
+                  a2.href = Router.buildEntityUrl(ent, rowId);
+                  a2.appendChild(node);
+                  node = a2;
+                }
               } else if (/shotcode/i.test(headTxt) && isRowIdLike(rowId) && !isNodeWithAnchor_(node)) {
                 var a3 = document.createElement('a');
                 a3.href = Router.buildEntityUrl('shot', rowId);
@@ -4599,6 +4907,8 @@ window.applyData = applyData;
             recordPerf_('render_first_paint_ms', firstPaintAt - window.__MOTK_TABLE_TIMINGS__.renderStart);
             recordPerf_('table_first_paint_ms', firstPaintAt - window.__MOTK_TABLE_TIMINGS__.renderStart);
             markNavPerf_('table_painted_ms', firstPaintAt);
+            perfMark_('table_painted');
+            computePerfMeasures_();
             scheduleNavPerfSnapshot_(1200, 'table_painted');
             emitNavPerfSnapshot_('table_painted', false);
             STATE.__TABLE_FIRST_PAINT_DONE__ = true;
@@ -5191,6 +5501,19 @@ window.applyData = applyData;
 
       function isRowIdLike(id) { return /^[a-z]{2}_[0-9]+$/i.test(String(id || '')); }
 
+      function isScheduleEditorHref_(href) {
+        try {
+          if (!href) return false;
+          var u = new URL(String(href), location.href);
+          var p = String(u.searchParams.get('p') || u.searchParams.get('page') || '').toLowerCase();
+          if (p !== 'schedule') return false;
+          var sid = String(u.searchParams.get('schedId') || u.searchParams.get('sid') || '').trim();
+          return !!sid;
+        } catch (_) {
+          return false;
+        }
+      }
+
       function isLinkColumn(header) { return /link/i.test(String(header || '')); }
 
       function isLinkish(fieldId, header) {
@@ -5232,9 +5555,12 @@ window.applyData = applyData;
 
         if (!ent) { ent = guessEntityFromId(pid); }
 
-        // Use Router.buildEntityUrl to build the Detail URL.
+        // Use Router URL builders; sched should open in a new tab.
         var url = Router.buildEntityUrl(ent, pid);
-        return '<a href="' + escapeHTML(url) + '" title="' + escapeHTML(pid) + '">' + escapeHTML(label) + '</a>';
+        var target = (ent === 'sched' || ent === 'schedule' || ent === 'scheds' || ent === 'schedules')
+          ? ' target="_blank" rel="noopener" data-sched-open-newtab="1"'
+          : '';
+        return '<a href="' + escapeHTML(url) + '"' + target + ' title="' + escapeHTML(pid) + '">' + escapeHTML(label) + '</a>';
       }
 
       function guessEntityFromId(id) {
@@ -5243,6 +5569,7 @@ window.applyData = applyData;
         if (/^tk_/i.test(id)) return 'task';
         if (/^u_/i.test(id)) return 'user';
         if (/^(pm|mem)_/i.test(id)) return 'member';
+        if (/^sched_/i.test(id)) return 'sched';
         return 'item';
       }
 
@@ -6373,14 +6700,34 @@ window.applyData = applyData;
       }
 
       window.saveCurrentPageConfig = function () {
-        var pid = STATE && STATE.pageId ? STATE.pageId : 'pg_default';
-        var cfg = snapshotCurrentPageConfig();
+        var pid = STATE && STATE.pageId ? STATE.pageId : '';
+        if (!pid) {
+          if (typeof showStatus === 'function') showStatus('save error: missing pageId');
+          if (typeof setTableBanner_ === 'function') {
+            setTableBanner_('error', 'Missing pageId (pid). Configure a table page and select it before saving.');
+          }
+          return;
+        }
+        var cfg;
+        try {
+          cfg = snapshotCurrentPageConfig();
+        } catch (e) {
+          var msg = 'save error: ' + String(e && e.message ? e.message : e);
+          if (typeof showStatus === 'function') showStatus(msg);
+          try { console.error('saveCurrentPageConfig snapshot error', e && e.stack ? e.stack : e); } catch (_) { }
+          try {
+            var trace = { stage: 'snapshot', error: String(e && (e.message || e)), stack: String(e && e.stack || ''), ts: Date.now() };
+            sessionStorage.setItem('MOTK_LAST_CALLFIRST_TRACE_V1', JSON.stringify(trace, null, 2));
+          } catch (_) { }
+          return;
+        }
         var payload = {
           pageId: pid,
           entity: entityLabelForSave(),
           pageType: STATE && STATE.pageType ? STATE.pageType : 'table',
           config: cfg
         };
+        debugPageCfg_('save attempt', { key: pageConfigCacheKey(pid), pageId: pid, pageName: debugPageName_(pid), entity: STATE.sheetName || '', columns: (cfg && cfg.order || []).length });
         if (typeof showStatus === 'function') showStatus('saving…');
         callFirst(['sv_savePageConfig', 'gsSavePageConfig', 'savePageLayout', 'dp_savePageConfig'],
           payload,
@@ -6400,9 +6747,12 @@ window.applyData = applyData;
             refreshPresetsAfterSave();
             if (typeof showStatus === 'function') showStatus('saved');
           },
-          function () {
-            if (typeof showStatus === 'function') showStatus('save failed');
-          }
+          function (err) {
+            var msg = 'save error';
+            if (err) msg += ': ' + String(err && (err.message || err));
+            if (typeof showStatus === 'function') showStatus(msg);
+          },
+          { timeoutMs: 20000 }
         );
       };
 
@@ -6537,13 +6887,18 @@ window.applyData = applyData;
         requestedFields = requestedFields.filter(function (fid) {
           return fid && isValidFieldId_(fid);
         });
+        if (!requestedFields.length) {
+          var metaMap = (window.FIELD_TYPES && window.FIELD_TYPES[entSing]) ? window.FIELD_TYPES[entSing] : null;
+          if (metaMap && typeof metaMap === 'object') {
+            requestedFields = Object.keys(metaMap).filter(function (fid) {
+              return fid && isValidFieldId_(fid);
+            });
+          }
+        }
         // Ensure ID fid stays at the front even if filtering removed it.
         if (idFid && requestedFields[0] !== idFid) {
           requestedFields = [idFid].concat(requestedFields.filter(function (f) { return f !== idFid; }));
         }
-        var requestedDataSource = (STATE.pageCfgRaw && (STATE.pageCfgRaw.dataSource || STATE.pageCfgRaw.data_source)) || '';
-        var dataSourceHint = String(requestedDataSource || '').toLowerCase();
-
         // Persist colsKey/schemaHash for SWR key stability.
         var colsKey = requestedFields.length ? requestedFields.join('|') : (Array.isArray(STATE.fieldIds) ? STATE.fieldIds.join('|') : '');
         STATE.__COLS_KEY__ = colsKey;
@@ -6564,15 +6919,9 @@ window.applyData = applyData;
           filterGroups: sanitizedGroups,
           groupCombine: (STATE.groupCombine === 'any' ? 'any' : 'all'),
           requestedFields: requestedFields,
-          allowPartialHub: requestedFields.length > 0,
-          requestedDataSource: String(requestedDataSource || ''),
           colsKey: colsKey,
           schemaHash: STATE._schemaHash || ''
         };
-        if (!sanitizedGroups.length && !activeSort.length) {
-          if (dataSourceHint === 'datahub' || dataSourceHint === 'hub') payload.forceHub = true;
-          if (dataSourceHint === 'legacy') payload.forceLegacy = true;
-        }
         return payload;
       }
 
@@ -6623,7 +6972,7 @@ window.applyData = applyData;
       }
 
       function registerSWRRequest_(key, reqId) {
-        var tracker = window.__MOTK_SWR_REQ_TRACKER__ || { byKey: {}, count: 0 };
+        var tracker = window.__MOTK_SWR_REQ_TRACKER__ || { byKey: {}, count: 0, recent: [], lastBurstWarnTs: 0 };
         window.__MOTK_SWR_REQ_TRACKER__ = tracker;
         var now = Date.now();
         var prev = tracker.byKey[key];
@@ -6639,6 +6988,26 @@ window.applyData = applyData;
         }
         tracker.byKey[key] = { id: reqId, ts: now };
         tracker.count = (tracker.count || 0) + 1;
+        tracker.recent = Array.isArray(tracker.recent) ? tracker.recent : [];
+        tracker.recent.push(now);
+        while (tracker.recent.length && (now - tracker.recent[0]) > 5000) tracker.recent.shift();
+        if (tracker.recent.length > 10) {
+          var sinceLastWarn = now - Number(tracker.lastBurstWarnTs || 0);
+          if (!tracker.lastBurstWarnTs || sinceLastWarn > 5000) {
+            var st = window.STATE || {};
+            var lastReason = String(st.__LAST_APPLY_REJECT_REASON__ || st.__LAST_APPLY_FAILURE__ || 'unknown');
+            try {
+              console.warn('[MOTK][SWR] high request rate', {
+                key: key || '(n/a)',
+                reqId: reqId || '',
+                count5s: tracker.recent.length,
+                windowMs: 5000,
+                lastRejectReason: lastReason
+              });
+            } catch (_) { }
+            tracker.lastBurstWarnTs = now;
+          }
+        }
         markNavFlag_('swrRequests', tracker.count);
       }
 
@@ -6826,8 +7195,25 @@ window.applyData = applyData;
         if (!s) return "";
         var lc = s.toLowerCase();
         if (lc === "hub" || lc.indexOf("hub") === 0) return "hub";
-        if (lc === "legacy-fallback") return "legacy";
         return s;
+      }
+
+      function inferDataSourceFromContract_(res) {
+        try {
+          var diag = res && (res.diag || (res.meta && res.meta.diag)) ? (res.diag || res.meta.diag) : null;
+          var contract = (diag && diag.contract) || (res && res.contract) || null;
+          if (!contract) return '';
+          if (typeof contract === 'string') {
+            var text = contract.trim();
+            if (!text) return '';
+            if (/^datacore/i.test(text)) return 'datacore';
+            return 'datacore';
+          }
+          if (typeof contract === 'object') {
+            if (Object.keys(contract).length > 0) return 'datacore';
+          }
+        } catch (_) { }
+        return '';
       }
 
       function setEffectiveDataSource_(ds, stage) {
@@ -6874,6 +7260,7 @@ window.applyData = applyData;
           var ds =
             (diag && (diag.dataSourceUsed || diag.source)) ||
             (res && (res.dataSourceUsed || res.source)) ||
+            inferDataSourceFromContract_(res) ||
             "";
         ds = normalizeDataSourceLabel_(ds);
           if (!ds && fallback) ds = normalizeDataSourceLabel_(fallback);
@@ -7020,17 +7407,7 @@ window.applyData = applyData;
             setTableBanner_('error', '');
           }
 
-          var allowPartialHub = payload && payload.allowPartialHub === true;
-          var diagSource = String(diag && diag.dataSourceUsed || '').toLowerCase();
-          if (diag && diag.missingCount > 0 && diagSource === 'hub' && !allowPartialHub) {
-            var list = Array.isArray(diag.missingFieldIds) ? diag.missingFieldIds.slice(0, 8) : [];
-            var more = (diag.missingCount > list.length) ? (' +' + (diag.missingCount - list.length) + ' more') : '';
-            var warn = 'Missing DataHub fields for ' + (diag.entity || ent || 'entity') +
-              ' (pageId=' + (diag.pageId || pageId || '') + '): ' + list.join(', ') + more;
-            setTableBanner_('warn', warn);
-          } else {
-            setTableBanner_('warn', '');
-          }
+          setTableBanner_('warn', '');
 
           var rowsLen = normalized && Array.isArray(normalized.rows) ? normalized.rows.length : 0;
           if (!mismatch && rowsLen === 0) {
@@ -7069,6 +7446,12 @@ window.applyData = applyData;
         var offset = (STATE.page - 1) * pageWindow;
 
         var payload = buildServerPayload(offset, limit);
+        if (!payload || !(payload.pageId || payload.pid)) {
+          if (!STATE.__ALLOW_PIDLESS__) {
+            setTableBanner_('error', 'Missing pageId (pid). Configure a table page and select it before loading rows.');
+            return;
+          }
+        }
         var colsKeyForCache = resolveCacheColsKey_(payload);
         var schemaHashForCache = resolveCacheSchemaHash_(payload);
         if (payload && colsKeyForCache && !payload.colsKey) payload.colsKey = colsKeyForCache;
@@ -7167,6 +7550,7 @@ window.applyData = applyData;
             applyListRowsDiagnostics_(payload, p, cachedEnv.payload, 'cache');
             if (appliedCache) logFooterState_('cache_applied', key, reqId);
             markNavPerf_('view_hydrated_ms');
+            perfMark_('view_hydrated');
             markNavFlag_('swrCacheHit', true);
             try {
               var cachedSource = pickDataSourceUsed_(cachedEnv.payload, '');
@@ -7180,6 +7564,12 @@ window.applyData = applyData;
               markNavPerf_('table_cache_painted_ms', _perfNow_());
             }
             if (appliedCache) {
+              try {
+                if (!window.__MOTK_UI_VISIBLE__) {
+                  window.__MOTK_UI_VISIBLE__ = true;
+                  console.info("[TAKE222][UI] visible=true reason=table_cache_applied t=" + Date.now());
+                }
+              } catch (_) { }
               setLoading(false);
               if (typeof updatePagerUI === 'function') updatePagerUI();
               if (typeof showStatus === 'function') showStatus('');
@@ -7222,6 +7612,7 @@ window.applyData = applyData;
           var reqStartTs = Date.now();
           window.__MOTK_TABLE_TIMINGS__ = window.__MOTK_TABLE_TIMINGS__ || {};
           window.__MOTK_TABLE_TIMINGS__.fetchStart = fetchStart;
+          perfMark_('fetch_start');
           window.__lastListRowsPayload = payload || null;
           window.__lastListRowsPayloadSummary = {
             entity: payload.entity || '',
@@ -7234,9 +7625,16 @@ window.applyData = applyData;
           };
           markNavFlag_('swrBackgroundFetch', true);
           try { console.info("[MOTK][SWR] background fetch started", key, "reqId=" + reqId); } catch (e) {}
-          callFirst(['sv_listRowsPage_v3', 'sv_listRowsPage', 'listRowsPage', 'gsListRowsPage', 'dp_listRowsPage'],
+          callFirst(['sv_listRowsPage', 'listRowsPage', 'gsListRowsPage', 'dp_listRowsPage'],
             payload,
             function (res) {
+              if (res && res.ok === false) {
+                var msg = res.message || res.error || 'Server error';
+                setTableBanner_('error', msg);
+                if (cb) cb();
+                finalizeSync_({ phase: 'sync_apply_error', key: key, reqId: reqId, stage: cacheApplied ? 'cache' : 'network', cacheApplied: cacheApplied });
+                return;
+              }
               logFooterState_('sync_apply_start', key, reqId);
               var lastWriteTs = Number(STATE && STATE.lastWriteSuccessTime || 0);
               if (lastWriteTs && reqStartTs < lastWriteTs) {
@@ -7246,6 +7644,7 @@ window.applyData = applyData;
                 return;
               }
               markNavPerf_('rows_received_ms', _perfNow_());
+              perfMark_('rows_received');
               var parseStart = (window.performance && typeof performance.now === 'function') ? performance.now() : Date.now();
               dumpTableRaw_(res, key);
               var p = normalizeRowsPayload(res, payload && payload.sheetName);
@@ -7484,6 +7883,8 @@ window.applyData = applyData;
                 applyListRowsDiagnostics_(payload, p, res, 'network');
                 markNavPerf_('rows_updated_ms', _perfNow_());
                 markNavPerf_('view_hydrated_ms');
+                perfMark_('rows_updated');
+                perfMark_('view_hydrated');
                 try { markNavFlag_('expectThumbs', hasProxyPreviewCols_()); } catch (_) { }
                 if (typeof updatePagerUI === 'function') updatePagerUI();
                 refreshDistinctCache();
@@ -7598,6 +7999,12 @@ window.applyData = applyData;
       }
 
       function fetchAndRenderPage(page) {
+        if (!STATE || (!STATE.pageId && !STATE.__ALLOW_PIDLESS__)) {
+          if (typeof setTableBanner_ === 'function') {
+            setTableBanner_('error', 'Missing pageId (pid). Configure a table page and select it before loading.');
+          }
+          return;
+        }
         STATE.page = Math.max(1, page | 0 || 1);
         if (STATE.perPage === 'all') STATE.page = 1;
 
@@ -7697,18 +8104,6 @@ window.applyData = applyData;
         return '';
       }
 
-      function pickFirstNonDefaultPageId_(list) {
-        if (!Array.isArray(list) || !list.length) return '';
-        var first = '';
-        for (var i = 0; i < list.length; i++) {
-          var id = getPageId(list[i]);
-          if (!id) continue;
-          if (!first) first = id;
-          if (id !== 'pg_default') return id;
-        }
-        return first;
-      }
-
       function entityFromPageId(pid) {
         try {
           var list = Array.isArray(STATE && STATE.pageList) ? STATE.pageList : [];
@@ -7753,6 +8148,14 @@ window.applyData = applyData;
         var sel = document.getElementById('presetSelect'); if (!sel) return;
         var list = (Array.isArray(STATE.pageList) ? STATE.pageList : []);
         var cur = sel.value; sel.innerHTML = '';
+        if (!STATE.pageId) {
+          var ph = document.createElement('option');
+          ph.value = '';
+          ph.textContent = 'Select a page…';
+          ph.disabled = true;
+          ph.selected = true;
+          sel.appendChild(ph);
+        }
         for (var i = 0; i < list.length; i++) {
           var x = list[i];
           var fid = pageFid_('Page Name');
@@ -7763,9 +8166,8 @@ window.applyData = applyData;
           opt.value = id; opt.textContent = nm;
           sel.appendChild(opt);
         }
-        var needsReset = !STATE.pageId || !list.some(function (x) { return getPageId(x) === STATE.pageId; });
-        if (needsReset) STATE.pageId = pickFirstNonDefaultPageId_(list);
-        if (STATE.pageId) sel.value = STATE.pageId;
+        var hasPageId = STATE.pageId && list.some(function (x) { return getPageId(x) === STATE.pageId; });
+        if (hasPageId) sel.value = STATE.pageId;
         if (!sel.value && cur) sel.value = cur;
 
         sel.removeEventListener('change', onPresetChange);
@@ -7784,14 +8186,14 @@ window.applyData = applyData;
           STATE.sheetName = ent;
           rememberLastView();
 
-          // Canonical URL policy: do not write `pid` or `entity` into the URL.
-          // If an old link includes pid, strip it once here.
           try {
-            var usp0 = new URLSearchParams(location.search);
-            if (usp0.has('pid')) {
-              usp0.delete('pid');
-              history.replaceState(null, '', location.pathname + '?' + usp0.toString());
+            var usp0 = writeUrlState ? writeUrlState() : new URLSearchParams(location.search);
+            if (STATE.pageId) usp0.set('pid', STATE.pageId);
+            if (STATE.sheetName) {
+              usp0.set('e', STATE.sheetName);
+              usp0.delete('entity');
             }
+            history.replaceState(null, '', location.pathname + '?' + usp0.toString());
           } catch (_) {}
 
           if (typeof loadPageConfigFromCacheThenNetwork === 'function') {
@@ -7861,7 +8263,6 @@ window.applyData = applyData;
               var cached = Array.isArray(cachedEnv.payload) ? cachedEnv.payload : [];
               var cachedFiltered = Array.isArray(cached) ? filterPagesForEntity(cached, entSing) : [];
               STATE.pageList = cachedFiltered;
-              ensureFallbackPagesForEntity_(entSing);
               STATE._pagesFetchDone = true;
               STATE.__PAGES_CACHE_HIT__ = true;
               try { wirePresetSelectAfterLoad && wirePresetSelectAfterLoad(); } catch (_) { }
@@ -7875,9 +8276,15 @@ window.applyData = applyData;
             function (list) {
               var arr = Array.isArray(list) ? list
                 : (list && Array.isArray(list.items) ? list.items : []);
+              if (list && list.error) {
+                STATE.pageList = [];
+                STATE._pagesFetchDone = true;
+                setTableBanner_('error', 'PageConfig load failed: ' + String(list.error || 'unknown'));
+                finishResolve_();
+                return;
+              }
               var filtered = Array.isArray(arr) ? filterPagesForEntity(arr, entSing) : [];
               STATE.pageList = filtered;
-              ensureFallbackPagesForEntity_(entSing);
               STATE._pagesFetchDone = true;
               try { LSC_setEnvelope(cacheKey, filtered, { storedAt: Date.now(), cacheKey: cacheKey }); } catch (_) { }
               try { wirePresetSelectAfterLoad && wirePresetSelectAfterLoad(); } catch (_) { }
@@ -7886,8 +8293,8 @@ window.applyData = applyData;
             function () {
               if (!cachedApplied) {
                 STATE.pageList = [];
-                ensureFallbackPagesForEntity_(entSing);
                 STATE._pagesFetchDone = true;
+                setTableBanner_('error', 'PageConfig load failed: network error');
                 try { wirePresetSelectAfterLoad && wirePresetSelectAfterLoad(); } catch (_) { }
               }
               finishResolve_();
@@ -7897,7 +8304,59 @@ window.applyData = applyData;
       }
 
       function pageConfigCacheKey(pid) {
-        return pid ? ('motk:cfg:' + pid) : '';
+        var keys = pageConfigCacheKeyCandidates_(pid);
+        return keys.length ? keys[0] : '';
+      }
+
+      function pageConfigCacheKeyCandidates_(pid) {
+        var pageId = String(pid || '').trim();
+        if (!pageId) return [];
+        var ent = canonEntityKey_((STATE && STATE.sheetName) || '', '');
+        var proj = getProjectId_() || 'unknown';
+        var keys = ['motk:pagecfg:v2:' + proj + ':' + ent + ':' + pageId];
+        if (proj !== 'unknown') {
+          keys.push('motk:pagecfg:v2:unknown:' + ent + ':' + pageId);
+        }
+        return uniq(keys);
+      }
+
+      function pageConfigLegacyKeys_(pid) {
+        var pageId = String(pid || '').trim();
+        if (!pageId) return [];
+        return ['motk:cfg:' + pageId];
+      }
+
+      function getProjectId_() {
+        try {
+          if (window.__MOTK_PROJECT_ID__) return String(window.__MOTK_PROJECT_ID__ || '').trim();
+        } catch (_) { }
+        try {
+          if (window.__MOTK_PROJECT_META__ && window.__MOTK_PROJECT_META__.project_id) {
+            return String(window.__MOTK_PROJECT_META__.project_id || '').trim();
+          }
+        } catch (_) { }
+        try {
+          var raw = localStorage.getItem('MOTK_PROJECT_ID_V1');
+          if (raw) return String(raw || '').trim();
+        } catch (_) { }
+        return '';
+      }
+
+      function debugPageCfg_(msg, obj) {
+        try {
+          if (window.__MOTK_DEBUG_PAGECFG__ === true) {
+            console.info('[PageCfg]', msg, obj || {});
+          }
+        } catch (_) { }
+      }
+
+      function debugPageName_(pid) {
+        try {
+          if (typeof getPageNameById_ === 'function') {
+            return getPageNameById_(pid, STATE.pageList || []) || '';
+          }
+        } catch (_) { }
+        return '';
       }
 
       function applyLoadedConfig(cfg) {
@@ -7922,7 +8381,9 @@ window.applyData = applyData;
 
       function cachePageConfigSnapshot(pid) {
         if (!pid || !STATE || !STATE.pageCfgRaw) return;
-        LSC_set(pageConfigCacheKey(pid), {
+        var key = pageConfigCacheKey(pid);
+        if (!key) return;
+        LSC_set(key, {
           order: STATE.pageCfgRaw.order,
           widths: STATE.pageCfgRaw.widths,
           hidden: STATE.pageCfgRaw.hidden,
@@ -7931,6 +8392,7 @@ window.applyData = applyData;
           groupCombine: STATE.groupCombine,
           sort: Array.isArray(STATE.sort) ? STATE.sort.slice() : []
         });
+        debugPageCfg_('cache save', { key: key, pageId: pid, pageName: debugPageName_(pid), entity: STATE.sheetName || '' });
       }
 
       function loadPageConfigFromCacheThenNetwork(pid, done, opts) {
@@ -7956,23 +8418,34 @@ window.applyData = applyData;
           finish();
           return;
         }
-        if (STATE.__FALLBACK_PAGE_CFGS__ && STATE.__FALLBACK_PAGE_CFGS__[pid]) {
-          applyLoadedConfig({ config: STATE.__FALLBACK_PAGE_CFGS__[pid] });
-          setDirty(false);
-          STATE.__PAGE_CFG_SOURCE__ = "fallback";
-          finish();
-          return;
-        }
         var key = pageConfigCacheKey(pid);
         if (opts.forceNetwork) {
           try { localStorage.removeItem(key); } catch (_) { }
         } else {
           var cached = LSC_get(key, 24 * 60 * 60 * 1000);
+          if (!cached) {
+            var candidates = pageConfigCacheKeyCandidates_(pid).slice(1);
+            var legacyKeys = pageConfigLegacyKeys_(pid);
+            var altKeys = candidates.concat(legacyKeys);
+            for (var i = 0; i < altKeys.length; i++) {
+              var altKey = altKeys[i];
+              var altVal = LSC_get(altKey, 24 * 60 * 60 * 1000);
+              if (altVal) {
+                cached = altVal;
+                try { LSC_set(key, altVal); } catch (_) { }
+                try { localStorage.removeItem(altKey); } catch (_) { }
+                STATE.__PAGE_CFG_SOURCE__ = 'cache:migrated';
+                debugPageCfg_('cache migrate', { from: altKey, to: key, pageId: pid, pageName: debugPageName_(pid), entity: STATE.sheetName || '' });
+                break;
+              }
+            }
+          }
           if (cached) {
             STATE.__PAGE_CFG_CACHE_HIT__ = true;
-            STATE.__PAGE_CFG_SOURCE__ = "cache";
+            if (!STATE.__PAGE_CFG_SOURCE__) STATE.__PAGE_CFG_SOURCE__ = "cache";
             applyLoadedConfig(cached);
             setDirty(false);
+            debugPageCfg_('cache apply', { key: key, pageId: pid, pageName: debugPageName_(pid), entity: STATE.sheetName || '', columns: (cached.order || []).length });
             finish();
           }
         }
@@ -7985,6 +8458,7 @@ window.applyData = applyData;
             setDirty(false);
             cachePageConfigSnapshot(pid);
             STATE.__PAGE_CFG_SOURCE__ = "network";
+            debugPageCfg_('network apply', { key: key, pageId: pid, pageName: debugPageName_(pid), entity: STATE.sheetName || '', columns: (STATE.pageCfgRaw && STATE.pageCfgRaw.order || []).length });
             if (typeof rememberLastView === 'function') rememberLastView();
             finish();
           },
@@ -7992,13 +8466,6 @@ window.applyData = applyData;
             finish();
           }
         );
-      }
-
-      function pickInitialPageId() {
-        // Prefer last view preset if it exists and is valid; otherwise, use the first non-default.
-        var list = Array.isArray(STATE.pageList) ? STATE.pageList : [];
-        if (STATE.pageId && pageIdInList_(STATE.pageId, list)) return STATE.pageId;
-        return pickFirstNonDefaultPageId_(list) || 'pg_default';
       }
 
       function pageIdInList_(pid, list) {
@@ -8012,36 +8479,50 @@ window.applyData = applyData;
       function buildFallbackPageConfigForEntity_(entity) {
         var ent = canonEntityKey_(entity || '', '');
         if (!ent) return null;
-        var meta = window.FIELD_TYPES && window.FIELD_TYPES[ent] ? window.FIELD_TYPES[ent] : null;
-        if (!meta || !Object.keys(meta).length) return null;
-
-        var ids = Object.keys(meta);
-        ids.sort(function (a, b) {
-          var ma = meta[a] || {};
-          var mb = meta[b] || {};
-          var ca = ma.isCore ? 0 : 1;
-          var cb = mb.isCore ? 0 : 1;
-          if (ca !== cb) return ca - cb;
-          var oa = Number(ma.order);
-          var ob = Number(mb.order);
-          var fa = isFinite(oa);
-          var fb = isFinite(ob);
-          if (fa && fb && oa !== ob) return oa - ob;
-          if (fa && !fb) return -1;
-          if (!fa && fb) return 1;
-          return String(a).localeCompare(String(b));
-        });
-
-        var widths = {};
-        for (var i = 0; i < ids.length; i++) {
-          var fid = ids[i];
-          var label = meta[fid] && meta[fid].label ? meta[fid].label : fid;
-          widths[fid] = defaultWidthFor(fid, label);
+        var meta = null;
+        if (window.FIELD_TYPES && window.FIELD_TYPES[ent]) meta = window.FIELD_TYPES[ent];
+        var order = [];
+        function add(fid) {
+          if (!fid) return;
+          if (order.indexOf(fid) >= 0) return;
+          order.push(fid);
         }
-
+        try {
+          if (meta) {
+            Object.keys(meta).forEach(function (fid) {
+              var m = meta[fid] || {};
+              var t = String(m.type || '').toLowerCase().trim();
+              var label = String(m.label || m.field_name || m.name || '').toLowerCase();
+              if (t === 'id') add(fid);
+              else if (t === 'entity_name') add(fid);
+              else if (t === 'status') add(fid);
+            });
+            ['episode', 'act', 'sequence', 'scene', 'shot'].forEach(function (k) {
+              var found = null;
+              Object.keys(meta).some(function (fid) {
+                var m = meta[fid] || {};
+                var label = String(m.label || m.field_name || m.name || '').toLowerCase();
+                if (label.indexOf(k) >= 0) { found = fid; return true; }
+                return false;
+              });
+              if (found) add(found);
+            });
+          }
+        } catch (_) { }
+        if (!order.length) {
+          try {
+            if (window.SchemaResolver && SchemaResolver.getIdFid) add(SchemaResolver.getIdFid(ent));
+            if (window.SchemaResolver && SchemaResolver.getEntityNameFid) add(SchemaResolver.getEntityNameFid(ent));
+            if (window.SchemaResolver && SchemaResolver.getFidsByType) {
+              var st = SchemaResolver.getFidsByType(ent, 'status');
+              if (st && st.length) add(st[0]);
+            }
+          } catch (_) { }
+        }
+        if (!order.length) return null;
         return {
-          order: ids.slice(),
-          widths: widths,
+          order: order.slice(),
+          widths: {},
           hidden: {},
           group: [],
           filterGroups: [],
@@ -8051,21 +8532,22 @@ window.applyData = applyData;
 
       function ensureFallbackPagesForEntity_(entity) {
         var ent = canonEntityKey_(entity || STATE.sheetName || '', '');
-        if (ent !== 'user') return false;
+        if (!ent) return false;
         var list = Array.isArray(STATE.pageList) ? STATE.pageList : [];
         if (list.length) return false;
-
-        var pid = 'pg_default_user';
+        var cfg = buildFallbackPageConfigForEntity_(ent);
+        if (!cfg || !cfg.order || !cfg.order.length) return false;
+        var pid = 'pg_default_' + ent;
         var page = {
           pageId: pid,
-          pageName: 'Users (Auto)',
+          pageName: ent.charAt(0).toUpperCase() + ent.slice(1) + ' (Default)',
           pageType: 'table',
-          entity: ent
+          entity: ent,
+          synthetic: true
         };
-
         STATE.pageList = [page];
         STATE.__FALLBACK_PAGE_CFGS__ = STATE.__FALLBACK_PAGE_CFGS__ || {};
-        STATE.__FALLBACK_PAGE_CFGS__[pid] = buildFallbackPageConfigForEntity_(ent) || {};
+        STATE.__FALLBACK_PAGE_CFGS__[pid] = cfg;
         STATE.__FALLBACK_PAGE_IDS__ = STATE.__FALLBACK_PAGE_IDS__ || {};
         STATE.__FALLBACK_PAGE_IDS__[pid] = true;
         return true;
@@ -8187,7 +8669,6 @@ window.applyData = applyData;
 
         // 左クリックの SPA ルーティングは使用しない（通常のページ遷移）
         try { readUrlState && readUrlState(); } catch (_) { }
-
         Promise.resolve(start()).then(function () {
           bindLinkPickerInlineEdit();
         });
@@ -8228,8 +8709,10 @@ window.applyData = applyData;
         STATE.__BOOT_START__ = bootStart;
         STATE.__BOOT_CACHE_RENDERED__ = false;
         STATE.__BOOT_BG_APPLIED__ = false;
+        perfMark_('boot_start');
         markNavPerf_('nav_start_ms', bootStart);
         scheduleNavPerfSnapshot_(12000, 'timeout');
+        persistBootSnapshot_('boot_start');
 
         try { markNavPerf_('toolbar_mounted_ms'); } catch (_) { }
 
@@ -8244,7 +8727,6 @@ window.applyData = applyData;
         });
 
         resolveEntityFromContext();
-        applyLastViewFallback();
         STATE.sheetName = canonEntityKey_(STATE.sheetName, 'shot');
         if (STATE.__LAST_ENTITY__ && STATE.__LAST_ENTITY__ !== STATE.sheetName) {
           resetStateForEntityChange_(STATE.__LAST_ENTITY__, STATE.sheetName);
@@ -8268,19 +8750,19 @@ window.applyData = applyData;
         try { bindPagerControls && bindPagerControls(); } catch (_) { }
         try { updatePagerUI && updatePagerUI(); } catch (_) { }
 
-        var fastPid = (rawParams.pid || '').trim();
-        if (!fastPid) fastPid = (STATE.pageId || '').trim();
-        if (!fastPid) fastPid = getFastPidFromLocalCache_(STATE.sheetName);
-        if (!fastPid) fastPid = defaultPidForEntity_(STATE.sheetName);
-        if (fastPid) {
-          STATE.pageId = fastPid;
-          STATE.__FAST_PID__ = fastPid;
-        }
-
         var fetchPromise = null;
         var fastRowsKey = '';
         function afterFetch_(done) {
           STATE._dataReady = true;
+          try {
+            var summary = window.__lastListRowsPayloadSummary || {};
+            console.info('[TAKE213][TABLE][DATA_READY]', {
+              t: _perfNow_(),
+              pageId: (STATE && STATE.pageId) || '',
+              rows: (STATE && Array.isArray(STATE.rows)) ? STATE.rows.length : 0,
+              requestedFieldsCount: summary.requestedFieldsCount || 0
+            });
+          } catch (_) { }
           Promise.resolve().then(function () {
             if (typeof ensureNamesForCurrentPage === 'function') {
               return ensureNamesForCurrentPage();
@@ -8299,6 +8781,9 @@ window.applyData = applyData;
           if (fetchPromise) return fetchPromise;
           if (typeof fetchPageOnlyFromCacheThenNetwork !== 'function') {
             STATE._dataReady = true;
+            try {
+              console.info('[TAKE213][TABLE][DATA_READY]', { t: _perfNow_(), pageId: (STATE && STATE.pageId) || '', rows: 0, requestedFieldsCount: 0, source: 'no-fetch' });
+            } catch (_) { }
             fetchPromise = Promise.resolve();
             return fetchPromise;
           }
@@ -8319,7 +8804,7 @@ window.applyData = applyData;
         }
 
         function startFastFetch_() {
-          if (!STATE.pageId) return;
+          if (!STATE.pageId && !STATE.__ALLOW_PIDLESS__) return;
           runFetchOnce_('fast');
         }
 
@@ -8348,7 +8833,7 @@ window.applyData = applyData;
         } catch (e) {
           console.warn('[Table] ensureAppDataLoaded failed', e);
         }
-        metaPromise.then(function (res) {
+        var metaReady = metaPromise.then(function (res) {
           _perfLog_('table_load_fields_api_or_meta', tMeta);
           try {
             var src = (res && res.source) ? res.source : (window.__MOTK_FIELD_TYPES_SOURCE__ || '');
@@ -8360,9 +8845,10 @@ window.applyData = applyData;
             STATE.__FIELD_ID_FILTER_DEFERRED__ = false;
             try { renderCurrentPage && renderCurrentPage(true); } catch (_) { }
           }
-          refreshFallbackPageConfig_();
+          return res || null;
         }).catch(function () {
           _perfLog_('table_load_fields_api_or_meta', tMeta);
+          return null;
         });
 
         // Delay initial fetch until page config is resolved to avoid double cache paint.
@@ -8374,33 +8860,46 @@ window.applyData = applyData;
           _perfLog_('table_pages_fetch', tPages);
         });
         await pagesPromise;
-        ensureFallbackPagesForEntity_(STATE.sheetName);
         var pageList = Array.isArray(STATE.pageList) ? STATE.pageList : [];
 
         // pid from URL has highest priority; if present but invalid, drop it
+        var entKey = canonEntityKey_((STATE && STATE.sheetName) || '', '');
+        var cachedPid = '';
+        try {
+          var cached = LSC_get('motk:lastPidByEntity:' + entKey);
+          if (cached && cached.pid) cachedPid = String(cached.pid || '').trim();
+        } catch (_) { }
+
         var qpid = (rawParams.pid || '').trim();
         if (qpid && !pageIdInList_(qpid, pageList)) {
           console.warn('[MOTK][BOOT] pid not found in page list; dropping pid', { pid: qpid, entity: STATE.sheetName });
           qpid = '';
         }
 
-        var lastPid = qpid || (STATE.pageId || '');
+        var lastPid = STATE.pageId || '';
         if (lastPid && !pageIdInList_(lastPid, pageList)) {
           console.warn('[MOTK][BOOT] lastPid entity mismatch; dropping lastPid', { pid: lastPid, entity: STATE.sheetName });
           lastPid = '';
         }
-        if (lastPid === 'pg_default' && pageList.length > 1) {
-          lastPid = '';
-        }
+        if (cachedPid && !pageIdInList_(cachedPid, pageList)) cachedPid = '';
+
         var pidFromName = resolvePageIdFromName_(rawParams.p || rawParams.page, pageList);
-        STATE.pageId = qpid || pidFromName || lastPid || pickInitialPageId();
-        if (STATE.__FAST_PID__ && STATE.pageId && STATE.pageId !== STATE.__FAST_PID__) {
-          STATE.__FAST_PID_MISMATCH__ = true;
+        var autoPid = '';
+        if (!qpid && !pidFromName && !lastPid && !cachedPid && pageList.length) {
+          autoPid = String(getPageId(pageList[0]) || '').trim();
         }
-        if (!STATE.pageId && !pageList.length) {
-          setTableBanner_('error', 'No table pages configured for entity ' + (STATE.sheetName || 'unknown'));
+
+        STATE.pageId = qpid || pidFromName || lastPid || cachedPid || autoPid;
+        STATE.__ALLOW_PIDLESS__ = false;
+        if (!STATE.pageId) {
+          if (!pageList.length) {
+            setTableBanner_('error', 'No table pages configured for entity ' + (STATE.sheetName || 'unknown'));
+            STATE.__ALLOW_PIDLESS__ = true;
+          } else {
+            setTableBanner_('warn', 'Please select a page.');
+          }
         }
-        rememberLastView();
+        if (STATE.pageId) rememberLastView();
 
         try {
           var usp = writeUrlState ? writeUrlState() : new URLSearchParams(location.search);
@@ -8426,6 +8925,10 @@ window.applyData = applyData;
             _perfLog_('table_link_maps', tLinks);
           });
 
+        if (!STATE.pageId && !STATE.__ALLOW_PIDLESS__) {
+          return;
+        }
+
         var tCfg = _perfNow_();
         var cfgP = new Promise(function (res) {
           if (typeof loadPageConfigFromCacheThenNetwork !== 'function') {
@@ -8436,6 +8939,13 @@ window.applyData = applyData;
           }
           loadPageConfigFromCacheThenNetwork(STATE.pageId, function () {
             STATE._cfgReady = true;
+            try {
+              var cfgCount = (STATE && STATE.pageCfgRaw && Array.isArray(STATE.pageCfgRaw.order)) ? STATE.pageCfgRaw.order.length : 0;
+              console.info('[TAKE213][TABLE][CFG_READY]', { t: _perfNow_(), pageId: (STATE && STATE.pageId) || '', cfgFieldsCount: cfgCount });
+              if (STATE && STATE.__MINIMAL_FIELDS__ && cfgCount > 1) {
+                STATE.__NEEDS_REFETCH_AFTER_CFG__ = true;
+              }
+            } catch (_) { }
             _perfLog_('table_resolve_config', tCfg);
             try {
               var src = STATE.__PAGE_CFG_SOURCE__ || (STATE.__PAGE_CFG_CACHE_HIT__ ? 'cache' : '');
@@ -8446,12 +8956,12 @@ window.applyData = applyData;
         });
 
         var cfgReady = cfgP.catch(function () { });
-        metaPromise.catch(function () { });
+        await metaReady;
         await cfgReady;
         if (!fetchPromise) runFetchOnce_('cfg');
         await (fetchPromise || Promise.resolve());
-        if (STATE.__FAST_PID_MISMATCH__) {
-          STATE.__FAST_PID_MISMATCH__ = false;
+        if (STATE.__NEEDS_REFETCH_AFTER_CFG__) {
+          STATE.__NEEDS_REFETCH_AFTER_CFG__ = false;
           refetchAfterConfig_();
         }
 
