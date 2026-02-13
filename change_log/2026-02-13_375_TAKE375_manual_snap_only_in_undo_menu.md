@@ -25,8 +25,10 @@ Additional stability adjustment included in the same patch set:
 - `clasp push`
 - `clasp deploy -d "TAKE375 manual snapshot only in undo menu"`
 - `git add 3CL_Scheduler.html change_log/2026-02-13_375_TAKE375_manual_snap_only_in_undo_menu.md`
-- `git commit -m "TAKE375 move manual snapshot capture to undo menu"` (pending)
-- `git push origin main` (pending)
+- `git commit -m "TAKE375 move manual snapshot capture to undo menu"`
+- `git push origin main`
+- Branch: `main`
+- Commit: `5df82aa`
 
 # 4. Test Evidence
 - Syntax check:
