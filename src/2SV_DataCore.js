@@ -2977,6 +2977,195 @@ function _undo_getSchedulerOpId_(log) {
   }
 }
 
+function _undo_isUndoAction_(actionName) {
+  var a = String(actionName || '').toLowerCase();
+  return (a === 'undo' || a === 'undo_group');
+}
+
+function _undo_filterLogsByRequest_(logs, req) {
+  var list = Array.isArray(logs) ? logs : [];
+  var out = [];
+  var scope = String((req && req.scope) || 'all').trim().toLowerCase();
+  var actor = String((req && req.actor) || '').trim();
+  var admin = !!(req && req.admin);
+  for (var i = 0; i < list.length; i++) {
+    var row = list[i] || {};
+    if (String(row.status || '') !== 'applied') continue;
+    if (_undo_isUndoAction_(row.action)) continue;
+    if (scope !== 'all' && scope && String(row.scope || '').toLowerCase() !== scope) continue;
+    if (!admin && actor && String(row.actor || '') !== actor) continue;
+    out.push(row);
+  }
+  return out;
+}
+
+function _undo_collectGroupsFromLogs_(logs, req) {
+  var filtered = _undo_filterLogsByRequest_(logs, req || {});
+  var scope = String((req && req.scope) || 'all').trim().toLowerCase();
+  var groups = [];
+  var byKey = {};
+  for (var i = 0; i < filtered.length; i++) {
+    var row = filtered[i] || {};
+    var key = '';
+    var opId = '';
+    if (scope === 'scheduler' || String(row.scope || '').toLowerCase() === 'scheduler') {
+      opId = _undo_getSchedulerOpId_(row);
+      key = opId ? ('op:' + opId) : ('log:' + String(row.logId || ''));
+    } else {
+      key = 'log:' + String(row.logId || '');
+    }
+    if (!key) key = 'log:' + String(row.logId || '');
+    if (!byKey[key]) {
+      byKey[key] = {
+        key: key,
+        opId: opId,
+        scope: String(row.scope || ''),
+        actor: String(row.actor || ''),
+        ts: String(row.ts || ''),
+        targetSheet: String(row.targetSheet || ''),
+        anchor: row,
+        logs: [],
+        _actionCounts: {},
+        _targetIdSet: {}
+      };
+      groups.push(byKey[key]);
+    }
+    var g = byKey[key];
+    g.logs.push(row);
+    var action = String(row.action || '').toLowerCase() || 'update';
+    g._actionCounts[action] = Number(g._actionCounts[action] || 0) + 1;
+    var tid = String(row.targetId || '').trim();
+    if (tid) g._targetIdSet[tid] = true;
+  }
+  for (var gi = 0; gi < groups.length; gi++) {
+    var grp = groups[gi];
+    var actions = Object.keys(grp._actionCounts || {});
+    actions.sort();
+    var actionParts = [];
+    for (var ai = 0; ai < actions.length; ai++) {
+      var aKey = actions[ai];
+      actionParts.push(aKey + 'x' + Number(grp._actionCounts[aKey] || 0));
+    }
+    var targetIds = Object.keys(grp._targetIdSet || {});
+    targetIds.sort();
+    grp.count = grp.logs.length;
+    grp.actionSummary = actionParts.join(', ');
+    grp.targetIds = targetIds;
+    delete grp._actionCounts;
+    delete grp._targetIdSet;
+  }
+  return groups;
+}
+
+function _undo_applyTargetsCore_(targets, req, picked) {
+  var list = Array.isArray(targets) ? targets : [];
+  if (!list.length) return { ok: false, error: 'No undo target' };
+  var request = req || {};
+  var scope = String(request.scope || 'all').trim().toLowerCase();
+  var actor = String(request.actor || '').trim();
+  var force = (request.force === true);
+  if (scope === 'scheduler' && request.force == null) force = true;
+  var first = picked || list[0];
+  if (!first) return { ok: false, error: 'Undo target is invalid' };
+
+  if (!force) {
+    for (var ci = 0; ci < list.length; ci++) {
+      if (_undo_isRecordConflict_(list[ci])) {
+        return {
+          ok: false,
+          error: 'Conflict detected; use force/admin undo',
+          code: 'UNDO_CONFLICT',
+          logId: String((list[ci] && list[ci].logId) || '')
+        };
+      }
+    }
+  }
+
+  var appliedCount = 0;
+  var undoneIds = [];
+  var opIds = {};
+  for (var oi = 0; oi < list.length; oi++) {
+    var op = _undo_getSchedulerOpId_(list[oi]);
+    if (op) opIds[op] = true;
+  }
+
+  if (scope === 'scheduler') {
+    var batchRes = _undo_applySchedulerTargetsBatch_(list, { actor: actor, force: force });
+    if (!batchRes || !batchRes.ok) {
+      return {
+        ok: false,
+        error: (batchRes && batchRes.error) ? batchRes.error : 'Scheduler undo apply failed',
+        result: batchRes || null,
+        logId: String(first.logId || ''),
+        undoneCount: 0,
+        undoneLogIds: []
+      };
+    }
+    appliedCount = Math.max(0, Math.round(Number(batchRes.appliedCount || list.length || 0)));
+    for (var ui = 0; ui < list.length; ui++) undoneIds.push(String((list[ui] && list[ui].logId) || ''));
+  } else {
+    for (var ai = 0; ai < list.length; ai++) {
+      var target = list[ai];
+      var applied = _undo_applyInverse_(target.inverse, {
+        actor: actor,
+        force: force,
+        undoOf: target.logId,
+        skipSchedulerLock: true
+      });
+      if (!applied || !applied.ok) {
+        return {
+          ok: false,
+          error: (applied && applied.error) ? applied.error : 'Undo apply failed',
+          result: applied && applied.result ? applied.result : null,
+          logId: String(target.logId || ''),
+          undoneCount: appliedCount,
+          undoneLogIds: undoneIds
+        };
+      }
+      appliedCount++;
+      undoneIds.push(String(target.logId || ''));
+    }
+  }
+
+  for (var mi = 0; mi < list.length; mi++) {
+    _undo_markUndone_(list[mi].row, actor);
+  }
+
+  var opIdList = Object.keys(opIds || {});
+  opIdList.sort();
+  _undo_appendLog_({
+    ts: _undo_nowIso_(),
+    actor: actor,
+    scope: first.scope,
+    action: (list.length > 1) ? 'undo_group' : 'undo',
+    targetSheet: first.targetSheet,
+    entity: first.entity,
+    targetId: first.targetId,
+    status: 'applied',
+    before: first.after,
+    after: first.before,
+    inverse: first.inverse,
+    note: (force ? 'undo(force)' : 'undo(safe)') +
+      (list.length > 1 ? (' count=' + list.length) : '') +
+      (opIdList.length ? (' opIds=' + opIdList.join('|')) : ''),
+    undoOf: first.logId
+  });
+
+  return {
+    ok: true,
+    undoneCount: appliedCount,
+    undoneLogIds: undoneIds,
+    opId: opIdList.length === 1 ? opIdList[0] : '',
+    opIds: opIdList,
+    undone: {
+      logId: first.logId,
+      scope: first.scope,
+      action: first.action,
+      targetId: first.targetId
+    }
+  };
+}
+
 function _undo_buildSchedulerReapplyPayload_(log) {
   try {
     if (!log || String(log.scope || '').toLowerCase() !== 'scheduler') return null;
@@ -3244,10 +3433,26 @@ function _undo_applySchedulerTargetsBatch_(targets, opts) {
     var lastRow = ctx.sheet.getLastRow();
     var idValues = (lastRow >= 3) ? ctx.sheet.getRange(3, ctx.cols.id, lastRow - 2, 1).getValues() : [];
     var rowMap = _undo_scheduler_buildRowMap_(idValues);
-    // Apply in strict reverse-commit order (newest -> oldest) per sheet group.
-    // This preserves exact stack semantics for repeated updates of the same card.
-    for (var s = 0; s < gTargets.length; s++) {
-      var step = _undo_scheduler_parseStep_(gTargets[s]);
+    var parsedSteps = [];
+    for (var ps = 0; ps < gTargets.length; ps++) {
+      var parsed = _undo_scheduler_parseStep_(gTargets[ps]);
+      if (parsed) parsedSteps.push(parsed);
+    }
+    // Normalize to one inverse step per card (oldest inverse wins) so undo is
+    // stable even when a single opId produced multiple writes for the same card.
+    var stepByCard = {};
+    var stepOrder = [];
+    for (var ri = parsedSteps.length - 1; ri >= 0; ri--) {
+      var parsedStep = parsedSteps[ri];
+      var cardKey = String(parsedStep.cardId || '').trim();
+      if (!cardKey) continue;
+      if (!stepByCard.hasOwnProperty(cardKey)) {
+        stepByCard[cardKey] = parsedStep;
+        stepOrder.push(cardKey);
+      }
+    }
+    for (var s = 0; s < stepOrder.length; s++) {
+      var step = stepByCard[stepOrder[s]];
       if (!step) continue;
       var action = String(step.action || '').toLowerCase();
       if (action === 'delete') {
@@ -3297,131 +3502,140 @@ function sv_undo_last_v2(reqPayload) {
     var scope = String(req.scope || 'all').trim().toLowerCase();
     var admin = !!req.admin;
     var actor = _undo_getActor_(req.actor);
-    var force = (req.force === true);
-    if (scope === 'scheduler' && req.force == null) force = true;
-
-    var logs = _undo_readLogs_(500);
-    var picked = null;
-    for (var i = 0; i < logs.length; i++) {
-      var row = logs[i];
-      if (String(row.status || '') !== 'applied') continue;
-      var actionName = String(row.action || '').toLowerCase();
-      // Undo stack should walk back user-applied operations only.
-      // Do not pick prior undo records as undo targets (prevents undo<->redo toggling).
-      if (actionName === 'undo' || actionName === 'undo_group') continue;
-      if (scope !== 'all' && scope && String(row.scope || '').toLowerCase() !== scope) continue;
-      if (!admin && String(row.actor || '') !== actor) continue;
-      picked = row;
-      break;
-    }
-    if (!picked) {
+    req.scope = scope;
+    req.admin = admin;
+    req.actor = actor;
+    var logs = _undo_readLogs_(800);
+    var groups = _undo_collectGroupsFromLogs_(logs, req);
+    if (!groups.length) {
       return JSON.stringify({ ok: false, error: 'No undo target', scope: scope, actor: actor, admin: admin });
     }
-
-    var targets = [picked];
-    var opId = _undo_getSchedulerOpId_(picked);
-    if (String(scope) === 'scheduler' && opId) {
-      var grouped = [];
-      for (var gi = 0; gi < logs.length; gi++) {
-        var row = logs[gi];
-        if (String(row.status || '') !== 'applied') continue;
-        var groupedAction = String(row.action || '').toLowerCase();
-        if (groupedAction === 'undo' || groupedAction === 'undo_group') continue;
-        if (String(row.scope || '').toLowerCase() !== 'scheduler') continue;
-        if (!admin && String(row.actor || '') !== actor) continue;
-        if (_undo_getSchedulerOpId_(row) !== opId) continue;
-        grouped.push(row);
-      }
-      if (grouped.length) targets = grouped;
+    var g0 = groups[0];
+    var targets = Array.isArray(g0.logs) ? g0.logs : [];
+    if (!targets.length) {
+      return JSON.stringify({ ok: false, error: 'No undo target', scope: scope, actor: actor, admin: admin });
     }
-
-    if (!force) {
-      for (var ci = 0; ci < targets.length; ci++) {
-        if (_undo_isRecordConflict_(targets[ci])) {
-          return JSON.stringify({
-            ok: false,
-            error: 'Conflict detected; use force/admin undo',
-            code: 'UNDO_CONFLICT',
-            logId: targets[ci].logId
-          });
-        }
-      }
+    return JSON.stringify(_undo_applyTargetsCore_(targets, req, targets[0]));
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
+  } finally {
+    if (lock) {
+      try { lock.releaseLock(); } catch (_) {}
     }
+  }
+}
 
-    var appliedCount = 0;
-    var undoneIds = [];
-    if (String(scope) === 'scheduler') {
-      var batchRes = _undo_applySchedulerTargetsBatch_(targets, { actor: actor, force: force });
-      if (!batchRes || !batchRes.ok) {
-        return JSON.stringify({
-          ok: false,
-          error: (batchRes && batchRes.error) ? batchRes.error : 'Scheduler undo apply failed',
-          result: batchRes || null,
-          logId: picked.logId,
-          undoneCount: 0,
-          undoneLogIds: []
-        });
-      }
-      appliedCount = Math.max(0, Math.round(Number(batchRes.appliedCount || targets.length || 0)));
-      for (var ui = 0; ui < targets.length; ui++) undoneIds.push(String((targets[ui] && targets[ui].logId) || ''));
-    } else {
-      var appliedTargets = [];
-      for (var ai = 0; ai < targets.length; ai++) {
-        var target = targets[ai];
-        var applied = _undo_applyInverse_(target.inverse, {
-          actor: actor,
-          force: force,
-          undoOf: target.logId,
-          skipSchedulerLock: true
-        });
-        if (!applied || !applied.ok) {
-          return JSON.stringify({
-            ok: false,
-            error: (applied && applied.error) ? applied.error : 'Undo apply failed',
-            result: applied && applied.result ? applied.result : null,
-            logId: target.logId,
-            undoneCount: appliedCount,
-            undoneLogIds: undoneIds
-          });
-        }
-        appliedTargets.push(target);
-        appliedCount++;
-        undoneIds.push(String(target.logId || ''));
-      }
+function sv_undo_options_v2(reqPayload) {
+  var lock = null;
+  try {
+    lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    var req = reqPayload;
+    if (typeof reqPayload === 'string') req = _undo_parseJson_(reqPayload, {});
+    req = req || {};
+    req.scope = String(req.scope || 'scheduler').trim().toLowerCase();
+    req.admin = !!req.admin;
+    req.actor = _undo_getActor_(req.actor);
+    var limit = Number(req.limit);
+    if (!isFinite(limit) || limit < 1) limit = 25;
+    if (limit > 100) limit = 100;
+    var logs = _undo_readLogs_(2000);
+    var groups = _undo_collectGroupsFromLogs_(logs, req);
+    var items = [];
+    for (var i = 0; i < groups.length && items.length < limit; i++) {
+      var g = groups[i] || {};
+      var targetIds = Array.isArray(g.targetIds) ? g.targetIds : [];
+      items.push({
+        undoKey: String(g.key || ''),
+        logId: String((g.anchor && g.anchor.logId) || ''),
+        opId: String(g.opId || ''),
+        scope: String(g.scope || ''),
+        actor: String(g.actor || ''),
+        ts: String(g.ts || ''),
+        targetSheet: String(g.targetSheet || ''),
+        actionSummary: String(g.actionSummary || ''),
+        count: Math.max(1, Math.round(Number(g.count || 1))),
+        targetIds: targetIds.slice(0, 20),
+        targetIdsCount: targetIds.length
+      });
     }
-
-    for (var mi = 0; mi < targets.length; mi++) {
-      _undo_markUndone_(targets[mi].row, actor);
-    }
-
-    _undo_appendLog_({
-      ts: _undo_nowIso_(),
-      actor: actor,
-      scope: picked.scope,
-      action: (targets.length > 1) ? 'undo_group' : 'undo',
-      targetSheet: picked.targetSheet,
-      entity: picked.entity,
-      targetId: picked.targetId,
-      status: 'applied',
-      before: picked.after,
-      after: picked.before,
-      inverse: picked.inverse,
-      note: (force ? 'undo(force)' : 'undo(safe)') + (targets.length > 1 ? (' opId=' + opId + ' count=' + targets.length) : ''),
-      undoOf: picked.logId
-    });
-
     return JSON.stringify({
       ok: true,
-      undoneCount: appliedCount,
-      undoneLogIds: undoneIds,
-      opId: opId || '',
-      undone: {
-        logId: picked.logId,
-        scope: picked.scope,
-        action: picked.action,
-        targetId: picked.targetId
-      }
+      scope: req.scope,
+      actor: req.actor,
+      admin: req.admin,
+      totalGroups: groups.length,
+      items: items
     });
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
+  } finally {
+    if (lock) {
+      try { lock.releaseLock(); } catch (_) {}
+    }
+  }
+}
+
+function sv_undo_to_v2(reqPayload) {
+  var lock = null;
+  try {
+    lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    var req = reqPayload;
+    if (typeof reqPayload === 'string') req = _undo_parseJson_(reqPayload, {});
+    req = req || {};
+    req.scope = String(req.scope || 'scheduler').trim().toLowerCase();
+    req.admin = !!req.admin;
+    req.actor = _undo_getActor_(req.actor);
+    var undoKey = String(req.undoKey || '').trim();
+    var targetLogId = String(req.targetLogId || '').trim();
+
+    if (!undoKey && !targetLogId) {
+      return JSON.stringify({ ok: false, error: 'undoKey or targetLogId is required' });
+    }
+
+    var logs = _undo_readLogs_(2000);
+    var groups = _undo_collectGroupsFromLogs_(logs, req);
+    if (!groups.length) {
+      return JSON.stringify({ ok: false, error: 'No undo target', scope: req.scope });
+    }
+
+    var targetIdx = -1;
+    for (var i = 0; i < groups.length; i++) {
+      var g = groups[i] || {};
+      var gLogId = String((g.anchor && g.anchor.logId) || '');
+      if (undoKey && String(g.key || '') === undoKey) {
+        targetIdx = i;
+        break;
+      }
+      if (!undoKey && targetLogId && gLogId === targetLogId) {
+        targetIdx = i;
+        break;
+      }
+    }
+    if (targetIdx < 0) {
+      return JSON.stringify({ ok: false, error: 'Undo target not found' });
+    }
+
+    var targets = [];
+    for (var gi = 0; gi <= targetIdx; gi++) {
+      var grp = groups[gi] || {};
+      var grpLogs = Array.isArray(grp.logs) ? grp.logs : [];
+      for (var li = 0; li < grpLogs.length; li++) {
+        targets.push(grpLogs[li]);
+      }
+    }
+    if (!targets.length) {
+      return JSON.stringify({ ok: false, error: 'No undo logs resolved' });
+    }
+
+    var res = _undo_applyTargetsCore_(targets, req, targets[0]);
+    if (res && res.ok) {
+      res.undoneGroupCount = targetIdx + 1;
+      res.targetUndoKey = undoKey || '';
+      res.targetLogId = targetLogId || '';
+    }
+    return JSON.stringify(res);
   } catch (e) {
     return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
   } finally {
@@ -4834,6 +5048,9 @@ function sv_scheduler_commit_v2(payloadJson) {
     var action = payload.action;
     var cardData = payload.card;
     var opId = String(payload.opId || '').trim();
+    if (!opId) {
+      opId = 'op_srv_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    }
     var skipUndoLog = !!(payload && payload.__skipUndoLog);
     var actorHint = payload && payload.actor;
     var undoLogDiag = {
@@ -4973,7 +5190,7 @@ function sv_scheduler_commit_v2(payloadJson) {
             kind: 'scheduler_commit',
             payload: (function () {
               var inv = (inversePayload && typeof inversePayload === 'object') ? inversePayload : {};
-              if (opId) inv.opId = opId;
+              inv.opId = opId;
               return inv;
             })()
           },
@@ -5036,7 +5253,7 @@ function sv_scheduler_commit_v2(payloadJson) {
           { action: 'create', card: beforeDelete || {} },
           'sv_scheduler_commit_v2:delete'
         );
-        return JSON.stringify({ ok: true, action: 'delete', diag: diag, undoLog: undoLogDiag });
+        return JSON.stringify({ ok: true, action: 'delete', opId: opId, diag: diag, undoLog: undoLogDiag });
       }
       return JSON.stringify({ ok: false, error: { message: 'Card not found for deletion' }, diag: diag, undoLog: undoLogDiag });
     }
@@ -5069,7 +5286,7 @@ function sv_scheduler_commit_v2(payloadJson) {
         { action: 'update', card: beforeUpdate || {} },
         'sv_scheduler_commit_v2:update'
       );
-      return JSON.stringify({ ok: true, action: 'update', id: cardData.id, diag: diag, undoLog: undoLogDiag });
+      return JSON.stringify({ ok: true, action: 'update', opId: opId, id: cardData.id, diag: diag, undoLog: undoLogDiag });
     }
 
     if (action === 'create') {
@@ -5099,7 +5316,7 @@ function sv_scheduler_commit_v2(payloadJson) {
         { action: 'delete', card: { id: afterCreate.id } },
         'sv_scheduler_commit_v2:create'
       );
-      return JSON.stringify({ ok: true, action: 'create', id: newId, diag: diag, undoLog: undoLogDiag });
+      return JSON.stringify({ ok: true, action: 'create', opId: opId, id: newId, diag: diag, undoLog: undoLogDiag });
     }
   } catch (e) {
     return JSON.stringify({ ok: false, error: { message: e.toString() } });

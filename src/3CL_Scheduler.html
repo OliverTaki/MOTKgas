@@ -208,6 +208,22 @@
     .settings-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .settings-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
     .settings-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 12px 12px; }
+    .undo-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 130; display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .undo-modal.hidden { display: none; }
+    .undo-panel { width: min(760px, 96vw); max-height: 90vh; overflow: hidden; background: #17171a; border: 1px solid #333; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.45); display: flex; flex-direction: column; }
+    .undo-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid #2c2c30; background: #121214; }
+    .undo-title { font-size: 13px; font-weight: 700; color: #fff; }
+    .undo-body { display: flex; flex-direction: column; gap: 8px; padding: 12px; min-height: 220px; }
+    .undo-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .undo-list { border: 1px solid #2d2d31; border-radius: 8px; overflow: auto; background: #101014; min-height: 180px; max-height: 52vh; }
+    .undo-item { padding: 8px 10px; border-bottom: 1px solid #202024; cursor: pointer; display: flex; flex-direction: column; gap: 3px; font-size: 11px; }
+    .undo-item:last-child { border-bottom: 0; }
+    .undo-item:hover { background: #1a1a1f; }
+    .undo-item.active { background: #10263f; outline: 1px solid #2563eb; }
+    .undo-main { color: #e5e7eb; font-weight: 600; }
+    .undo-meta { color: #9ca3af; font-size: 10px; }
+    .undo-empty { color: #9ca3af; font-size: 11px; padding: 12px; }
+    .undo-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 12px 12px; }
     .lane-row { display: flex; gap: 6px; padding: 4px; border-bottom: 1px solid #222; font-size: 11px; align-items: center; }
     .list-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-bottom: 1px solid #222; cursor: pointer; font-size: 11px; line-height: 1.2; flex-wrap: nowrap; }
     .list-item.unassigned .li-title { color: #ef4444; }
@@ -468,6 +484,25 @@
   </div>
 </div>
 
+<div id="undo-modal" class="undo-modal hidden">
+  <div class="undo-panel">
+    <div class="undo-head">
+      <div class="undo-title">Undo History (Scheduler)</div>
+      <button id="btn-undo-modal-close" class="btn" type="button">Close</button>
+    </div>
+    <div class="undo-body">
+      <div class="undo-toolbar">
+        <div id="undo-summary" class="undo-meta">Loading...</div>
+        <button id="btn-undo-modal-refresh" class="btn" type="button">Refresh</button>
+      </div>
+      <div id="undo-list" class="undo-list"></div>
+    </div>
+    <div class="undo-actions">
+      <button id="btn-undo-apply" class="btn" type="button">Undo To Selected</button>
+    </div>
+  </div>
+</div>
+
 <div id="loadingSpinner">
   <div class="spinner"></div>
   <div id="loadingSpinnerText" style="color:#fff; font-size:11px; margin-top:10px;">Loading...</div>
@@ -514,6 +549,10 @@ window.app = (function() {
     requestedSchedApplied: false,
     undoBusy: false,
     undoPhase: '',
+    undoOptions: [],
+    undoSelectedKey: '',
+    undoLoading: false,
+    undoLoadError: '',
     commitOpId: '',
     commitQueue: [],
     commitInflight: null,
@@ -587,6 +626,78 @@ window.app = (function() {
     if (!modal) return;
     if (open) modal.classList.remove('hidden');
     else modal.classList.add('hidden');
+  };
+  const setUndoModalOpen_ = (open) => {
+    var modal = document.getElementById('undo-modal');
+    if (!modal) return;
+    if (open) modal.classList.remove('hidden');
+    else modal.classList.add('hidden');
+  };
+  const formatUndoTs_ = (ts) => {
+    const raw = String(ts || '').trim();
+    if (!raw) return '-';
+    const d = new Date(raw);
+    if (!isNaN(d.getTime())) {
+      return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+    }
+    return raw;
+  };
+  const renderUndoModalList_ = () => {
+    const listEl = document.getElementById('undo-list');
+    const summaryEl = document.getElementById('undo-summary');
+    const applyBtn = document.getElementById('btn-undo-apply');
+    if (!listEl || !summaryEl || !applyBtn) return;
+    const items = Array.isArray(state.undoOptions) ? state.undoOptions : [];
+    const isLoading = !!state.undoLoading;
+    const hasError = String(state.undoLoadError || '').trim();
+    summaryEl.textContent = isLoading
+      ? 'Loading undo history...'
+      : (hasError ? (`Error: ${hasError}`) : (`${items.length} history group(s)`));
+    applyBtn.disabled = isLoading || !!hasError || !state.undoSelectedKey || state.undoBusy;
+    listEl.innerHTML = '';
+    if (isLoading) {
+      const d = document.createElement('div');
+      d.className = 'undo-empty';
+      d.textContent = 'Loading...';
+      listEl.appendChild(d);
+      return;
+    }
+    if (hasError) {
+      const d = document.createElement('div');
+      d.className = 'undo-empty';
+      d.textContent = hasError;
+      listEl.appendChild(d);
+      return;
+    }
+    if (!items.length) {
+      const d = document.createElement('div');
+      d.className = 'undo-empty';
+      d.textContent = 'No undo history found.';
+      listEl.appendChild(d);
+      return;
+    }
+    items.forEach((item, idx) => {
+      const key = String((item && item.undoKey) || '').trim();
+      if (!key) return;
+      const row = document.createElement('div');
+      row.className = 'undo-item' + (state.undoSelectedKey === key ? ' active' : '');
+      const count = Math.max(1, Math.round(Number(item.count || 1)));
+      const cardCount = Math.max(0, Math.round(Number(item.targetIdsCount || 0)));
+      const actionSummary = String(item.actionSummary || 'update');
+      const when = formatUndoTs_(item.ts);
+      const targetSheet = String(item.targetSheet || '');
+      const targetIds = Array.isArray(item.targetIds) ? item.targetIds.slice(0, 4) : [];
+      const idsText = targetIds.length ? targetIds.join(', ') : '-';
+      row.innerHTML = '' +
+        `<div class="undo-main">${idx + 1}. ${escapeHtml_(actionSummary)} | steps:${count}</div>` +
+        `<div class="undo-meta">${escapeHtml_(when)} | sheet:${escapeHtml_(targetSheet || '-')} | cards:${cardCount}</div>` +
+        `<div class="undo-meta">ids: ${escapeHtml_(idsText)}${cardCount > targetIds.length ? ` ...(+${cardCount - targetIds.length})` : ''}</div>`;
+      row.addEventListener('click', () => {
+        state.undoSelectedKey = key;
+        renderUndoModalList_();
+      });
+      listEl.appendChild(row);
+    });
   };
   const closeToolbarMenus_ = () => {
     if (els.viewMenuPopup) els.viewMenuPopup.classList.remove('open');
@@ -2512,7 +2623,158 @@ window.app = (function() {
     if (sp) sp.style.display = visible ? 'flex' : 'none';
   }
 
+  function executeUndoRequest_(rpcMethod, payload, afterSuccess) {
+    if (state.undoBusy) return;
+    clearInspectorTimers_();
+    const compacted = compactCommitQueueForUndo_();
+    if (compacted.before > compacted.after) {
+      console.info('[MOTK][Scheduler][Undo] compacted pending queue before wait', compacted);
+    }
+    if (state.inspEdit) {
+      state.inspEdit.isEditingStart = false;
+      state.inspEdit.isEditingEnd = false;
+      state.inspEdit.isTypingStartDate = false;
+      state.inspEdit.isTypingEndDate = false;
+      state.inspEdit.isTyping = false;
+    }
+    try {
+      const ae = document.activeElement;
+      if (ae && typeof ae.blur === 'function') ae.blur();
+    } catch (_) {}
+    state.undoBusy = true;
+    state.undoPhase = 'waiting_queue';
+    renderUndoModalList_();
+    const beginTs = Date.now();
+    const startUndoRpc_ = () => {
+      state.undoPhase = 'rpc';
+      setBlockingOverlay_(true, 'Undo...');
+      utils.saveStatus('saving', 'Undo...');
+      const runner = google.script.run
+        .withSuccessHandler((str) => {
+          let res = null;
+          try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
+          if (res && res.ok) {
+            const undoneCount = Math.max(1, Math.round(Number(res.undoneCount || 1)));
+            const msg = undoneCount > 1 ? ('Undone ×' + undoneCount) : 'Undone';
+            utils.saveStatus('saved', msg);
+            console.info('[MOTK][Scheduler][Undo] applied', {
+              undoneCount: undoneCount,
+              undoneLogIds: Array.isArray(res.undoneLogIds) ? res.undoneLogIds : [],
+              undoneGroupCount: Number(res.undoneGroupCount || 1)
+            });
+            actions.load({
+              forceNetwork: true,
+              onDone: () => {
+                state.undoBusy = false;
+                state.undoPhase = '';
+                setBlockingOverlay_(false);
+                if (typeof afterSuccess === 'function') {
+                  try { afterSuccess(res); } catch (_) {}
+                }
+                flushCommitQueue_();
+                renderUndoModalList_();
+              }
+            });
+            return;
+          }
+          const msg = (res && (res.error || (res.result && res.result.error))) ? String(res.error || res.result.error) : 'Undo failed';
+          console.warn('[MOTK][Scheduler][Undo] failed', { response: res });
+          utils.saveStatus('error', msg);
+          state.undoBusy = false;
+          state.undoPhase = '';
+          setBlockingOverlay_(false);
+          flushCommitQueue_();
+          renderUndoModalList_();
+        })
+        .withFailureHandler((err) => {
+          console.error('[MOTK][Scheduler][Undo] network failure', err);
+          utils.saveStatus('error', String(err && (err.message || err) || 'Undo failed'));
+          state.undoBusy = false;
+          state.undoPhase = '';
+          setBlockingOverlay_(false);
+          flushCommitQueue_();
+          renderUndoModalList_();
+        });
+      const payloadStr = JSON.stringify(payload || { scope: 'scheduler' });
+      if (rpcMethod === 'sv_undo_to_v2') runner.sv_undo_to_v2(payloadStr);
+      else runner.sv_undo_last_v2(payloadStr);
+    };
+    const waitQueueAndUndo_ = () => {
+      if (isCommitQueueIdle_()) {
+        startUndoRpc_();
+        return;
+      }
+      const elapsed = Date.now() - beginTs;
+      if (elapsed > 60000) {
+        const q = getCommitQueueStats_();
+        console.warn('[MOTK][Scheduler][Undo] commit queue timeout', q);
+        utils.saveStatus('error', 'Undo timeout (save queue busy)');
+        state.undoBusy = false;
+        state.undoPhase = '';
+        setBlockingOverlay_(false);
+        renderUndoModalList_();
+        return;
+      }
+      const q = getCommitQueueStats_();
+      setBlockingOverlay_(true, 'Waiting save queue... (' + (q.inflight + q.pending) + ')');
+      setTimeout(waitQueueAndUndo_, 60);
+    };
+    waitQueueAndUndo_();
+  }
+
   const actions = {
+    openUndoModal: () => {
+      if (state.undoBusy) return;
+      closeToolbarMenus_();
+      setUndoModalOpen_(true);
+      actions.loadUndoOptions();
+    },
+    closeUndoModal: () => {
+      if (state.undoBusy) return;
+      setUndoModalOpen_(false);
+    },
+    loadUndoOptions: () => {
+      state.undoLoading = true;
+      state.undoLoadError = '';
+      renderUndoModalList_();
+      google.script.run
+        .withSuccessHandler((str) => {
+          let res = null;
+          try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
+          if (!(res && res.ok)) {
+            state.undoOptions = [];
+            state.undoSelectedKey = '';
+            state.undoLoadError = String((res && res.error) || 'Failed to load undo history');
+            state.undoLoading = false;
+            renderUndoModalList_();
+            return;
+          }
+          const items = Array.isArray(res.items) ? res.items : [];
+          state.undoOptions = items;
+          const selectedExists = !!items.find((it) => String((it && it.undoKey) || '') === String(state.undoSelectedKey || ''));
+          state.undoSelectedKey = selectedExists ? String(state.undoSelectedKey || '') : String(((items[0] && items[0].undoKey) || ''));
+          state.undoLoadError = '';
+          state.undoLoading = false;
+          renderUndoModalList_();
+        })
+        .withFailureHandler((err) => {
+          state.undoOptions = [];
+          state.undoSelectedKey = '';
+          state.undoLoadError = String(err && (err.message || err) || 'Failed to load undo history');
+          state.undoLoading = false;
+          renderUndoModalList_();
+        })
+        .sv_undo_options_v2(JSON.stringify({ scope: 'scheduler', limit: 40 }));
+    },
+    undoToSelected: () => {
+      const undoKey = String(state.undoSelectedKey || '').trim();
+      if (!undoKey || state.undoBusy || state.undoLoading) return;
+      executeUndoRequest_(
+        'sv_undo_to_v2',
+        { scope: 'scheduler', undoKey: undoKey },
+        () => actions.loadUndoOptions()
+      );
+    },
     renameSched: (nextName) => {
       const fromInput = (nextName !== undefined && nextName !== null) ? String(nextName).trim() : '';
       const newName = fromInput || prompt('Rename Schedule:', state.schedName);
@@ -2669,94 +2931,7 @@ window.app = (function() {
         .sv_scheduler_load_v2();
     },
 
-    undoLast: () => {
-      if (state.undoBusy) return;
-      clearInspectorTimers_();
-      const compacted = compactCommitQueueForUndo_();
-      if (compacted.before > compacted.after) {
-        console.info('[MOTK][Scheduler][Undo] compacted pending queue before wait', compacted);
-      }
-      if (state.inspEdit) {
-        state.inspEdit.isEditingStart = false;
-        state.inspEdit.isEditingEnd = false;
-        state.inspEdit.isTypingStartDate = false;
-        state.inspEdit.isTypingEndDate = false;
-        state.inspEdit.isTyping = false;
-      }
-      try {
-        const ae = document.activeElement;
-        if (ae && typeof ae.blur === 'function') ae.blur();
-      } catch (_) {}
-      state.undoBusy = true;
-      state.undoPhase = 'waiting_queue';
-      const beginTs = Date.now();
-      const startUndoRpc_ = () => {
-        state.undoPhase = 'rpc';
-        setBlockingOverlay_(true, 'Undo...');
-        utils.saveStatus('saving', 'Undo...');
-        google.script.run
-          .withSuccessHandler((str) => {
-            let res = null;
-            try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
-            if (res && res.ok) {
-              const undoneCount = Math.max(1, Math.round(Number(res.undoneCount || 1)));
-              const msg = undoneCount > 1 ? ('Undone ×' + undoneCount) : 'Undone';
-              utils.saveStatus('saved', msg);
-              console.info('[MOTK][Scheduler][Undo] applied', {
-                opId: String(res.opId || ''),
-                undoneCount: undoneCount,
-                undoneLogIds: Array.isArray(res.undoneLogIds) ? res.undoneLogIds : []
-              });
-              actions.load({
-                forceNetwork: true,
-                onDone: () => {
-                  state.undoBusy = false;
-                  state.undoPhase = '';
-                  setBlockingOverlay_(false);
-                  flushCommitQueue_();
-                }
-              });
-              return;
-            }
-            const msg = (res && (res.error || (res.result && res.result.error))) ? String(res.error || res.result.error) : 'Undo failed';
-            console.warn('[MOTK][Scheduler][Undo] failed', { response: res });
-            utils.saveStatus('error', msg);
-            state.undoBusy = false;
-            state.undoPhase = '';
-            setBlockingOverlay_(false);
-            flushCommitQueue_();
-          })
-          .withFailureHandler((err) => {
-            console.error('[MOTK][Scheduler][Undo] network failure', err);
-            utils.saveStatus('error', String(err && (err.message || err) || 'Undo failed'));
-            state.undoBusy = false;
-            state.undoPhase = '';
-            setBlockingOverlay_(false);
-            flushCommitQueue_();
-          })
-          .sv_undo_last_v2(JSON.stringify({ scope: 'scheduler' }));
-      };
-      const waitQueueAndUndo_ = () => {
-        if (isCommitQueueIdle_()) {
-          startUndoRpc_();
-          return;
-        }
-        const elapsed = Date.now() - beginTs;
-        if (elapsed > 60000) {
-          const q = getCommitQueueStats_();
-          console.warn('[MOTK][Scheduler][Undo] commit queue timeout', q);
-          utils.saveStatus('error', 'Undo timeout (save queue busy)');
-          state.undoBusy = false;
-          state.undoPhase = '';
-          setBlockingOverlay_(false);
-          return;
-        }
-        const q = getCommitQueueStats_();
-        setBlockingOverlay_(true, 'Waiting save queue... (' + (q.inflight + q.pending) + ')');
-        setTimeout(waitQueueAndUndo_, 60);
-      };
-      waitQueueAndUndo_();
-    },
+    undoLast: () => executeUndoRequest_('sv_undo_last_v2', { scope: 'scheduler' }),
 
     commit: (id, type, opts = {}) => {
       if (state.undoBusy) {
@@ -4896,7 +5071,10 @@ window.app = (function() {
       state.autoPush = !!(e && e.target && e.target.checked);
       markViewDirty_();
     });
-    safeAdd('btn-undo', 'click', actions.undoLast);
+    safeAdd('btn-undo', 'click', actions.openUndoModal);
+    safeAdd('btn-undo-modal-close', 'click', actions.closeUndoModal);
+    safeAdd('btn-undo-modal-refresh', 'click', actions.loadUndoOptions);
+    safeAdd('btn-undo-apply', 'click', actions.undoToSelected);
     safeAdd('btn-reload', 'click', () => actions.load({ forceNetwork: true }));
     safeAdd('btn-insp', 'click', () => {
       const insp = document.getElementById('inspector');
@@ -4953,6 +5131,12 @@ window.app = (function() {
         if (e.target === els.settingsModal) setSettingsModalOpen_(false);
       });
     }
+    const undoModal = document.getElementById('undo-modal');
+    if (undoModal) {
+      undoModal.addEventListener('click', (e) => {
+        if (e.target === undoModal) actions.closeUndoModal();
+      });
+    }
     document.addEventListener('keydown', (e) => {
       if (state.undoBusy) {
         if (e.key === 'Delete' || e.key === 'Backspace' || e.key === 'Escape' || e.key === 'Enter') {
@@ -4970,6 +5154,7 @@ window.app = (function() {
       if (e.key === 'Escape') {
         closeToolbarMenus_();
         setSettingsModalOpen_(false);
+        setUndoModalOpen_(false);
         actions.clearGapSelection();
         actions.clearAssetCellSelection({ skipRender: true });
         actions.clearMultiSelection();
