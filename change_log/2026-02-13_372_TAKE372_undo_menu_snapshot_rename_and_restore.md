@@ -33,8 +33,10 @@ Extended Scheduler undo modal to support snapshot-first operations:
 - `clasp push`
 - `clasp deploy -d "TAKE372 undo menu snapshot restore rename"`
 - `git add 2SV_DataCore.js 3CL_Scheduler.html change_log/2026-02-13_372_TAKE372_undo_menu_snapshot_rename_and_restore.md`
-- `git commit -m "TAKE372 add snapshot restore and rename in undo modal"` (pending)
-- `git push origin main` (pending)
+- `git commit -m "TAKE372 add snapshot restore and rename in undo modal"`
+- `git push origin main`
+- Branch: `main`
+- Commit: `8211272`
 
 # 4. Test Evidence
 - Syntax check:
