@@ -2561,10 +2561,9 @@ window.app = (function() {
       return [];
     }
     const firstAction = String(firstPayload.action || '').trim().toLowerCase();
-    const firstOpId = String(firstPayload.opId || '').trim();
-    if (firstAction !== 'update' || !firstOpId) return [q.shift()];
+    if (firstAction !== 'update') return [q.shift()];
     const out = [];
-    while (q.length && out.length < 24) {
+    while (q.length && out.length < 64) {
       const peek = q[0];
       const p = (peek && peek.payload && typeof peek.payload === 'object') ? peek.payload : null;
       if (!p) {
@@ -2572,8 +2571,7 @@ window.app = (function() {
         continue;
       }
       const action = String(p.action || '').trim().toLowerCase();
-      const opId = String(p.opId || '').trim();
-      if (action !== 'update' || opId !== firstOpId) break;
+      if (action !== 'update') break;
       out.push(q.shift());
     }
     return out.length ? out : [q.shift()];
@@ -2694,28 +2692,6 @@ window.app = (function() {
     const out = { before: before, after: 0, dropped: before };
     console.info('[MOTK][Scheduler][Commit] dropped pending queue', { reason: String(reason || ''), before: before });
     return out;
-  }
-
-  function flushCommitQueueLegacy_() {
-    // Retained for emergency fallback only.
-    if (state.commitInflight) return;
-    const item = state.commitQueue.shift();
-    if (!item || !item.payload) return;
-    state.commitInflight = item;
-    const payload = item.payload;
-    google.script.run
-      .withSuccessHandler((str) => {
-        let res = null;
-        try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
-        if (res && res.ok) {
-          utils.saveStatus('saved', 'Saved');
-          state.commitInflight = null;
-        } else {
-          state.commitInflight = null;
-        }
-      })
-      .withFailureHandler(() => { state.commitInflight = null; })
-      .sv_scheduler_commit_v2(JSON.stringify(payload));
   }
 
   function createCommitOpId_(tag) {
@@ -3028,7 +3004,13 @@ window.app = (function() {
       state.snapBusy = false;
       state.snapPhase = '';
       if (ok) markSnapshotTs_(options.snapshotTs || '');
-      if (msg) utils.saveStatus(ok ? 'saved' : 'error', msg);
+      if (msg) {
+        if (isAuto) {
+          if (ok) utils.saveStatus('saved', msg);
+        } else {
+          utils.saveStatus(ok ? 'saved' : 'error', msg);
+        }
+      }
       if (onDone) {
         try { onDone(ok); } catch (_) {}
       }
@@ -3059,6 +3041,10 @@ window.app = (function() {
     const waitQueueAndRun_ = () => {
       if (isCommitQueueIdle_()) {
         runSnapshotRpc_();
+        return;
+      }
+      if (isAuto) {
+        finish_(false, '');
         return;
       }
       const elapsed = Date.now() - beginTs;
@@ -3141,6 +3127,7 @@ window.app = (function() {
 
   function maybeAutoSnapshotByEdit_() {
     if (state.undoBusy || state.snapBusy || state.autoSnapPending) return;
+    if (!isCommitQueueIdle_()) return;
     const lastTs = Math.max(
       Number(state.lastSnapshotAtMs || 0),
       Number(state.lastSnapshotAttemptAtMs || 0)
