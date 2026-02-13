@@ -3657,6 +3657,11 @@ function _undo_collectSnapshotItems_(logs, req) {
       snapshotNamed: !!snapshotName
     });
   }
+  items.sort(function(a, b) {
+    var ta = Date.parse(String((a && a.ts) || '')) || 0;
+    var tb = Date.parse(String((b && b.ts) || '')) || 0;
+    return tb - ta;
+  });
   return items;
 }
 
@@ -3675,36 +3680,31 @@ function sv_undo_options_v2(reqPayload) {
     if (!isFinite(limit) || limit < 1) limit = 25;
     if (limit > 100) limit = 100;
     var logs = _undo_readLogs_(2000);
-    var groups = _undo_collectGroupsFromLogs_(logs, req);
     var items = [];
-    for (var i = 0; i < groups.length && items.length < limit; i++) {
-      var g = groups[i] || {};
-      var targetIds = Array.isArray(g.targetIds) ? g.targetIds : [];
-      items.push({
-        undoKey: String(g.key || ''),
-        kind: 'undo_group',
-        logId: String((g.anchor && g.anchor.logId) || ''),
-        opId: String(g.opId || ''),
-        scope: String(g.scope || ''),
-        actor: String(g.actor || ''),
-        ts: String(g.ts || ''),
-        targetSheet: String(g.targetSheet || ''),
-        actionSummary: String(g.actionSummary || ''),
-        count: Math.max(1, Math.round(Number(g.count || 1))),
-        targetIds: targetIds.slice(0, 20),
-        targetIdsCount: targetIds.length
-      });
-    }
     if (req.scope === 'scheduler') {
-      var snapshots = _undo_collectSnapshotItems_(logs, req);
-      var combined = items.concat(snapshots);
-      combined.sort(function(a, b) {
-        var ta = Date.parse(String((a && a.ts) || '')) || 0;
-        var tb = Date.parse(String((b && b.ts) || '')) || 0;
-        return tb - ta;
-      });
-      if (combined.length > limit) combined = combined.slice(0, limit);
-      items = combined;
+      // Scheduler menu is SNAP-only by policy.
+      items = _undo_collectSnapshotItems_(logs, req);
+      if (items.length > limit) items = items.slice(0, limit);
+    } else {
+      var groups = _undo_collectGroupsFromLogs_(logs, req);
+      for (var i = 0; i < groups.length && items.length < limit; i++) {
+        var g = groups[i] || {};
+        var targetIds = Array.isArray(g.targetIds) ? g.targetIds : [];
+        items.push({
+          undoKey: String(g.key || ''),
+          kind: 'undo_group',
+          logId: String((g.anchor && g.anchor.logId) || ''),
+          opId: String(g.opId || ''),
+          scope: String(g.scope || ''),
+          actor: String(g.actor || ''),
+          ts: String(g.ts || ''),
+          targetSheet: String(g.targetSheet || ''),
+          actionSummary: String(g.actionSummary || ''),
+          count: Math.max(1, Math.round(Number(g.count || 1))),
+          targetIds: targetIds.slice(0, 20),
+          targetIdsCount: targetIds.length
+        });
+      }
     }
     return JSON.stringify({
       ok: true,
@@ -5249,7 +5249,8 @@ function sv_scheduler_snapshot_create_v1(reqPayload) {
       logId: String((appendRes && appendRes.logId) || ''),
       schedId: String(ctx.sheetName || ''),
       cardCount: cards.length,
-      encoding: encoding
+      encoding: encoding,
+      ts: _undo_nowIso_()
     });
   } catch (e) {
     return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });

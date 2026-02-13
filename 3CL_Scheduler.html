@@ -220,6 +220,9 @@
     .undo-item:last-child { border-bottom: 0; }
     .undo-item:hover { background: #1a1a1f; }
     .undo-item.active { background: #10263f; outline: 1px solid #2563eb; }
+    .undo-item.snapshot { background: #121b25; }
+    .undo-item.snapshot.named { background: #1a2a1a; }
+    .undo-item.snapshot.named .undo-main { color: #bbf7d0; }
     .undo-main { color: #e5e7eb; font-weight: 600; }
     .undo-meta { color: #9ca3af; font-size: 10px; }
     .undo-empty { color: #9ca3af; font-size: 11px; padding: 12px; }
@@ -487,7 +490,7 @@
 <div id="undo-modal" class="undo-modal hidden">
   <div class="undo-panel">
     <div class="undo-head">
-      <div class="undo-title">Undo History (Scheduler)</div>
+      <div class="undo-title">Snapshot History (Scheduler)</div>
       <button id="btn-undo-modal-close" class="btn" type="button">Close</button>
     </div>
     <div class="undo-body">
@@ -499,7 +502,7 @@
       <div id="undo-list" class="undo-list"></div>
     </div>
     <div class="undo-actions">
-      <button id="btn-undo-apply" class="btn" type="button">Undo To Selected</button>
+      <button id="btn-undo-apply" class="btn" type="button">Restore Selected SNAP</button>
     </div>
   </div>
 </div>
@@ -555,6 +558,9 @@ window.app = (function() {
     undoLoading: false,
     undoLoadError: '',
     snapBusy: false,
+    autoSnapPending: false,
+    autoSnapThresholdMs: 10 * 60 * 1000,
+    lastSnapshotAtMs: Date.now(),
     commitOpId: '',
     commitQueue: [],
     commitInflight: null,
@@ -582,11 +588,23 @@ window.app = (function() {
   const SCHED_CACHE_KEY = 'MOTK_SCHED_CACHE_V2';
   const SCHED_CACHE_TS_KEY = 'MOTK_SCHED_CACHE_TS_V2';
   const SCHED_LOAD_DIAG_KEY = 'MOTK_SCHED_LOAD_DIAG_V1';
+  const SCHED_LAST_SNAPSHOT_TS_KEY = 'MOTK_SCHED_LAST_SNAPSHOT_TS_V1';
   const SCHED_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
   const INSPECTOR_WIDTH_KEY = 'motk:sched:inspectorW';
   const INSPECTOR_MIN_W = 260;
   const INSPECTOR_MAX_W = 720;
   const INSPECTOR_NARROW_W = 300;
+
+  const markSnapshotTs_ = (tsLike) => {
+    let ms = Date.parse(String(tsLike || ''));
+    if (!isFinite(ms) || ms <= 0) ms = Date.now();
+    state.lastSnapshotAtMs = ms;
+    try { localStorage.setItem(SCHED_LAST_SNAPSHOT_TS_KEY, String(ms)); } catch (_) {}
+  };
+  try {
+    const rawSnapTs = Number(localStorage.getItem(SCHED_LAST_SNAPSHOT_TS_KEY) || 0);
+    if (isFinite(rawSnapTs) && rawSnapTs > 0) state.lastSnapshotAtMs = rawSnapTs;
+  } catch (_) {}
 
   const els = {
     gridScroll: document.getElementById('grid-scroll'),
@@ -657,12 +675,12 @@ window.app = (function() {
     const isLoading = !!state.undoLoading;
     const hasError = String(state.undoLoadError || '').trim();
     const snapCount = items.filter((it) => String((it && it.kind) || '').toLowerCase() === 'snapshot').length;
-    const undoCount = items.length - snapCount;
+    const namedCount = items.filter((it) => !!(it && it.snapshotNamed)).length;
     summaryEl.textContent = isLoading
       ? 'Loading undo history...'
-      : (hasError ? (`Error: ${hasError}`) : (`Undo:${undoCount} | SNAP:${snapCount}`));
-    applyBtn.disabled = isLoading || !!hasError || !state.undoSelectedKey || state.undoBusy;
-    applyBtn.textContent = selectedIsSnapshot ? 'Restore Selected SNAP' : 'Undo To Selected';
+      : (hasError ? (`Error: ${hasError}`) : (`SNAP:${snapCount} | named:${namedCount}`));
+    applyBtn.disabled = isLoading || !!hasError || !state.undoSelectedKey || state.undoBusy || !selectedIsSnapshot;
+    applyBtn.textContent = 'Restore Selected SNAP';
     if (renameSnapBtn) {
       renameSnapBtn.disabled = isLoading || !!hasError || state.undoBusy || !selectedIsSnapshot;
     }
@@ -694,7 +712,11 @@ window.app = (function() {
       const kind = String((item && item.kind) || '').trim().toLowerCase();
       const isSnapshot = (kind === 'snapshot');
       const row = document.createElement('div');
-      row.className = 'undo-item' + (state.undoSelectedKey === key ? ' active' : '');
+      const isNamedSnapshot = isSnapshot && !!(item && item.snapshotNamed);
+      row.className = 'undo-item' +
+        (isSnapshot ? ' snapshot' : '') +
+        (isNamedSnapshot ? ' named' : '') +
+        (state.undoSelectedKey === key ? ' active' : '');
       const count = Math.max(1, Math.round(Number(item.count || 1)));
       const cardCount = Math.max(0, Math.round(Number(item.targetIdsCount || 0)));
       const actionSummary = String(item.actionSummary || 'update');
@@ -711,10 +733,11 @@ window.app = (function() {
           `<div class="undo-meta">${escapeHtml_(when)} | sheet:${escapeHtml_(targetSheet || '-')} | cards:${cardCount}</div>` +
           `<div class="undo-meta">type: snapshot | ${escapeHtml_(retentionTag)}</div>`;
       } else {
+        // Scheduler undo menu is snapshot-only; non-snapshot rows are shown for safety/debug.
         row.innerHTML = '' +
-          `<div class="undo-main">${idx + 1}. ${escapeHtml_(actionSummary)} | steps:${count}</div>` +
-          `<div class="undo-meta">${escapeHtml_(when)} | sheet:${escapeHtml_(targetSheet || '-')} | cards:${cardCount}</div>` +
-          `<div class="undo-meta">ids: ${escapeHtml_(idsText)}${cardCount > targetIds.length ? ` ...(+${cardCount - targetIds.length})` : ''}</div>`;
+          `<div class="undo-main">${idx + 1}. ${escapeHtml_(actionSummary)}</div>` +
+          `<div class="undo-meta">${escapeHtml_(when)} | sheet:${escapeHtml_(targetSheet || '-')}</div>` +
+          `<div class="undo-meta">type: non-snapshot (not restorable from this menu)</div>`;
       }
       row.addEventListener('click', () => {
         state.undoSelectedKey = key;
@@ -2746,31 +2769,38 @@ window.app = (function() {
     waitQueueAndUndo_();
   }
 
-  function executeSnapshotRequest_() {
+  function executeSnapshotRequest_(opts = {}) {
+    const options = (opts && typeof opts === 'object') ? opts : {};
+    const isAuto = !!options.auto;
+    const onDone = (typeof options.onDone === 'function') ? options.onDone : null;
     if (state.undoBusy || state.snapBusy) return;
     state.snapBusy = true;
+    state.autoSnapPending = false;
     const beginTs = Date.now();
     const finish_ = (ok, msg) => {
       state.snapBusy = false;
-      setBlockingOverlay_(false);
-      utils.saveStatus(ok ? 'saved' : 'error', msg || (ok ? 'SNAP Saved' : 'SNAP Failed'));
+      if (ok) markSnapshotTs_(options.snapshotTs || '');
+      if (msg) utils.saveStatus(ok ? 'saved' : 'error', msg);
+      if (onDone) {
+        try { onDone(ok); } catch (_) {}
+      }
       flushCommitQueue_();
     };
     const runSnapshotRpc_ = () => {
-      setBlockingOverlay_(true, 'Saving SNAP...');
-      utils.saveStatus('saving', 'SNAP...');
+      if (!isAuto) utils.saveStatus('saving', 'SNAP...');
       google.script.run
         .withSuccessHandler((str) => {
           let res = null;
           try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
           if (res && res.ok) {
-            finish_(true, 'SNAP Saved');
+            options.snapshotTs = String((res && res.ts) || '');
+            finish_(true, isAuto ? 'Auto SNAP saved' : 'SNAP Saved');
             return;
           }
-          finish_(false, String((res && res.error) || 'SNAP failed'));
+          finish_(false, isAuto ? 'Auto SNAP failed' : String((res && res.error) || 'SNAP failed'));
         })
         .withFailureHandler((err) => {
-          finish_(false, String(err && (err.message || err) || 'SNAP failed'));
+          finish_(false, isAuto ? 'Auto SNAP failed' : String(err && (err.message || err) || 'SNAP failed'));
         })
         .sv_scheduler_snapshot_create_v1(JSON.stringify({ scope: 'scheduler' }));
     };
@@ -2781,11 +2811,9 @@ window.app = (function() {
       }
       const elapsed = Date.now() - beginTs;
       if (elapsed > 60000) {
-        finish_(false, 'SNAP timeout (save queue busy)');
+        finish_(false, isAuto ? 'Auto SNAP skipped (save queue busy)' : 'SNAP timeout (save queue busy)');
         return;
       }
-      const q = getCommitQueueStats_();
-      setBlockingOverlay_(true, 'Waiting save queue... (' + (q.inflight + q.pending) + ')');
       setTimeout(waitQueueAndRun_, 60);
     };
     waitQueueAndRun_();
@@ -2861,6 +2889,16 @@ window.app = (function() {
     waitQueueAndRestore_();
   }
 
+  function maybeAutoSnapshotByEdit_() {
+    if (state.undoBusy || state.snapBusy || state.autoSnapPending) return;
+    const lastTs = Number(state.lastSnapshotAtMs || 0);
+    const threshold = Math.max(60 * 1000, Number(state.autoSnapThresholdMs || 0));
+    const elapsed = Date.now() - lastTs;
+    if (!isFinite(elapsed) || elapsed < threshold) return;
+    state.autoSnapPending = true;
+    executeSnapshotRequest_({ auto: true });
+  }
+
   const actions = {
     openUndoModal: () => {
       if (state.undoBusy) return;
@@ -2890,6 +2928,8 @@ window.app = (function() {
           }
           const items = Array.isArray(res.items) ? res.items : [];
           state.undoOptions = items;
+          const firstSnap = items.find((it) => String((it && it.kind) || '').toLowerCase() === 'snapshot');
+          if (firstSnap && firstSnap.ts) markSnapshotTs_(firstSnap.ts);
           const selectedExists = !!items.find((it) => String((it && it.undoKey) || '') === String(state.undoSelectedKey || ''));
           state.undoSelectedKey = selectedExists ? String(state.undoSelectedKey || '') : String(((items[0] && items[0].undoKey) || ''));
           state.undoLoadError = '';
@@ -2903,7 +2943,7 @@ window.app = (function() {
           state.undoLoading = false;
           renderUndoModalList_();
         })
-        .sv_undo_options_v2(JSON.stringify({ scope: 'scheduler', limit: 40 }));
+        .sv_undo_options_v2(JSON.stringify({ scope: 'scheduler', limit: 100 }));
     },
     undoToSelected: () => {
       const undoKey = String(state.undoSelectedKey || '').trim();
@@ -2914,11 +2954,7 @@ window.app = (function() {
         executeSnapshotRestoreRequest_(selected);
         return;
       }
-      executeUndoRequest_(
-        'sv_undo_to_v2',
-        { scope: 'scheduler', undoKey: undoKey },
-        () => actions.loadUndoOptions()
-      );
+      utils.saveStatus('error', 'Only SNAP items are restorable here');
     },
     renameSelectedSnapshot: () => {
       if (state.undoBusy || state.undoLoading) return;
@@ -3110,6 +3146,7 @@ window.app = (function() {
         utils.saveStatus('saving', 'Undo in progress...');
         return;
       }
+      maybeAutoSnapshotByEdit_();
       const c = state.cards[id];
       if (!c && type !== 'delete') return;
       const opId = String((opts && opts.opId) || state.commitOpId || createCommitOpId_('single'));
