@@ -35,8 +35,10 @@ Main behavior changes:
 - `clasp push`
 - `clasp deploy -d "TAKE373 scheduler snap-only autosnap named highlight"`
 - `git add 2SV_DataCore.js 3CL_Scheduler.html change_log/2026-02-13_373_TAKE373_scheduler_snap_only_autosnap_and_named_color.md`
-- `git commit -m "TAKE373 switch scheduler restore to snap-only and add autosnap"` (pending)
-- `git push origin main` (pending)
+- `git commit -m "TAKE373 switch scheduler restore to snap-only and add autosnap"`
+- `git push origin main`
+- Branch: `main`
+- Commit: `2a8f9fd`
 
 # 4. Test Evidence
 - Syntax check:
