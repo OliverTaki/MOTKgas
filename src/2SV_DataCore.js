@@ -2838,7 +2838,7 @@ function _undo_trim_(sh, maxRows) {
   var lastRow = sh.getLastRow();
   var keepLastRow = cap + 1;
   if (lastRow > keepLastRow) {
-    sh.deleteRows(keepLastRow + 1, lastRow - keepLastRow);
+    sh.deleteRows(2, lastRow - keepLastRow);
   }
 }
 
@@ -2851,7 +2851,7 @@ function _undo_trimSnapshots_(sh, maxSnapshots) {
   var values = sh.getRange(2, 1, lastRow - 1, _UNDO_CACHE_HEADERS_.length).getValues();
   var deleteRows = [];
   var unnamedSeen = 0;
-  for (var i = 0; i < values.length; i++) {
+  for (var i = values.length - 1; i >= 0; i--) {
     var scope = String((values[i] && values[i][3]) || '').trim().toLowerCase();
     var action = String((values[i] && values[i][4]) || '').trim().toLowerCase();
     if (scope !== 'scheduler_snapshot' || action !== 'snapshot') continue;
@@ -2862,7 +2862,8 @@ function _undo_trimSnapshots_(sh, maxSnapshots) {
     unnamedSeen++;
     if (unnamedSeen > cap) deleteRows.push(i + 2);
   }
-  for (var d = deleteRows.length - 1; d >= 0; d--) {
+  deleteRows.sort(function(a, b) { return b - a; });
+  for (var d = 0; d < deleteRows.length; d++) {
     sh.deleteRow(deleteRows[d]);
   }
 }
@@ -2887,7 +2888,7 @@ function _undo_findLogRowById_(sh, logId) {
   var lastRow = sh.getLastRow();
   if (lastRow < 2) return -1;
   var vals = sh.getRange(2, 1, lastRow - 1, 1).getValues();
-  for (var i = 0; i < vals.length; i++) {
+  for (var i = vals.length - 1; i >= 0; i--) {
     if (String((vals[i] && vals[i][0]) || '').trim() === id) return i + 2;
   }
   return -1;
@@ -2936,10 +2937,10 @@ function _undo_appendLog_(entry) {
     String(e.note || ''),
     String(e.undoOf || '')
   ];
-  sh.insertRows(2, 1);
-  sh.getRange(2, 1, 1, row.length).setValues([row]);
+  var writeRow = sh.getLastRow() + 1;
+  sh.getRange(writeRow, 1, 1, row.length).setValues([row]);
   _undo_trim_(sh, _undo_getCacheMaxRows_());
-  return { ok: true, logId: logId, row: 2 };
+  return { ok: true, logId: logId, row: _undo_findLogRowById_(sh, logId) };
 }
 
 function _undo_readLogs_(limit) {
@@ -2950,10 +2951,12 @@ function _undo_readLogs_(limit) {
   if (lastRow < 2) return out;
   var n = Number(limit);
   if (!isFinite(n) || n < 1) n = 300;
-  var endRow = Math.min(lastRow, n + 1);
-  var values = sh.getRange(2, 1, endRow - 1, _UNDO_CACHE_HEADERS_.length).getValues();
-  for (var i = 0; i < values.length; i++) {
-    var rowNum = i + 2;
+  var total = lastRow - 1;
+  var take = Math.min(total, Math.max(1, Math.floor(n)));
+  var startRow = (lastRow - take) + 1;
+  var values = sh.getRange(startRow, 1, take, _UNDO_CACHE_HEADERS_.length).getValues();
+  for (var i = values.length - 1; i >= 0; i--) {
+    var rowNum = startRow + i;
     var v = values[i] || [];
     out.push({
       row: rowNum,
@@ -5418,6 +5421,26 @@ function sv_scheduler_snapshot_restore_v1(reqPayload) {
   }
 }
 
+function sv_scheduler_cards_sync_v1(reqPayload) {
+  try {
+    var req = reqPayload;
+    if (typeof reqPayload === 'string') req = _undo_parseJson_(reqPayload, {});
+    req = req || {};
+    var schedId = String(req.schedId || '').trim();
+    var ctx = _undo_scheduler_getCtx_(schedId);
+    if (!ctx.ok) return JSON.stringify({ ok: false, error: ctx.error || 'Schedule context not found' });
+    var cards = _undo_scheduler_collectCards_(ctx);
+    return JSON.stringify({
+      ok: true,
+      schedId: String(ctx.sheetName || schedId || ''),
+      cards: cards,
+      ts: _undo_nowIso_()
+    });
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
+  }
+}
+
 /**
  * STANDALONE SCHEDULER: COMMIT CHANGE (Auto-Save)
  * Updates/Creates/Deletes a card in the active schedule sheet.
@@ -5536,25 +5559,31 @@ function sv_scheduler_commit_v2(payloadJson) {
     var C_LEN = findColByParts_([['length'], ['lengthmin'], ['duration']]);
     var C_END = findColByParts_([['end', 'slot'], ['end']]);
     var C_MEMO = findColByParts_([['memo'], ['cardmemo']]);
-    var readCell_ = function(row, col) {
-      if (!row || row < 1 || !col || col < 1) return '';
-      return sheet.getRange(row, col).getValue();
+    var readRowValues_ = function(row) {
+      if (!row || row < 1) return null;
+      return sheet.getRange(row, 1, 1, lastCol).getValues()[0] || null;
     };
     var readCardAtRow_ = function(row) {
-      if (!row || row < 1) return null;
+      var rowVals = readRowValues_(row);
+      if (!rowVals) return null;
+      var readCell_ = function(col) {
+        if (!col || col < 1) return '';
+        var idx = col - 1;
+        if (idx < 0 || idx >= rowVals.length) return '';
+        return rowVals[idx];
+      };
       var out = {
-        id: String(readCell_(row, C_ID) || '').trim(),
-        taskId: String(readCell_(row, C_TASK) || '').trim(),
-        lane: String(readCell_(row, C_LANE) || '').trim(),
-        start: 1,
+        id: String(readCell_(C_ID) || '').trim(),
+        taskId: String(readCell_(C_TASK) || '').trim(),
+        lane: String(readCell_(C_LANE) || '').trim(),
+        start: slotToInt_(readCell_(C_START), 1),
         end: 1,
         len: 1,
-        memo: String(readCell_(row, C_MEMO) || '')
+        memo: String(readCell_(C_MEMO) || '')
       };
-      out.start = slotToInt_(readCell_(row, C_START), 1);
-      out.end = slotToInt_(readCell_(row, C_END), out.start);
+      out.end = slotToInt_(readCell_(C_END), out.start);
       if (out.end < out.start) out.end = out.start;
-      var lv = Number(readCell_(row, C_LEN));
+      var lv = Number(readCell_(C_LEN));
       out.len = (isFinite(lv) && lv > 0) ? Math.round(lv) : (out.end - out.start + 1);
       return out;
     };
@@ -5650,12 +5679,18 @@ function sv_scheduler_commit_v2(payloadJson) {
         return JSON.stringify({ ok: false, error: { message: 'Card ID not found: ' + cardData.id }, diag: diag });
       }
       var beforeUpdate = readCardAtRow_(targetRow);
-      if (C_TASK > 0) sheet.getRange(targetRow, C_TASK).setValue(cardData.taskId || '');
-      if (C_LANE > 0) sheet.getRange(targetRow, C_LANE).setValue(cardData.lane);
-      if (C_START > 0) sheet.getRange(targetRow, C_START).setValue(cardData.start);
-      if (C_END > 0) sheet.getRange(targetRow, C_END).setValue(cardData.end);
-      if (C_LEN > 0) sheet.getRange(targetRow, C_LEN).setValue(cardData.len || (cardData.end - cardData.start + 1));
-      if (C_MEMO > 0 && cardData.memo !== undefined) sheet.getRange(targetRow, C_MEMO).setValue(cardData.memo);
+      var updateRowValues = readRowValues_(targetRow);
+      if (!updateRowValues || updateRowValues.length !== lastCol) {
+        updateRowValues = new Array(lastCol);
+        for (var ur = 0; ur < lastCol; ur++) updateRowValues[ur] = '';
+      }
+      if (C_TASK > 0) updateRowValues[C_TASK - 1] = cardData.taskId || '';
+      if (C_LANE > 0) updateRowValues[C_LANE - 1] = cardData.lane;
+      if (C_START > 0) updateRowValues[C_START - 1] = cardData.start;
+      if (C_END > 0) updateRowValues[C_END - 1] = cardData.end;
+      if (C_LEN > 0) updateRowValues[C_LEN - 1] = cardData.len || (cardData.end - cardData.start + 1);
+      if (C_MEMO > 0 && cardData.memo !== undefined) updateRowValues[C_MEMO - 1] = cardData.memo;
+      sheet.getRange(targetRow, 1, 1, lastCol).setValues([updateRowValues]);
       diag.targetRow = targetRow;
       var afterUpdate = {
         id: String(cardData.id || '').trim(),
@@ -5679,13 +5714,16 @@ function sv_scheduler_commit_v2(payloadJson) {
     if (action === 'create') {
       var newId = cardData.id || ('c_' + new Date().getTime());
       var insertRow = lastRow + 1;
-      if (C_ID > 0) sheet.getRange(insertRow, C_ID).setValue(newId);
-      if (C_TASK > 0) sheet.getRange(insertRow, C_TASK).setValue(cardData.taskId);
-      if (C_LANE > 0) sheet.getRange(insertRow, C_LANE).setValue(cardData.lane);
-      if (C_START > 0) sheet.getRange(insertRow, C_START).setValue(cardData.start);
-      if (C_END > 0) sheet.getRange(insertRow, C_END).setValue(cardData.end);
-      if (C_LEN > 0) sheet.getRange(insertRow, C_LEN).setValue(cardData.len);
-      if (C_MEMO > 0) sheet.getRange(insertRow, C_MEMO).setValue(cardData.memo || '');
+      var createRowValues = new Array(lastCol);
+      for (var cr = 0; cr < lastCol; cr++) createRowValues[cr] = '';
+      if (C_ID > 0) createRowValues[C_ID - 1] = newId;
+      if (C_TASK > 0) createRowValues[C_TASK - 1] = cardData.taskId;
+      if (C_LANE > 0) createRowValues[C_LANE - 1] = cardData.lane;
+      if (C_START > 0) createRowValues[C_START - 1] = cardData.start;
+      if (C_END > 0) createRowValues[C_END - 1] = cardData.end;
+      if (C_LEN > 0) createRowValues[C_LEN - 1] = cardData.len;
+      if (C_MEMO > 0) createRowValues[C_MEMO - 1] = cardData.memo || '';
+      sheet.getRange(insertRow, 1, 1, lastCol).setValues([createRowValues]);
       diag.targetRow = insertRow;
       var afterCreate = {
         id: String(newId || '').trim(),

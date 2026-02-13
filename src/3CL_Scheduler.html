@@ -395,7 +395,6 @@
     </div>
     <div id="saveStatus"></div>
     <button id="btn-undo" class="btn" title="Undo last scheduler change">Undo</button>
-    <button id="btn-snap" class="btn" title="Save scheduler snapshot">SNAP</button>
     <button id="btn-insp" class="btn">Insp</button>
     <button id="btn-settings" class="btn" title="Settings">Settings</button>
   </div>
@@ -2622,9 +2621,62 @@ window.app = (function() {
     }
   }
 
+  function isEquivalentCardUpdatePayload_(a, b) {
+    const aCard = (a && a.card && typeof a.card === 'object') ? a.card : {};
+    const bCard = (b && b.card && typeof b.card === 'object') ? b.card : {};
+    const numEq_ = (x, y) => {
+      const nx = Math.round(Number(x));
+      const ny = Math.round(Number(y));
+      if (!isFinite(nx) && !isFinite(ny)) return true;
+      return nx === ny;
+    };
+    const strEq_ = (x, y) => String((x === undefined || x === null) ? '' : x) === String((y === undefined || y === null) ? '' : y);
+    return (
+      strEq_(aCard.id, bCard.id) &&
+      strEq_(aCard.taskId, bCard.taskId) &&
+      strEq_(aCard.lane, bCard.lane) &&
+      numEq_(aCard.start, bCard.start) &&
+      numEq_(aCard.end, bCard.end) &&
+      numEq_(aCard.len, bCard.len) &&
+      strEq_(aCard.memo, bCard.memo)
+    );
+  }
+
   function enqueueCommit_(payload) {
     if (!payload || typeof payload !== 'object') return;
     if (!payload.opId) payload.opId = createCommitOpId_('single');
+    const action = String(payload.action || '').trim().toLowerCase();
+    const cardId = (payload.card && payload.card.id != null) ? String(payload.card.id).trim() : '';
+    if (action === 'update' && cardId) {
+      let latestPendingIndex = -1;
+      for (let i = state.commitQueue.length - 1; i >= 0; i--) {
+        const qp = (state.commitQueue[i] && state.commitQueue[i].payload) || null;
+        const qAction = String((qp && qp.action) || '').trim().toLowerCase();
+        const qCardId = (qp && qp.card && qp.card.id != null) ? String(qp.card.id).trim() : '';
+        if (qAction === 'update' && qCardId === cardId) {
+          latestPendingIndex = i;
+          break;
+        }
+      }
+      const latestPendingPayload = (latestPendingIndex >= 0 && state.commitQueue[latestPendingIndex])
+        ? state.commitQueue[latestPendingIndex].payload
+        : null;
+      const inflightPayload = (state.commitInflight && state.commitInflight.payload) ? state.commitInflight.payload : null;
+      const inflightAction = String((inflightPayload && inflightPayload.action) || '').trim().toLowerCase();
+      const inflightCardId = (inflightPayload && inflightPayload.card && inflightPayload.card.id != null)
+        ? String(inflightPayload.card.id).trim()
+        : '';
+      const latestPayload = latestPendingPayload || ((inflightAction === 'update' && inflightCardId === cardId) ? inflightPayload : null);
+      if (latestPayload && isEquivalentCardUpdatePayload_(latestPayload, payload)) return;
+      for (let i = state.commitQueue.length - 1; i >= 0; i--) {
+        const qp = (state.commitQueue[i] && state.commitQueue[i].payload) || null;
+        const qAction = String((qp && qp.action) || '').trim().toLowerCase();
+        const qCardId = (qp && qp.card && qp.card.id != null) ? String(qp.card.id).trim() : '';
+        if (qAction === 'update' && qCardId === cardId) {
+          state.commitQueue.splice(i, 1);
+        }
+      }
+    }
     state.commitSeq = Math.max(0, Math.round(Number(state.commitSeq) || 0)) + 1;
     state.commitQueue.push({
       seq: state.commitSeq,
@@ -2679,6 +2731,78 @@ window.app = (function() {
     if (sp) sp.style.display = visible ? 'flex' : 'none';
   }
 
+  function applyCardsSyncResponse_(res) {
+    const list = Array.isArray(res && res.cards) ? res.cards : [];
+    const syncedSchedId = String((res && res.schedId) || '').trim();
+    if (syncedSchedId) state.schedId = syncedSchedId;
+    const lanesById = {};
+    (state.lanes || []).forEach((l) => { lanesById[String((l && l.id) || '')] = true; });
+    const prevCards = state.cards || {};
+    const nextCards = {};
+    list.forEach((raw, i) => {
+      const row = (raw && typeof raw === 'object') ? raw : {};
+      const id = String(row.id || row.cardId || row.cardNo || '').trim() || ('c_' + i);
+      const taskId = String(row.taskId || '').trim();
+      const task = state.tasksById && state.tasksById[taskId] ? state.tasksById[taskId] : null;
+      let laneId = String(row.lane || row.laneVal || '').trim() || (task && task.assignee ? String(task.assignee) : 'unassigned');
+      if (!laneId) laneId = 'unassigned';
+      if (laneId !== 'unassigned' && !lanesById[laneId]) {
+        state.lanes.push({ id: laneId, label: laneId, order: 999, visible: true });
+        lanesById[laneId] = true;
+      }
+      let start = Math.max(1, Math.round(Number(row.start) || 1));
+      let end = Math.round(Number(row.end));
+      const lenMinRaw = Number(row.len);
+      const lenMin = (isFinite(lenMinRaw) && lenMinRaw > 0) ? Math.round(lenMinRaw) : config.slotMin;
+      if (!isFinite(end)) {
+        const durSlots = Math.max(1, Math.ceil(lenMin / Math.max(1, Number(config.slotMin) || 1)));
+        end = start + durSlots - 1;
+      }
+      if (end < start) end = start;
+      nextCards[id] = {
+        id: id,
+        displayId: utils.getDisplayId(id),
+        taskId: taskId,
+        title: (task && task.name) ? String(task.name) : 'Card',
+        laneId: laneId,
+        start: start,
+        end: end,
+        memo: String(row.memo || ''),
+        status: (task && task.status) ? String(task.status) : '',
+        cardMeta: (prevCards[id] && prevCards[id].cardMeta) ? prevCards[id].cardMeta : {}
+      };
+    });
+    state.cards = nextCards;
+    const selectedId = String(state.selection || '');
+    if (selectedId && !state.cards[selectedId]) state.selection = null;
+    state.multiSelection = normalizeCardIds_(state.multiSelection || []).filter((id) => !!state.cards[id]);
+    if (state.multiAnchorCardId && !state.cards[String(state.multiAnchorCardId)]) state.multiAnchorCardId = state.multiSelection[0] || '';
+    warnLegacySlotOffsetOnce_();
+    refreshAssetUsageState_();
+    render.all();
+    ui.refreshInspectorValuesFromCard();
+    queueAssetInspectorRefresh_();
+  }
+
+  function reloadCardsOnlyAfterUndo_(onDone) {
+    const done = (typeof onDone === 'function') ? onDone : function () {};
+    google.script.run
+      .withSuccessHandler((str) => {
+        let res = null;
+        try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
+        if (res && res.ok && Array.isArray(res.cards)) {
+          applyCardsSyncResponse_(res);
+          done(true);
+          return;
+        }
+        actions.load({ forceNetwork: true, onDone: () => done(false) });
+      })
+      .withFailureHandler(() => {
+        actions.load({ forceNetwork: true, onDone: () => done(false) });
+      })
+      .sv_scheduler_cards_sync_v1(JSON.stringify({ schedId: String(state.schedId || '') }));
+  }
+
   function executeUndoRequest_(rpcMethod, payload, afterSuccess) {
     if (state.undoBusy) return;
     clearInspectorTimers_();
@@ -2718,18 +2842,15 @@ window.app = (function() {
               undoneLogIds: Array.isArray(res.undoneLogIds) ? res.undoneLogIds : [],
               undoneGroupCount: Number(res.undoneGroupCount || 1)
             });
-            actions.load({
-              forceNetwork: true,
-              onDone: () => {
-                state.undoBusy = false;
-                state.undoPhase = '';
-                setBlockingOverlay_(false);
-                if (typeof afterSuccess === 'function') {
-                  try { afterSuccess(res); } catch (_) {}
-                }
-                flushCommitQueue_();
-                renderUndoModalList_();
+            reloadCardsOnlyAfterUndo_(() => {
+              state.undoBusy = false;
+              state.undoPhase = '';
+              setBlockingOverlay_(false);
+              if (typeof afterSuccess === 'function') {
+                try { afterSuccess(res); } catch (_) {}
               }
+              flushCommitQueue_();
+              renderUndoModalList_();
             });
             return;
           }
@@ -2853,16 +2974,13 @@ window.app = (function() {
           try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
           if (res && res.ok) {
             utils.saveStatus('saved', 'SNAP Restored');
-            actions.load({
-              forceNetwork: true,
-              onDone: () => {
-                state.undoBusy = false;
-                state.undoPhase = '';
-                setBlockingOverlay_(false);
-                actions.loadUndoOptions();
-                flushCommitQueue_();
-                renderUndoModalList_();
-              }
+            reloadCardsOnlyAfterUndo_(() => {
+              state.undoBusy = false;
+              state.undoPhase = '';
+              setBlockingOverlay_(false);
+              actions.loadUndoOptions();
+              flushCommitQueue_();
+              renderUndoModalList_();
             });
             return;
           }
@@ -3173,8 +3291,6 @@ window.app = (function() {
     },
 
     undoLast: () => executeUndoRequest_('sv_undo_last_v2', { scope: 'scheduler' }),
-    createSnap: () => actions.openUndoModal(),
-
     commit: (id, type, opts = {}) => {
       if (state.undoBusy) {
         utils.saveStatus('saving', 'Undo in progress...');
@@ -5320,7 +5436,6 @@ window.app = (function() {
     safeAdd('btn-undo-modal-refresh', 'click', actions.loadUndoOptions);
     safeAdd('btn-undo-snap-rename', 'click', actions.renameSelectedSnapshot);
     safeAdd('btn-undo-apply', 'click', actions.undoToSelected);
-    safeAdd('btn-snap', 'click', actions.createSnap);
     safeAdd('btn-insp', 'click', () => {
       const insp = document.getElementById('inspector');
       if (!insp) return;
