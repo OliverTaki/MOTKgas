@@ -2549,15 +2549,56 @@ window.app = (function() {
     }
   };
 
+  function dequeueCommitBatch_() {
+    const q = Array.isArray(state.commitQueue) ? state.commitQueue : [];
+    if (!q.length) return [];
+    const first = q[0];
+    const firstPayload = (first && first.payload && typeof first.payload === 'object') ? first.payload : null;
+    if (!firstPayload) {
+      q.shift();
+      return [];
+    }
+    const firstAction = String(firstPayload.action || '').trim().toLowerCase();
+    const firstOpId = String(firstPayload.opId || '').trim();
+    if (firstAction !== 'update' || !firstOpId) return [q.shift()];
+    const out = [];
+    while (q.length && out.length < 24) {
+      const peek = q[0];
+      const p = (peek && peek.payload && typeof peek.payload === 'object') ? peek.payload : null;
+      if (!p) {
+        q.shift();
+        continue;
+      }
+      const action = String(p.action || '').trim().toLowerCase();
+      const opId = String(p.opId || '').trim();
+      if (action !== 'update' || opId !== firstOpId) break;
+      out.push(q.shift());
+    }
+    return out.length ? out : [q.shift()];
+  }
+
   function flushCommitQueue_() {
     // Keep edits possible during SNAP, but serialize server writes to avoid lock contention.
     if (state.snapBusy && state.snapPhase === 'rpc') return;
     if (state.undoBusy && state.undoPhase === 'rpc' && !state.commitInflight) return;
     if (state.commitInflight) return;
-    const item = state.commitQueue.shift();
-    if (!item || !item.payload) return;
-    state.commitInflight = item;
-    const payload = item.payload;
+    const items = dequeueCommitBatch_();
+    if (!items.length) return;
+    const payloadList = items
+      .map((it) => ((it && it.payload && typeof it.payload === 'object') ? it.payload : null))
+      .filter((p) => !!p);
+    if (!payloadList.length) {
+      state.commitInflight = null;
+      return;
+    }
+    const inflight = {
+      items: items,
+      payload: payloadList[0],
+      attempts: Math.max(0, ...items.map((it) => Math.round(Number(it && it.attempts || 0) || 0))),
+      batch: payloadList.length > 1
+    };
+    state.commitInflight = inflight;
+    const primaryPayload = payloadList[0];
     const finalize_ = () => {
       state.commitInflight = null;
       queueAssetInspectorRefresh_();
@@ -2566,42 +2607,82 @@ window.app = (function() {
     };
     const retry_ = (reason) => {
       if (state.undoBusy && state.undoPhase === 'rpc') {
-        console.warn('[MOTK][Scheduler][Commit] retry dropped during undo', { reason, payload });
+        console.warn('[MOTK][Scheduler][Commit] retry dropped during undo', { reason, count: payloadList.length });
         finalize_();
         return;
       }
-      const attempts = Number(item.attempts || 0);
+      const attempts = Number(inflight.attempts || 0);
       if (attempts >= 3) {
-        console.error('[MOTK][Scheduler][Commit] final failure after retries', { reason, payload, attempts });
+        console.error('[MOTK][Scheduler][Commit] final failure after retries', { reason, count: payloadList.length, attempts });
         utils.saveStatus('error', 'Error');
         finalize_();
         return;
       }
-      item.attempts = attempts + 1;
+      inflight.attempts = attempts + 1;
+      for (let i = 0; i < items.length; i++) {
+        items[i].attempts = inflight.attempts;
+      }
       state.commitInflight = null;
-      state.commitQueue.unshift(item);
-      const delayMs = Math.min(120 * item.attempts, 600);
-      console.warn('[MOTK][Scheduler][Commit] retry scheduled', { reason, attempts: item.attempts, delayMs });
+      for (let i = items.length - 1; i >= 0; i--) state.commitQueue.unshift(items[i]);
+      const delayMs = Math.min(120 * inflight.attempts, 600);
+      console.warn('[MOTK][Scheduler][Commit] retry scheduled', { reason, attempts: inflight.attempts, delayMs, count: payloadList.length });
       setTimeout(() => flushCommitQueue_(), delayMs);
     };
-    utils.saveStatus('saving', 'Saving...');
+    utils.saveStatus('saving', (payloadList.length > 1) ? ('Saving ×' + payloadList.length + '...') : 'Saving...');
+    const onSuccess_ = (str) => {
+      let res = null;
+      try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
+      if (res && res.ok) {
+        utils.saveStatus('saved', 'Saved');
+        finalize_();
+      } else {
+        const msg = String((res && (res.error && (res.error.message || res.error))) || 'rpc_error');
+        console.warn('[MOTK][Scheduler][Commit] RPC error', { payload: primaryPayload, count: payloadList.length, res, msg });
+        retry_('rpc:' + msg);
+      }
+    };
+    const onFailure_ = (err) => {
+      console.error('[MOTK][Scheduler][Commit] Network failure', { payload: primaryPayload, count: payloadList.length, err });
+      retry_('network');
+    };
+    const runner = google.script.run
+      .withSuccessHandler(onSuccess_)
+      .withFailureHandler(onFailure_);
+    if (payloadList.length > 1) {
+      runner.sv_scheduler_commit_batch_v1(JSON.stringify({ items: payloadList }));
+      return;
+    }
+    runner.sv_scheduler_commit_v2(JSON.stringify(primaryPayload));
+  }
+
+  function dropPendingCommitQueue_(reason) {
+    const before = Array.isArray(state.commitQueue) ? state.commitQueue.length : 0;
+    if (!before) return { before: 0, after: 0, dropped: 0 };
+    state.commitQueue = [];
+    const out = { before: before, after: 0, dropped: before };
+    console.info('[MOTK][Scheduler][Commit] dropped pending queue', { reason: String(reason || ''), before: before });
+    return out;
+  }
+
+  function flushCommitQueueLegacy_() {
+    // Retained for emergency fallback only.
+    if (state.commitInflight) return;
+    const item = state.commitQueue.shift();
+    if (!item || !item.payload) return;
+    state.commitInflight = item;
+    const payload = item.payload;
     google.script.run
       .withSuccessHandler((str) => {
         let res = null;
         try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
         if (res && res.ok) {
           utils.saveStatus('saved', 'Saved');
-          finalize_();
+          state.commitInflight = null;
         } else {
-          const msg = String((res && (res.error && (res.error.message || res.error))) || 'rpc_error');
-          console.warn('[MOTK][Scheduler][Commit] RPC error', { payload, res, msg });
-          retry_('rpc:' + msg);
+          state.commitInflight = null;
         }
       })
-      .withFailureHandler((err) => {
-        console.error('[MOTK][Scheduler][Commit] Network failure', { payload, err });
-        retry_('network');
-      })
+      .withFailureHandler(() => { state.commitInflight = null; })
       .sv_scheduler_commit_v2(JSON.stringify(payload));
   }
 
@@ -2810,6 +2891,7 @@ window.app = (function() {
     if (compacted.before > compacted.after) {
       console.info('[MOTK][Scheduler][Undo] compacted pending queue before wait', compacted);
     }
+    dropPendingCommitQueue_('undo_request');
     if (state.inspEdit) {
       state.inspEdit.isEditingStart = false;
       state.inspEdit.isEditingEnd = false;
@@ -2960,6 +3042,7 @@ window.app = (function() {
     const item = (snapshotItem && typeof snapshotItem === 'object') ? snapshotItem : null;
     const logId = String((item && item.logId) || '').trim();
     if (!logId || state.undoBusy) return;
+    dropPendingCommitQueue_('snapshot_restore');
     state.undoBusy = true;
     state.undoPhase = 'waiting_queue';
     renderUndoModalList_();

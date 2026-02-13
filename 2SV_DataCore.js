@@ -5300,15 +5300,6 @@ function _undo_scheduler_applySnapshotState_(sheetHint, cardsLike) {
   var sh = ctx.sheet;
   var lastCol = Math.max(1, Math.round(Number(ctx.lastCol || 0)) || sh.getLastColumn() || 1);
   var cards = Array.isArray(cardsLike) ? cardsLike : [];
-
-  var currentLastRow = sh.getLastRow();
-  if (currentLastRow > 2) sh.deleteRows(3, currentLastRow - 2);
-
-  if (!cards.length) {
-    return { ok: true, schedId: String(ctx.sheetName || ''), rowCount: 0 };
-  }
-
-  sh.insertRowsAfter(2, cards.length);
   var rows = [];
   for (var i = 0; i < cards.length; i++) {
     var card = _undo_scheduler_normalizeCard_(cards[i] || {});
@@ -5324,8 +5315,16 @@ function _undo_scheduler_applySnapshotState_(sheetHint, cardsLike) {
     if (ctx.cols.memo > 0) row[ctx.cols.memo - 1] = card.memo;
     rows.push(row);
   }
-
-  if (!rows.length) return { ok: true, schedId: String(ctx.sheetName || ''), rowCount: 0 };
+  var targetRows = rows.length;
+  var currentRows = Math.max(0, sh.getLastRow() - 2);
+  if (targetRows > currentRows) {
+    var addRows = targetRows - currentRows;
+    sh.insertRowsAfter(Math.max(2, sh.getLastRow()), addRows);
+  } else if (targetRows < currentRows) {
+    var dropRows = currentRows - targetRows;
+    sh.deleteRows(3 + targetRows, dropRows);
+  }
+  if (!targetRows) return { ok: true, schedId: String(ctx.sheetName || ''), rowCount: 0 };
   sh.getRange(3, 1, rows.length, lastCol).setValues(rows);
   return { ok: true, schedId: String(ctx.sheetName || ''), rowCount: rows.length };
 }
@@ -5446,6 +5445,58 @@ function sv_scheduler_cards_sync_v1(reqPayload) {
  * Updates/Creates/Deletes a card in the active schedule sheet.
  * payload: { action: 'update'|'create'|'delete', card: { id, lane, start, end... } }
  */
+function sv_scheduler_commit_batch_v1(payloadJson) {
+  var lock = null;
+  try {
+    var payload = payloadJson;
+    if (typeof payloadJson === 'string') payload = _undo_parseJson_(payloadJson, {});
+    payload = payload || {};
+    var items = [];
+    if (Array.isArray(payload)) items = payload;
+    else if (Array.isArray(payload.items)) items = payload.items;
+    if (!items.length) return JSON.stringify({ ok: false, error: { message: 'No commit items' } });
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(3000)) return JSON.stringify({ ok: false, error: { message: 'Server busy, try again.' } });
+    var results = [];
+    var committed = 0;
+    for (var i = 0; i < items.length; i++) {
+      var raw = items[i];
+      if (!raw || typeof raw !== 'object') {
+        return JSON.stringify({
+          ok: false,
+          error: { message: 'Invalid commit item at index ' + i },
+          committed: committed,
+          failedIndex: i,
+          results: results
+        });
+      }
+      var one = {};
+      for (var k in raw) if (Object.prototype.hasOwnProperty.call(raw, k)) one[k] = raw[k];
+      one.__skipLock = true;
+      var str = sv_scheduler_commit_v2(JSON.stringify(one));
+      var res = _undo_parseJson_(str, { ok: false, error: { message: 'Invalid commit response' } });
+      results.push(res);
+      if (!(res && res.ok)) {
+        return JSON.stringify({
+          ok: false,
+          error: (res && res.error) ? res.error : { message: 'Batch commit failed' },
+          committed: committed,
+          failedIndex: i,
+          results: results
+        });
+      }
+      committed++;
+    }
+    return JSON.stringify({ ok: true, committed: committed, results: results });
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: { message: String(e && e.message ? e.message : e) } });
+  } finally {
+    if (lock) {
+      try { lock.releaseLock(); } catch (_) {}
+    }
+  }
+}
+
 function sv_scheduler_commit_v2(payloadJson) {
   var lock = null;
   try {
@@ -5461,7 +5512,10 @@ function sv_scheduler_commit_v2(payloadJson) {
     if (!opId) {
       opId = 'op_srv_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
     }
-    var skipUndoLog = !!(payload && payload.__skipUndoLog);
+    var skipUndoLog = true;
+    if (payload && Object.prototype.hasOwnProperty.call(payload, '__skipUndoLog')) {
+      skipUndoLog = !!payload.__skipUndoLog;
+    }
     var actorHint = payload && payload.actor;
     var undoLogDiag = {
       scope: 'scheduler',
