@@ -112,12 +112,27 @@
     .card.multi-selected { box-shadow: 0 0 0 1px rgba(110, 231, 255, 0.85), 0 1px 3px rgba(0,0,0,0.5); }
     .card.unsaved { border: 1px dashed #f59e0b; }
     .card:hover { z-index: 15; background: #3b82f6; }
-    .card-multi-toggle { position:absolute; top:2px; right:18px; width:12px; height:12px; margin:0; cursor:pointer; accent-color:#22d3ee; opacity:0.95; z-index:4; }
+    .card-multi-toggle {
+      position:absolute;
+      top:1px;
+      left:1px;
+      right:auto;
+      width:18px;
+      height:18px;
+      margin:0;
+      cursor:pointer;
+      accent-color:#22d3ee;
+      opacity:1;
+      z-index:7;
+      border-radius:3px;
+      border:1px solid rgba(255,255,255,0.35);
+      background:rgba(17,24,39,0.65);
+    }
     .card-multi-toggle:focus { outline: 1px solid rgba(255,255,255,0.65); outline-offset: 1px; }
     .card-close { position:absolute; top:0; right:2px; color:#ccc; font-weight:bold; cursor:pointer; display:none; }
     .card:hover .card-close { display:block; }
     .card-resizer { position:absolute; bottom:0; left:0; right:0; height:6px; cursor:ns-resize; }
-    .card .c-id { position: absolute; top: 2px; left: 4px; font-size: 10px; opacity: 0.85; }
+    .card .c-id { position: absolute; top: 2px; left: 24px; font-size: 10px; opacity: 0.85; }
     .card .c-main { text-align: center; font-weight: 700; font-size: 12px; }
     .card .c-sub { text-align: center; font-size: 9px; opacity: 0.8; margin-top: 2px; }
     .card.asset-conflict { background: #b91c1c; border: 1px solid #fca5a5; }
@@ -4152,6 +4167,8 @@ window.app = (function() {
         const xBtn = document.createElement('div'); xBtn.className='card-close'; xBtn.textContent='×';
         xBtn.addEventListener('click', (e) => {
           e.stopPropagation();
+          const ok = confirm('Remove this card from lane?');
+          if (!ok) return;
           c.laneId = '';
           render.grid();
           ui.renderCardList();
@@ -5260,7 +5277,9 @@ window.app = (function() {
     clearDragPreviewNodes_();
     if (!drag.didMove) {
       state.suppressCanvasPickUntil = Date.now() + 250;
-      if (drag.isBlockMove && drag.block && Array.isArray(state.multiSelection) && state.multiSelection.length > 1) {
+      const hasMulti = Array.isArray(state.multiSelection) && state.multiSelection.length > 1;
+      const clickedInMulti = hasMulti && state.multiSelection.indexOf(String(drag.card && drag.card.id || '')) >= 0;
+      if ((drag.isBlockMove && drag.block && hasMulti) || clickedInMulti) {
         actions.selectCard(drag.card.id, { focus: false, clearMulti: false });
       } else {
         actions.selectCard(drag.card.id, { focus: false, clearMulti: true });
