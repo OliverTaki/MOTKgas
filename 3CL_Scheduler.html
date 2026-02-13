@@ -112,6 +112,8 @@
     .card.multi-selected { box-shadow: 0 0 0 1px rgba(110, 231, 255, 0.85), 0 1px 3px rgba(0,0,0,0.5); }
     .card.unsaved { border: 1px dashed #f59e0b; }
     .card:hover { z-index: 15; background: #3b82f6; }
+    .card-multi-toggle { position:absolute; top:2px; right:18px; width:12px; height:12px; margin:0; cursor:pointer; accent-color:#22d3ee; opacity:0.95; z-index:4; }
+    .card-multi-toggle:focus { outline: 1px solid rgba(255,255,255,0.65); outline-offset: 1px; }
     .card-close { position:absolute; top:0; right:2px; color:#ccc; font-weight:bold; cursor:pointer; display:none; }
     .card:hover .card-close { display:block; }
     .card-resizer { position:absolute; bottom:0; left:0; right:0; height:6px; cursor:ns-resize; }
@@ -3534,27 +3536,41 @@ window.app = (function() {
     toggleMultiSelection: (id, opts = {}) => {
       const key = String(id || '').trim();
       if (!key || !state.cards[key]) return;
+      const hasExplicitChecked = Object.prototype.hasOwnProperty.call(opts || {}, 'checked');
+      const explicitChecked = hasExplicitChecked ? !!opts.checked : null;
       const keepContiguous = opts.contiguous !== false;
       const shiftKey = !!opts.shiftKey;
       const anchorId = String(state.multiAnchorCardId || state.selection || key).trim();
       let next = [];
-      if (keepContiguous) {
-        next = buildLaneRangeSelection_(anchorId, key);
-      }
-      if (!next.length) {
-        toggleMultiSelection_(key);
+      if (hasExplicitChecked) {
         next = normalizeCardIds_(state.multiSelection || []);
-      } else {
+        const idx = next.indexOf(key);
+        if (explicitChecked && idx < 0) next.push(key);
+        if (!explicitChecked && idx >= 0) next.splice(idx, 1);
         state.multiSelection = normalizeCardIds_(next);
+      } else {
+        if (keepContiguous) {
+          next = buildLaneRangeSelection_(anchorId, key);
+        }
+        if (!next.length) {
+          toggleMultiSelection_(key);
+          next = normalizeCardIds_(state.multiSelection || []);
+        } else {
+          state.multiSelection = normalizeCardIds_(next);
+        }
       }
       if (!state.multiSelection.length) {
         state.multiAnchorCardId = null;
       } else if (!state.multiAnchorCardId || !state.cards[state.multiAnchorCardId]) {
         state.multiAnchorCardId = key;
+      } else if (hasExplicitChecked && explicitChecked) {
+        state.multiAnchorCardId = key;
       } else if (!shiftKey && keepContiguous) {
         state.multiAnchorCardId = anchorId || key;
       }
       if (!state.multiSelection.length) {
+        state.selection = key;
+      } else if (hasExplicitChecked && explicitChecked) {
         state.selection = key;
       } else if (state.multiSelection.indexOf(String(state.selection || '')) < 0) {
         state.selection = key;
@@ -4115,6 +4131,23 @@ window.app = (function() {
           div.title = `Asset overlap: ${overAssetCount} asset(s)` + (conflictAssetText ? ` | ${conflictAssetText}` : '');
         }
         div.dataset.cardId = String(c.id);
+
+        const chkMulti = document.createElement('input');
+        chkMulti.type = 'checkbox';
+        chkMulti.className = 'card-multi-toggle';
+        chkMulti.checked = !!isMulti;
+        chkMulti.title = 'Multi-select';
+        chkMulti.addEventListener('mousedown', (e) => {
+          e.stopPropagation();
+        });
+        chkMulti.addEventListener('click', (e) => {
+          e.stopPropagation();
+        });
+        chkMulti.addEventListener('change', (e) => {
+          e.stopPropagation();
+          actions.toggleMultiSelection(c.id, { checked: !!chkMulti.checked, contiguous: false });
+        });
+        div.appendChild(chkMulti);
 
         const xBtn = document.createElement('div'); xBtn.className='card-close'; xBtn.textContent='×';
         xBtn.addEventListener('click', (e) => {
