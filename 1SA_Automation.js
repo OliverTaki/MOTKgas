@@ -199,6 +199,33 @@ function handleDataEdit(e) {
   const k = sh.getName().toLowerCase();
   const rows = e.range.getNumRows();
   const start = e.range.getRow();
+  const hasMeaningfulRowContent_ = (arr) => {
+    if (!Array.isArray(arr)) return false;
+    for (let i = 0; i < arr.length; i++) {
+      const v = arr[i];
+      if (v === null || v === undefined) continue;
+      if (typeof v === "string") {
+        if (v.trim() !== "") return true;
+        continue;
+      }
+      if (typeof v === "boolean") {
+        // Checkbox FALSE alone should not trigger auto-id generation.
+        if (v === true) return true;
+        continue;
+      }
+      if (typeof v === "number") {
+        if (isFinite(v)) return true;
+        continue;
+      }
+      if (v instanceof Date) {
+        if (!isNaN(v.getTime())) return true;
+        continue;
+      }
+      // Fallback for unexpected primitive/object values
+      if (String(v).trim() !== "") return true;
+    }
+    return false;
+  };
   for (let i = 0; i < rows; i++) {
     const r = start + i;
     const idCell = sh.getRange(r, 1);
@@ -206,7 +233,7 @@ function handleDataEdit(e) {
       const rowData = sh
         .getRange(r, 2, 1, sh.getLastColumn() - 1)
         .getValues()[0];
-      if (rowData.some((v) => v !== "")) {
+      if (hasMeaningfulRowContent_(rowData)) {
         idCell.setValue(genId(sh, k));
       }
     }

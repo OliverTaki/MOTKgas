@@ -457,6 +457,7 @@ function _normalizeEntityParams_(params, options) {
     if (key === 'users' || key === 'user') return 'user';
     if (key === 'projectmembers' || key === 'projectmember' || key === 'project_members' || key === 'members' || key === 'member' || key === 'memder' || key === 'memders') return 'member';
     if (key === 'pages' || key === 'page') return 'page';
+    if (key === 'scheds' || key === 'sched' || key === 'schedules' || key === 'schedule') return 'sched';
     return key;
   }
 
@@ -469,7 +470,8 @@ function _normalizeEntityParams_(params, options) {
     task: 'Tasks',
     member: 'ProjectMembers',
     user: 'Users',
-    page: 'Pages'
+    page: 'Pages',
+    sched: 'Scheds'
   };
   var sheetName = sheetNameMap[entityKey] || 'Shots';
 
@@ -1058,7 +1060,7 @@ function _formatFid_(num) {
 }
 
 function _entityToSheet_(entity) {
-  var m = { "shot": "Shots", "asset": "Assets", "task": "Tasks", "member": "ProjectMembers", "user": "Users", "page": "Pages" };
+  var m = { "shot": "Shots", "asset": "Assets", "task": "Tasks", "member": "ProjectMembers", "user": "Users", "page": "Pages", "sched": "Scheds" };
   var key = _norm_(entity);
   if (!m[key]) throw new Error("Unknown entity: " + entity);
   return m[key];
@@ -1071,6 +1073,7 @@ function _idPrefixToEntity_(idValue) {
   if (/^us_\d+/.test(idValue)) return "user";
   if (/^mb_\d+/.test(idValue)) return "member";
   if (/^pg_\d+/.test(idValue)) return "page";
+  if (/^sched_\d+/.test(idValue)) return "sched";
   return null;
 }
 
@@ -1112,7 +1115,7 @@ function _readFields_() {
   function _looksLikeEntity_(v) {
     var raw = String(v || "").trim(); if (!raw) return false;
     var ent = _normalizeEntityParams_({ entity: raw }).entity;
-    return ent === "shot" || ent === "asset" || ent === "task" || ent === "member" || ent === "user" || ent === "page";
+    return ent === "shot" || ent === "asset" || ent === "task" || ent === "member" || ent === "user" || ent === "page" || ent === "sched";
   }
   function _looksLikeType_(v) {
     var t = String(v || "").trim().toLowerCase(); if (!t) return false;
@@ -1173,7 +1176,7 @@ function _schemaNormalizeEntity_(entity) {
   if (key === "users") return "user";
   if (key === "projectmembers" || key === "projectmember" || key === "project_members" || key === "members" || key === "memder" || key === "memders") return "member";
   if (key === "pages") return "page";
-  if (key === "schedules" || key === "schedule") return "sched";
+  if (key === "scheds" || key === "sched" || key === "schedules" || key === "schedule") return "sched";
   if (key === "cards") return "card";
   return key;
 }
@@ -2738,24 +2741,1019 @@ function sv_getRecord(entity, id) {
 function sv_getRecord_v2(payload) {
   return sv_getRecord(payload.entity, payload.id);
 }
-function sv_setRecord_v2(entity, id, patch, options) {
-  if (!entity || !id || !patch) { return { ok: true, note: "sv_setRecord_v2 present", ts: new Date().toISOString() }; }
+
+var _UNDO_CACHE_SHEET_NAME_ = 'Cache';
+var _UNDO_CACHE_MAX_ROWS_DEFAULT_ = 1000;
+var _UNDO_CACHE_HEADERS_ = [
+  'log_id',
+  'ts',
+  'actor',
+  'scope',
+  'action',
+  'target_sheet',
+  'entity',
+  'target_id',
+  'status',
+  'before_json',
+  'after_json',
+  'inverse_json',
+  'note',
+  'undo_of'
+];
+
+function _undo_nowIso_() {
+  return new Date().toISOString();
+}
+
+function _undo_toJson_(value) {
+  try { return JSON.stringify(value == null ? null : value); } catch (_) { return '{}'; }
+}
+
+function _undo_parseJson_(text, fallback) {
+  try { return JSON.parse(String(text || '')); } catch (_) { return fallback; }
+}
+
+function _undo_getActor_(hint) {
+  var actor = String(hint || '').trim();
+  if (actor) return actor;
   try {
-    if (patch && typeof patch === "object") {
-      Object.keys(patch).forEach(function (k) {
-        var v = patch[k];
-        if (v instanceof Date) { patch[k] = isNaN(v.getTime()) ? "" : v.toISOString().slice(0, 10); }
-        else if (typeof v === "string") { patch[k] = v.trim(); }
+    actor = String(Session.getActiveUser().getEmail() || '').trim();
+    if (actor) return actor;
+  } catch (_) {}
+  try {
+    actor = String(Session.getEffectiveUser().getEmail() || '').trim();
+    if (actor) return actor;
+  } catch (_) {}
+  return 'unknown';
+}
+
+function _undo_getCacheMaxRows_() {
+  var maxRows = _UNDO_CACHE_MAX_ROWS_DEFAULT_;
+  try {
+    var ss = SpreadsheetApp.getActive();
+    if (!ss) return maxRows;
+    var sh = ss.getSheetByName('project_meta') || ss.getSheetByName('ProjectMeta');
+    if (!sh) return maxRows;
+    var lastRow = sh.getLastRow();
+    if (lastRow < 2) return maxRows;
+    var values = sh.getRange(1, 1, lastRow, Math.max(2, sh.getLastColumn())).getValues();
+    for (var r = 0; r < values.length; r++) {
+      var key = String(values[r][0] || '').trim().toLowerCase();
+      if (!key) continue;
+      if (key === 'undo.cache.max_rows' || key === 'undo_cache_max_rows') {
+        var n = Number(values[r][1]);
+        if (isFinite(n) && n >= 100 && n <= 5000) return Math.floor(n);
+      }
+    }
+  } catch (_) {}
+  return maxRows;
+}
+
+function _undo_getCacheSheet_() {
+  var ss = SpreadsheetApp.getActive();
+  if (!ss) throw new Error('Spreadsheet not available');
+  var sh = ss.getSheetByName(_UNDO_CACHE_SHEET_NAME_);
+  if (!sh) sh = ss.insertSheet(_UNDO_CACHE_SHEET_NAME_);
+  return sh;
+}
+
+function _undo_ensureHeader_(sh) {
+  if (!sh) return;
+  var lastRow = sh.getLastRow();
+  if (lastRow < 1) {
+    sh.getRange(1, 1, 1, _UNDO_CACHE_HEADERS_.length).setValues([_UNDO_CACHE_HEADERS_]);
+    return;
+  }
+  var row1 = sh.getRange(1, 1, 1, _UNDO_CACHE_HEADERS_.length).getValues()[0] || [];
+  if (String(row1[0] || '').trim().toLowerCase() !== 'log_id') {
+    sh.insertRows(1, 1);
+    sh.getRange(1, 1, 1, _UNDO_CACHE_HEADERS_.length).setValues([_UNDO_CACHE_HEADERS_]);
+  }
+}
+
+function _undo_trim_(sh, maxRows) {
+  if (!sh) return;
+  var cap = Number(maxRows);
+  if (!isFinite(cap) || cap < 100) cap = _UNDO_CACHE_MAX_ROWS_DEFAULT_;
+  var lastRow = sh.getLastRow();
+  var keepLastRow = cap + 1;
+  if (lastRow > keepLastRow) {
+    sh.deleteRows(keepLastRow + 1, lastRow - keepLastRow);
+  }
+}
+
+function _undo_appendLog_(entry) {
+  var e = entry || {};
+  var sh = _undo_getCacheSheet_();
+  _undo_ensureHeader_(sh);
+  var logId = String(e.logId || ('undo_' + Date.now() + '_' + Math.floor(Math.random() * 1000000)));
+  var row = [
+    logId,
+    String(e.ts || _undo_nowIso_()),
+    _undo_getActor_(e.actor),
+    String(e.scope || ''),
+    String(e.action || ''),
+    String(e.targetSheet || ''),
+    String(e.entity || ''),
+    String(e.targetId || ''),
+    String(e.status || 'applied'),
+    _undo_toJson_(e.before),
+    _undo_toJson_(e.after),
+    _undo_toJson_(e.inverse),
+    String(e.note || ''),
+    String(e.undoOf || '')
+  ];
+  sh.insertRows(2, 1);
+  sh.getRange(2, 1, 1, row.length).setValues([row]);
+  _undo_trim_(sh, _undo_getCacheMaxRows_());
+  return { ok: true, logId: logId, row: 2 };
+}
+
+function _undo_readLogs_(limit) {
+  var out = [];
+  var sh = _undo_getCacheSheet_();
+  _undo_ensureHeader_(sh);
+  var lastRow = sh.getLastRow();
+  if (lastRow < 2) return out;
+  var n = Number(limit);
+  if (!isFinite(n) || n < 1) n = 300;
+  var endRow = Math.min(lastRow, n + 1);
+  var values = sh.getRange(2, 1, endRow - 1, _UNDO_CACHE_HEADERS_.length).getValues();
+  for (var i = 0; i < values.length; i++) {
+    var rowNum = i + 2;
+    var v = values[i] || [];
+    out.push({
+      row: rowNum,
+      logId: String(v[0] || ''),
+      ts: String(v[1] || ''),
+      actor: String(v[2] || ''),
+      scope: String(v[3] || ''),
+      action: String(v[4] || ''),
+      targetSheet: String(v[5] || ''),
+      entity: String(v[6] || ''),
+      targetId: String(v[7] || ''),
+      status: String(v[8] || ''),
+      before: _undo_parseJson_(v[9], {}),
+      after: _undo_parseJson_(v[10], {}),
+      inverse: _undo_parseJson_(v[11], {}),
+      note: String(v[12] || ''),
+      undoOf: String(v[13] || '')
+    });
+  }
+  return out;
+}
+
+function _undo_markUndone_(row, actor) {
+  var sh = _undo_getCacheSheet_();
+  if (!row || row < 2) return;
+  sh.getRange(row, 9).setValue('undone');
+  sh.getRange(row, 13).setValue('undone by ' + _undo_getActor_(actor) + ' @ ' + _undo_nowIso_());
+}
+
+function _undo_applySheetCellsInverse_(inverse) {
+  var inv = inverse || {};
+  var sheetName = String(inv.sheet || '').trim();
+  if (!sheetName) return { ok: false, error: 'inverse sheet missing' };
+  var ss = SpreadsheetApp.getActive();
+  var sh = ss ? ss.getSheetByName(sheetName) : null;
+  if (!sh) return { ok: false, error: 'inverse sheet not found: ' + sheetName };
+  var changes = Array.isArray(inv.changes) ? inv.changes : [];
+  for (var i = 0; i < changes.length; i++) {
+    var c = changes[i] || {};
+    var row = Number(c.row);
+    var col = Number(c.col);
+    if (!isFinite(row) || !isFinite(col) || row < 1 || col < 1) continue;
+    sh.getRange(row, col).setValue(c.value);
+  }
+  return { ok: true };
+}
+
+function _undo_applyInverse_(inverse, opts) {
+  var inv = inverse || {};
+  var kind = String(inv.kind || '').trim();
+  var options = opts || {};
+  if (kind === 'setRecord') {
+    var resSet = sv_setRecord_v2(inv.entity, inv.id, inv.patch || {}, { __skipUndoLog: true, actor: options.actor || '' });
+    return { ok: !!(resSet && resSet.ok), result: resSet };
+  }
+  if (kind === 'scheduler_commit') {
+    var payload = inv.payload && typeof inv.payload === 'object' ? inv.payload : {};
+    payload.__skipUndoLog = true;
+    if (options && options.skipSchedulerLock) payload.__skipLock = true;
+    var raw = sv_scheduler_commit_v2(JSON.stringify(payload));
+    var res = _undo_parseJson_(raw, {});
+    return { ok: !!(res && res.ok), result: res };
+  }
+  if (kind === 'sheet_cells') {
+    return _undo_applySheetCellsInverse_(inv);
+  }
+  return { ok: false, error: 'Unsupported inverse kind: ' + kind };
+}
+
+function _undo_isRecordConflict_(log) {
+  if (!log || String(log.scope || '') !== 'record') return false;
+  var after = log.after && typeof log.after === 'object' ? log.after : {};
+  var keys = Object.keys(after);
+  if (!keys.length) return false;
+  var cur = sv_getRecord(log.entity, log.targetId);
+  if (!cur || typeof cur !== 'object') return true;
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    var expected = String(after[k] == null ? '' : after[k]);
+    var actual = String(cur[k] == null ? '' : cur[k]);
+    if (expected !== actual) return true;
+  }
+  return false;
+}
+
+function _undo_getSchedulerOpId_(log) {
+  try {
+    if (!log || String(log.scope || '').toLowerCase() !== 'scheduler') return '';
+    var inv = (log.inverse && typeof log.inverse === 'object') ? log.inverse : {};
+    var payload = (inv.payload && typeof inv.payload === 'object') ? inv.payload : {};
+    return String(payload.opId || '').trim();
+  } catch (e) {
+    return '';
+  }
+}
+
+function _undo_isUndoAction_(actionName) {
+  var a = String(actionName || '').toLowerCase();
+  return (a === 'undo' || a === 'undo_group');
+}
+
+function _undo_filterLogsByRequest_(logs, req) {
+  var list = Array.isArray(logs) ? logs : [];
+  var out = [];
+  var scope = String((req && req.scope) || 'all').trim().toLowerCase();
+  var actor = String((req && req.actor) || '').trim();
+  var admin = !!(req && req.admin);
+  for (var i = 0; i < list.length; i++) {
+    var row = list[i] || {};
+    if (String(row.status || '') !== 'applied') continue;
+    if (_undo_isUndoAction_(row.action)) continue;
+    if (scope !== 'all' && scope && String(row.scope || '').toLowerCase() !== scope) continue;
+    if (!admin && actor && String(row.actor || '') !== actor) continue;
+    out.push(row);
+  }
+  return out;
+}
+
+function _undo_collectGroupsFromLogs_(logs, req) {
+  var filtered = _undo_filterLogsByRequest_(logs, req || {});
+  var scope = String((req && req.scope) || 'all').trim().toLowerCase();
+  var groups = [];
+  var byKey = {};
+  for (var i = 0; i < filtered.length; i++) {
+    var row = filtered[i] || {};
+    var key = '';
+    var opId = '';
+    if (scope === 'scheduler' || String(row.scope || '').toLowerCase() === 'scheduler') {
+      opId = _undo_getSchedulerOpId_(row);
+      key = opId ? ('op:' + opId) : ('log:' + String(row.logId || ''));
+    } else {
+      key = 'log:' + String(row.logId || '');
+    }
+    if (!key) key = 'log:' + String(row.logId || '');
+    if (!byKey[key]) {
+      byKey[key] = {
+        key: key,
+        opId: opId,
+        scope: String(row.scope || ''),
+        actor: String(row.actor || ''),
+        ts: String(row.ts || ''),
+        targetSheet: String(row.targetSheet || ''),
+        anchor: row,
+        logs: [],
+        _actionCounts: {},
+        _targetIdSet: {}
+      };
+      groups.push(byKey[key]);
+    }
+    var g = byKey[key];
+    g.logs.push(row);
+    var action = String(row.action || '').toLowerCase() || 'update';
+    g._actionCounts[action] = Number(g._actionCounts[action] || 0) + 1;
+    var tid = String(row.targetId || '').trim();
+    if (tid) g._targetIdSet[tid] = true;
+  }
+  for (var gi = 0; gi < groups.length; gi++) {
+    var grp = groups[gi];
+    var actions = Object.keys(grp._actionCounts || {});
+    actions.sort();
+    var actionParts = [];
+    for (var ai = 0; ai < actions.length; ai++) {
+      var aKey = actions[ai];
+      actionParts.push(aKey + 'x' + Number(grp._actionCounts[aKey] || 0));
+    }
+    var targetIds = Object.keys(grp._targetIdSet || {});
+    targetIds.sort();
+    grp.count = grp.logs.length;
+    grp.actionSummary = actionParts.join(', ');
+    grp.targetIds = targetIds;
+    delete grp._actionCounts;
+    delete grp._targetIdSet;
+  }
+  return groups;
+}
+
+function _undo_applyTargetsCore_(targets, req, picked) {
+  var list = Array.isArray(targets) ? targets : [];
+  if (!list.length) return { ok: false, error: 'No undo target' };
+  var request = req || {};
+  var scope = String(request.scope || 'all').trim().toLowerCase();
+  var actor = String(request.actor || '').trim();
+  var force = (request.force === true);
+  if (scope === 'scheduler' && request.force == null) force = true;
+  var first = picked || list[0];
+  if (!first) return { ok: false, error: 'Undo target is invalid' };
+
+  if (!force) {
+    for (var ci = 0; ci < list.length; ci++) {
+      if (_undo_isRecordConflict_(list[ci])) {
+        return {
+          ok: false,
+          error: 'Conflict detected; use force/admin undo',
+          code: 'UNDO_CONFLICT',
+          logId: String((list[ci] && list[ci].logId) || '')
+        };
+      }
+    }
+  }
+
+  var appliedCount = 0;
+  var undoneIds = [];
+  var opIds = {};
+  for (var oi = 0; oi < list.length; oi++) {
+    var op = _undo_getSchedulerOpId_(list[oi]);
+    if (op) opIds[op] = true;
+  }
+
+  if (scope === 'scheduler') {
+    var batchRes = _undo_applySchedulerTargetsBatch_(list, { actor: actor, force: force });
+    if (!batchRes || !batchRes.ok) {
+      return {
+        ok: false,
+        error: (batchRes && batchRes.error) ? batchRes.error : 'Scheduler undo apply failed',
+        result: batchRes || null,
+        logId: String(first.logId || ''),
+        undoneCount: 0,
+        undoneLogIds: []
+      };
+    }
+    appliedCount = Math.max(0, Math.round(Number(batchRes.appliedCount || list.length || 0)));
+    for (var ui = 0; ui < list.length; ui++) undoneIds.push(String((list[ui] && list[ui].logId) || ''));
+  } else {
+    for (var ai = 0; ai < list.length; ai++) {
+      var target = list[ai];
+      var applied = _undo_applyInverse_(target.inverse, {
+        actor: actor,
+        force: force,
+        undoOf: target.logId,
+        skipSchedulerLock: true
+      });
+      if (!applied || !applied.ok) {
+        return {
+          ok: false,
+          error: (applied && applied.error) ? applied.error : 'Undo apply failed',
+          result: applied && applied.result ? applied.result : null,
+          logId: String(target.logId || ''),
+          undoneCount: appliedCount,
+          undoneLogIds: undoneIds
+        };
+      }
+      appliedCount++;
+      undoneIds.push(String(target.logId || ''));
+    }
+  }
+
+  for (var mi = 0; mi < list.length; mi++) {
+    _undo_markUndone_(list[mi].row, actor);
+  }
+
+  var opIdList = Object.keys(opIds || {});
+  opIdList.sort();
+  _undo_appendLog_({
+    ts: _undo_nowIso_(),
+    actor: actor,
+    scope: first.scope,
+    action: (list.length > 1) ? 'undo_group' : 'undo',
+    targetSheet: first.targetSheet,
+    entity: first.entity,
+    targetId: first.targetId,
+    status: 'applied',
+    before: first.after,
+    after: first.before,
+    inverse: first.inverse,
+    note: (force ? 'undo(force)' : 'undo(safe)') +
+      (list.length > 1 ? (' count=' + list.length) : '') +
+      (opIdList.length ? (' opIds=' + opIdList.join('|')) : ''),
+    undoOf: first.logId
+  });
+
+  return {
+    ok: true,
+    undoneCount: appliedCount,
+    undoneLogIds: undoneIds,
+    opId: opIdList.length === 1 ? opIdList[0] : '',
+    opIds: opIdList,
+    undone: {
+      logId: first.logId,
+      scope: first.scope,
+      action: first.action,
+      targetId: first.targetId
+    }
+  };
+}
+
+function _undo_buildSchedulerReapplyPayload_(log) {
+  try {
+    if (!log || String(log.scope || '').toLowerCase() !== 'scheduler') return null;
+    var action = String(log.action || '').toLowerCase();
+    var after = (log.after && typeof log.after === 'object') ? log.after : {};
+    var before = (log.before && typeof log.before === 'object') ? log.before : {};
+    if (action === 'update') {
+      return { action: 'update', card: after };
+    }
+    if (action === 'create') {
+      return { action: 'create', card: after };
+    }
+    if (action === 'delete') {
+      var id = String((before && before.id) || (after && after.id) || log.targetId || '').trim();
+      if (!id) return null;
+      return { action: 'delete', card: { id: id } };
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function _undo_reapplySchedulerTarget_(log, opts) {
+  var payload = _undo_buildSchedulerReapplyPayload_(log);
+  if (!payload) return { ok: false, error: 'No scheduler reapply payload' };
+  payload.__skipUndoLog = true;
+  payload.__skipLock = true;
+  if (opts && opts.actor) payload.actor = String(opts.actor || '');
+  var raw = sv_scheduler_commit_v2(JSON.stringify(payload));
+  var res = _undo_parseJson_(raw, {});
+  return { ok: !!(res && res.ok), result: res };
+}
+
+function _undo_scheduler_getActiveSchedId_() {
+  var ss = SpreadsheetApp.getActive();
+  var scheds = ss ? ss.getSheetByName('Scheds') : null;
+  var activeID = 'sched_0001';
+  if (!scheds) return activeID;
+  var sData = scheds.getDataRange().getValues();
+  if (!sData || sData.length < 2) return activeID;
+  var sHeaders = sData[1] || [];
+  var sSysHeaders = sData[0] || [];
+  var getSchedCol = function(keys) {
+    for (var ki = 0; ki < keys.length; ki++) {
+      var idx = sHeaders.indexOf(keys[ki]);
+      if (idx > -1) return idx;
+      idx = sSysHeaders.indexOf(keys[ki]);
+      if (idx > -1) return idx;
+    }
+    return -1;
+  };
+  var fidSchedId = schemaGetFidByFieldName('sched', 'schedId');
+  var fidActive = schemaGetFidByFieldName('sched', 'active');
+  var sId = getSchedCol(['schedId', 'ID', fidSchedId]);
+  var sAct = getSchedCol(['active', fidActive]);
+  for (var i = 2; i < sData.length; i++) {
+    if (sAct > -1 && String(sData[i][sAct]).toLowerCase() === 'true') {
+      if (sId > -1 && sData[i][sId]) activeID = String(sData[i][sId]);
+      break;
+    }
+  }
+  return String(activeID || 'sched_0001').trim() || 'sched_0001';
+}
+
+function _undo_scheduler_getCtx_(sheetNameHint) {
+  var ss = SpreadsheetApp.getActive();
+  if (!ss) return { ok: false, error: 'Spreadsheet not available' };
+  var targetSheetName = String(sheetNameHint || '').trim();
+  if (!targetSheetName) targetSheetName = _undo_scheduler_getActiveSchedId_();
+  var sheet = ss.getSheetByName(targetSheetName);
+  if (!sheet) {
+    var fallback = _undo_scheduler_getActiveSchedId_();
+    sheet = ss.getSheetByName(fallback);
+    targetSheetName = fallback;
+  }
+  if (!sheet) return { ok: false, error: 'Schedule sheet not found', sheetName: targetSheetName };
+
+  var lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return { ok: false, error: 'Invalid schedule sheet structure', sheetName: targetSheetName };
+  var headers = sheet.getRange(2, 1, 1, lastCol).getValues()[0];
+  var sysHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var colMap = {};
+  headers.forEach(function(h, i) {
+    if (h) colMap[String(h).trim().toLowerCase()] = i + 1;
+  });
+  sysHeaders.forEach(function(h, i) {
+    if (h) colMap[String(h).trim().toLowerCase()] = i + 1;
+  });
+  var findColByParts = function(partsList) {
+    for (var i = 0; i < partsList.length; i++) {
+      var parts = partsList[i];
+      for (var key in colMap) {
+        if (!colMap.hasOwnProperty(key)) continue;
+        var ok = true;
+        for (var p = 0; p < parts.length; p++) {
+          if (key.indexOf(parts[p]) === -1) { ok = false; break; }
+        }
+        if (ok) return colMap[key];
+      }
+    }
+    return -1;
+  };
+  var cols = {
+    id: findColByParts([['card', 'number'], ['card', 'no'], ['card']]),
+    task: findColByParts([['task', 'id'], ['task', 'link']]),
+    lane: findColByParts([['lane'], ['assignee'], ['laneval']]),
+    start: findColByParts([['start', 'slot'], ['start']]),
+    end: findColByParts([['end', 'slot'], ['end']]),
+    len: findColByParts([['length'], ['lengthmin'], ['duration']]),
+    memo: findColByParts([['memo'], ['cardmemo']])
+  };
+  if (cols.id < 1) return { ok: false, error: 'Card ID column not found', sheetName: targetSheetName };
+  return { ok: true, sheetName: targetSheetName, sheet: sheet, cols: cols, lastCol: lastCol };
+}
+
+function _undo_scheduler_findRowByCardId_(ctx, cardId) {
+  if (!ctx || !ctx.sheet || !ctx.cols || ctx.cols.id < 1) return -1;
+  var id = String(cardId || '').trim();
+  if (!id) return -1;
+  var targetNum = Number(id);
+  var targetHasNum = id !== '' && isFinite(targetNum);
+  var lastRow = ctx.sheet.getLastRow();
+  if (lastRow < 3) return -1;
+  var values = ctx.sheet.getRange(3, ctx.cols.id, lastRow - 2, 1).getValues();
+  for (var i = 0; i < values.length; i++) {
+    var raw = String(values[i][0] == null ? '' : values[i][0]).trim();
+    if (!raw) continue;
+    if (raw === id) return i + 3;
+    if (targetHasNum) {
+      var n = Number(raw);
+      if (isFinite(n) && n === targetNum) return i + 3;
+    }
+  }
+  return -1;
+}
+
+function _undo_scheduler_normalizeCard_(cardLike) {
+  var card = (cardLike && typeof cardLike === 'object') ? cardLike : {};
+  var start = Math.round(Number(card.start));
+  if (!isFinite(start) || start < 1) start = 1;
+  var end = Math.round(Number(card.end));
+  if (!isFinite(end) || end < start) end = start;
+  var lenNum = Math.round(Number(card.len));
+  if (!isFinite(lenNum) || lenNum < 1) lenNum = (end - start + 1);
+  return {
+    id: String(card.id || '').trim(),
+    taskId: String(card.taskId || '').trim(),
+    lane: String(card.lane || '').trim(),
+    start: start,
+    end: end,
+    len: lenNum,
+    memo: (card.memo == null ? '' : String(card.memo))
+  };
+}
+
+function _undo_scheduler_writeCardAtRow_(ctx, row, cardLike) {
+  if (!ctx || !ctx.sheet || !ctx.cols) return { ok: false, error: 'scheduler ctx missing' };
+  var card = _undo_scheduler_normalizeCard_(cardLike);
+  if (!card.id) return { ok: false, error: 'card id missing' };
+  var lastCol = Math.max(1, Math.round(Number(ctx.lastCol || 0)) || ctx.sheet.getLastColumn() || 1);
+  var rowVals = null;
+  if (row <= ctx.sheet.getLastRow()) {
+    rowVals = ctx.sheet.getRange(row, 1, 1, lastCol).getValues()[0];
+  } else {
+    rowVals = new Array(lastCol);
+    for (var i = 0; i < lastCol; i++) rowVals[i] = '';
+  }
+  if (ctx.cols.id > 0) rowVals[ctx.cols.id - 1] = card.id;
+  if (ctx.cols.task > 0) rowVals[ctx.cols.task - 1] = card.taskId;
+  if (ctx.cols.lane > 0) rowVals[ctx.cols.lane - 1] = card.lane;
+  if (ctx.cols.start > 0) rowVals[ctx.cols.start - 1] = card.start;
+  if (ctx.cols.end > 0) rowVals[ctx.cols.end - 1] = card.end;
+  if (ctx.cols.len > 0) rowVals[ctx.cols.len - 1] = card.len;
+  if (ctx.cols.memo > 0) rowVals[ctx.cols.memo - 1] = card.memo;
+  ctx.sheet.getRange(row, 1, 1, lastCol).setValues([rowVals]);
+  return { ok: true, card: card };
+}
+
+function _undo_scheduler_collectIdKeys_(rawId) {
+  var raw = String(rawId == null ? '' : rawId).trim();
+  if (!raw) return [];
+  var out = [raw];
+  var num = Number(raw);
+  if (isFinite(num)) {
+    var asNum = String(num);
+    if (out.indexOf(asNum) === -1) out.push(asNum);
+    var asInt = String(Math.round(num));
+    if (String(num) === asInt && out.indexOf(asInt) === -1) out.push(asInt);
+  }
+  if (/^0+\d+$/.test(raw)) {
+    var noZero = String(parseInt(raw, 10));
+    if (out.indexOf(noZero) === -1) out.push(noZero);
+  }
+  return out;
+}
+
+function _undo_scheduler_buildRowMap_(idValues) {
+  var map = {};
+  var vals = Array.isArray(idValues) ? idValues : [];
+  for (var i = 0; i < vals.length; i++) {
+    var raw = String((vals[i] && vals[i][0] != null) ? vals[i][0] : '').trim();
+    if (!raw) continue;
+    var keys = _undo_scheduler_collectIdKeys_(raw);
+    for (var k = 0; k < keys.length; k++) {
+      var key = keys[k];
+      if (!key) continue;
+      map[key] = i + 3;
+    }
+  }
+  return map;
+}
+
+function _undo_scheduler_findRowInMap_(rowMap, cardId) {
+  var map = rowMap || {};
+  var keys = _undo_scheduler_collectIdKeys_(cardId);
+  for (var i = 0; i < keys.length; i++) {
+    var row = Number(map[keys[i]] || 0);
+    if (isFinite(row) && row >= 3) return row;
+  }
+  return -1;
+}
+
+function _undo_scheduler_parseStep_(target) {
+  var row = target || {};
+  var inv = (row.inverse && typeof row.inverse === 'object') ? row.inverse : {};
+  if (String(inv.kind || '') !== 'scheduler_commit') return null;
+  var payload = (inv.payload && typeof inv.payload === 'object') ? inv.payload : {};
+  var action = String(payload.action || '').toLowerCase();
+  var card = (payload.card && typeof payload.card === 'object') ? payload.card : {};
+  var cardId = String((card && card.id) || row.targetId || '').trim();
+  if (!cardId) return null;
+  return {
+    action: action,
+    cardId: cardId,
+    card: card,
+    targetSheet: String(row.targetSheet || '').trim(),
+    sourceLogId: String(row.logId || '')
+  };
+}
+
+function _undo_applySchedulerTargetsBatch_(targets, opts) {
+  var options = opts || {};
+  var list = Array.isArray(targets) ? targets : [];
+  if (!list.length) return { ok: false, error: 'No scheduler undo targets' };
+  var groups = {};
+  var groupOrder = [];
+  for (var i = 0; i < list.length; i++) {
+    var key = String((list[i] && list[i].targetSheet) || '').trim();
+    if (!key) key = '__active__';
+    if (!groups[key]) {
+      groups[key] = [];
+      groupOrder.push(key);
+    }
+    groups[key].push(list[i]);
+  }
+  var totalSteps = 0;
+  var touchedCards = [];
+  for (var g = 0; g < groupOrder.length; g++) {
+    var gKey = groupOrder[g];
+    var gTargets = groups[gKey];
+    var sheetHint = (gKey === '__active__') ? '' : gKey;
+    var ctx = _undo_scheduler_getCtx_(sheetHint);
+    if (!ctx.ok) return { ok: false, error: ctx.error || 'Scheduler undo ctx error', sheetName: sheetHint };
+    var lastRow = ctx.sheet.getLastRow();
+    var idValues = (lastRow >= 3) ? ctx.sheet.getRange(3, ctx.cols.id, lastRow - 2, 1).getValues() : [];
+    var rowMap = _undo_scheduler_buildRowMap_(idValues);
+    var parsedSteps = [];
+    for (var ps = 0; ps < gTargets.length; ps++) {
+      var parsed = _undo_scheduler_parseStep_(gTargets[ps]);
+      if (parsed) parsedSteps.push(parsed);
+    }
+    // Normalize to one inverse step per card (oldest inverse wins) so undo is
+    // stable even when a single opId produced multiple writes for the same card.
+    var stepByCard = {};
+    var stepOrder = [];
+    for (var ri = parsedSteps.length - 1; ri >= 0; ri--) {
+      var parsedStep = parsedSteps[ri];
+      var cardKey = String(parsedStep.cardId || '').trim();
+      if (!cardKey) continue;
+      if (!stepByCard.hasOwnProperty(cardKey)) {
+        stepByCard[cardKey] = parsedStep;
+        stepOrder.push(cardKey);
+      }
+    }
+    for (var s = 0; s < stepOrder.length; s++) {
+      var step = stepByCard[stepOrder[s]];
+      if (!step) continue;
+      var action = String(step.action || '').toLowerCase();
+      if (action === 'delete') {
+        var deleteRow = _undo_scheduler_findRowInMap_(rowMap, step.cardId);
+        if (deleteRow > 0) {
+          ctx.sheet.deleteRow(deleteRow);
+          idValues.splice(deleteRow - 3, 1);
+          rowMap = _undo_scheduler_buildRowMap_(idValues);
+        }
+        totalSteps++;
+        touchedCards.push(step.cardId);
+        continue;
+      }
+      if (action !== 'update' && action !== 'create') {
+        return { ok: false, error: 'Unsupported scheduler undo action: ' + action, logId: step.sourceLogId };
+      }
+      var row = _undo_scheduler_findRowInMap_(rowMap, step.cardId);
+      if (row < 3) {
+        row = Math.max(3, idValues.length + 3);
+      }
+      var writeRes = _undo_scheduler_writeCardAtRow_(ctx, row, step.card);
+      if (!writeRes.ok) return { ok: false, error: writeRes.error || 'Scheduler undo write failed', logId: step.sourceLogId };
+      if (_undo_scheduler_findRowInMap_(rowMap, step.cardId) < 3) {
+        idValues.push([String(step.cardId || '')]);
+        rowMap = _undo_scheduler_buildRowMap_(idValues);
+      }
+      totalSteps++;
+      touchedCards.push(step.cardId);
+    }
+  }
+  return {
+    ok: true,
+    appliedCount: list.length,
+    stepCount: totalSteps,
+    touchedCards: touchedCards
+  };
+}
+
+function sv_undo_last_v2(reqPayload) {
+  var lock = null;
+  try {
+    lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    var req = reqPayload;
+    if (typeof reqPayload === 'string') req = _undo_parseJson_(reqPayload, {});
+    req = req || {};
+    var scope = String(req.scope || 'all').trim().toLowerCase();
+    var admin = !!req.admin;
+    var actor = _undo_getActor_(req.actor);
+    req.scope = scope;
+    req.admin = admin;
+    req.actor = actor;
+    var logs = _undo_readLogs_(800);
+    var groups = _undo_collectGroupsFromLogs_(logs, req);
+    if (!groups.length) {
+      return JSON.stringify({ ok: false, error: 'No undo target', scope: scope, actor: actor, admin: admin });
+    }
+    var g0 = groups[0];
+    var targets = Array.isArray(g0.logs) ? g0.logs : [];
+    if (!targets.length) {
+      return JSON.stringify({ ok: false, error: 'No undo target', scope: scope, actor: actor, admin: admin });
+    }
+    return JSON.stringify(_undo_applyTargetsCore_(targets, req, targets[0]));
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
+  } finally {
+    if (lock) {
+      try { lock.releaseLock(); } catch (_) {}
+    }
+  }
+}
+
+function sv_undo_options_v2(reqPayload) {
+  var lock = null;
+  try {
+    lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    var req = reqPayload;
+    if (typeof reqPayload === 'string') req = _undo_parseJson_(reqPayload, {});
+    req = req || {};
+    req.scope = String(req.scope || 'scheduler').trim().toLowerCase();
+    req.admin = !!req.admin;
+    req.actor = _undo_getActor_(req.actor);
+    var limit = Number(req.limit);
+    if (!isFinite(limit) || limit < 1) limit = 25;
+    if (limit > 100) limit = 100;
+    var logs = _undo_readLogs_(2000);
+    var groups = _undo_collectGroupsFromLogs_(logs, req);
+    var items = [];
+    for (var i = 0; i < groups.length && items.length < limit; i++) {
+      var g = groups[i] || {};
+      var targetIds = Array.isArray(g.targetIds) ? g.targetIds : [];
+      items.push({
+        undoKey: String(g.key || ''),
+        logId: String((g.anchor && g.anchor.logId) || ''),
+        opId: String(g.opId || ''),
+        scope: String(g.scope || ''),
+        actor: String(g.actor || ''),
+        ts: String(g.ts || ''),
+        targetSheet: String(g.targetSheet || ''),
+        actionSummary: String(g.actionSummary || ''),
+        count: Math.max(1, Math.round(Number(g.count || 1))),
+        targetIds: targetIds.slice(0, 20),
+        targetIdsCount: targetIds.length
       });
     }
-    var res = dp_updateEntityRecord(entity, id, patch, options);
+    return JSON.stringify({
+      ok: true,
+      scope: req.scope,
+      actor: req.actor,
+      admin: req.admin,
+      totalGroups: groups.length,
+      items: items
+    });
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
+  } finally {
+    if (lock) {
+      try { lock.releaseLock(); } catch (_) {}
+    }
+  }
+}
+
+function sv_undo_to_v2(reqPayload) {
+  var lock = null;
+  try {
+    lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    var req = reqPayload;
+    if (typeof reqPayload === 'string') req = _undo_parseJson_(reqPayload, {});
+    req = req || {};
+    req.scope = String(req.scope || 'scheduler').trim().toLowerCase();
+    req.admin = !!req.admin;
+    req.actor = _undo_getActor_(req.actor);
+    var undoKey = String(req.undoKey || '').trim();
+    var targetLogId = String(req.targetLogId || '').trim();
+
+    if (!undoKey && !targetLogId) {
+      return JSON.stringify({ ok: false, error: 'undoKey or targetLogId is required' });
+    }
+
+    var logs = _undo_readLogs_(2000);
+    var groups = _undo_collectGroupsFromLogs_(logs, req);
+    if (!groups.length) {
+      return JSON.stringify({ ok: false, error: 'No undo target', scope: req.scope });
+    }
+
+    var targetIdx = -1;
+    for (var i = 0; i < groups.length; i++) {
+      var g = groups[i] || {};
+      var gLogId = String((g.anchor && g.anchor.logId) || '');
+      if (undoKey && String(g.key || '') === undoKey) {
+        targetIdx = i;
+        break;
+      }
+      if (!undoKey && targetLogId && gLogId === targetLogId) {
+        targetIdx = i;
+        break;
+      }
+    }
+    if (targetIdx < 0) {
+      return JSON.stringify({ ok: false, error: 'Undo target not found' });
+    }
+
+    var targets = [];
+    for (var gi = 0; gi <= targetIdx; gi++) {
+      var grp = groups[gi] || {};
+      var grpLogs = Array.isArray(grp.logs) ? grp.logs : [];
+      for (var li = 0; li < grpLogs.length; li++) {
+        targets.push(grpLogs[li]);
+      }
+    }
+    if (!targets.length) {
+      return JSON.stringify({ ok: false, error: 'No undo logs resolved' });
+    }
+
+    var res = _undo_applyTargetsCore_(targets, req, targets[0]);
+    if (res && res.ok) {
+      res.undoneGroupCount = targetIdx + 1;
+      res.targetUndoKey = undoKey || '';
+      res.targetLogId = targetLogId || '';
+    }
+    return JSON.stringify(res);
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
+  } finally {
+    if (lock) {
+      try { lock.releaseLock(); } catch (_) {}
+    }
+  }
+}
+
+function sv_setRecord_v2(entity, id, patch, options) {
+  if (!entity || !id || !patch) { return { ok: true, note: "sv_setRecord_v2 present", ts: new Date().toISOString() }; }
+  var lock = null;
+  try {
+    lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    var opts = (options && typeof options === 'object') ? options : {};
+    var skipUndoLog = !!opts.__skipUndoLog;
+    var actorHint = opts.actor;
+    var undoLogDiag = {
+      scope: 'record',
+      attempted: false,
+      skipped: !!skipUndoLog,
+      logged: false,
+      logId: '',
+      error: ''
+    };
+    var sourcePatch = (patch && typeof patch === 'object') ? patch : {};
+    var cleanPatch = {};
+    Object.keys(sourcePatch).forEach(function (k) {
+      var v = sourcePatch[k];
+      if (v instanceof Date) { cleanPatch[k] = isNaN(v.getTime()) ? "" : v.toISOString().slice(0, 10); }
+      else if (typeof v === "string") { cleanPatch[k] = v.trim(); }
+      else cleanPatch[k] = v;
+    });
+
+    var beforeRecord = null;
+    var beforePatch = {};
+    beforeRecord = sv_getRecord(entity, id);
+    if (beforeRecord && typeof beforeRecord === 'object') {
+      Object.keys(cleanPatch).forEach(function (k) {
+        beforePatch[k] = beforeRecord.hasOwnProperty(k) ? beforeRecord[k] : '';
+      });
+    }
+
+    function _normCmp_(v) {
+      if (v == null) return '';
+      if (v instanceof Date) {
+        return isNaN(v.getTime()) ? '' : Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      }
+      return String(v).trim();
+    }
+    var changedPatch = {};
+    var changedBefore = {};
+    Object.keys(cleanPatch).forEach(function (k) {
+      var prev = beforePatch.hasOwnProperty(k) ? beforePatch[k] : '';
+      var next = cleanPatch[k];
+      if (_normCmp_(prev) !== _normCmp_(next)) {
+        changedPatch[k] = next;
+        changedBefore[k] = prev;
+      }
+    });
+
+    if (!Object.keys(changedPatch).length) {
+      undoLogDiag.skipped = true;
+      return {
+        ok: true,
+        entity: String(entity || ''),
+        id: String(id || ''),
+        noop: true,
+        note: 'NOOP_NO_DIFF',
+        undoLog: undoLogDiag
+      };
+    }
+
+    var res = dp_updateEntityRecord(entity, id, changedPatch, opts);
     if (res && typeof res === "object") {
       res.ok = (res.ok === true);
       if (!res.errorCode && res.ok === false && res.error) res.errorCode = "INLINE_EDIT_FAILED";
     }
+
+    if (!skipUndoLog && res && res.ok) {
+      undoLogDiag.attempted = true;
+      try {
+        var undoRes = _undo_appendLog_({
+          ts: _undo_nowIso_(),
+          actor: actorHint,
+          scope: 'record',
+          action: 'update',
+          targetSheet: _entityToSheet_(entity),
+          entity: String(entity || ''),
+          targetId: String(id || ''),
+          status: 'applied',
+          before: changedBefore,
+          after: changedPatch,
+          inverse: {
+            kind: 'setRecord',
+            entity: String(entity || ''),
+            id: String(id || ''),
+            patch: changedBefore
+          },
+          note: 'sv_setRecord_v2'
+        });
+        undoLogDiag.logged = !!(undoRes && undoRes.ok);
+        undoLogDiag.logId = String((undoRes && undoRes.logId) || '');
+      } catch (undoErr) {
+        undoLogDiag.logged = false;
+        undoLogDiag.error = String(undoErr && (undoErr.message || undoErr) || 'undo_log_append_failed');
+      }
+    }
+    if (res && typeof res === 'object') res.undoLog = undoLogDiag;
+
     return res;
   } catch (e) {
     return { ok: false, error: String(e && e.message || e), errorCode: "INLINE_EDIT_EXCEPTION" };
+  } finally {
+    if (lock) {
+      try { lock.releaseLock(); } catch (_) { }
+    }
   }
 }
 function sv_setRecord(entity, id, patch, options) { return sv_setRecord_v2(entity, id, patch, options); }
@@ -2788,36 +3786,6 @@ function DB_getOriginalsFolderUrl(arg) { return sv_getOriginalsFolderUrl(arg); }
 function DriveBuilder_getOriginalsFolderUrl(arg) { return sv_getOriginalsFolderUrl(arg); }
 function DB_getOriginalsUrl(arg) { return sv_getOriginalsUrl(arg); }
 function DriveBuilder_getOriginalsUrl(arg) { return sv_getOriginalsUrl(arg); }
-
-function _tablePickDataMode_(payload) {
-  if (!payload || typeof payload !== "object") return { mode: "legacy", reason: "invalid-payload" };
-  if (payload.forceLegacy === true) return { mode: "legacy", reason: "forceLegacy" };
-  if (payload.forceHub === true) return { mode: "hub", reason: "forceHub" };
-  function ruleHasValue_(rule) {
-    var op = String(rule && rule.op || "").toLowerCase();
-    if (op === "isempty" || op === "isnotempty") return true;
-    var values = Array.isArray(rule && rule.values) ? rule.values : [];
-    if (values.length) return values.some(function (v) { return String(v || "").trim().length > 0; });
-    if (rule && Object.prototype.hasOwnProperty.call(rule, "value")) {
-      if (rule.value === 0 || rule.value === false) return true;
-      if (rule.value == null) return false;
-      if (typeof rule.value === "string") return rule.value.trim().length > 0;
-      return true;
-    }
-    return false;
-  }
-  var hasOrder = !!(payload.orderBy && String(payload.orderBy).trim());
-  var hasQuery = !!(payload.query && String(payload.query).trim());
-  var hasFilters = false;
-  try {
-    if (Array.isArray(payload.filters)) { hasFilters = payload.filters.some(function (f) { var id = String(f && f.id || "").trim(); var op = String(f && f.op || "").trim(); if (!(id && op && _isFid_(id))) return false; return ruleHasValue_(f); }); }
-    if (!hasFilters && Array.isArray(payload.filterGroups)) { hasFilters = payload.filterGroups.some(function (g) { var rules = Array.isArray(g && g.rules) ? g.rules : []; return rules.some(function (r) { var id = String(r && r.id || "").trim(); var op = String(r && r.op || "").trim(); if (!(id && op && _isFid_(id))) return false; return ruleHasValue_(r); }); }); }
-  } catch (_) { hasFilters = false; }
-  if (hasOrder) return { mode: "legacy", reason: "orderBy" };
-  if (hasQuery) return { mode: "legacy", reason: "query" };
-  if (hasFilters) return { mode: "legacy", reason: "filters" };
-  return { mode: "hub", reason: "default" };
-}
 
 /* ===== Scheduler (TAKE152) ===== */
 function _sched_findSheetByCandidates_(ss, names) {
@@ -4069,13 +5037,30 @@ function sv_scheduler_debug_ping() {
  * payload: { action: 'update'|'create'|'delete', card: { id, lane, start, end... } }
  */
 function sv_scheduler_commit_v2(payloadJson) {
-  var lock = LockService.getScriptLock();
+  var lock = null;
   try {
-    if (!lock.tryLock(3000)) return JSON.stringify({ ok: false, error: { message: 'Server busy, try again.' } });
-
-    var payload = JSON.parse(payloadJson);
+    var payload = JSON.parse(payloadJson || '{}');
+    var skipLock = !!(payload && payload.__skipLock);
+    if (!skipLock) {
+      lock = LockService.getScriptLock();
+      if (!lock.tryLock(3000)) return JSON.stringify({ ok: false, error: { message: 'Server busy, try again.' } });
+    }
     var action = payload.action;
     var cardData = payload.card;
+    var opId = String(payload.opId || '').trim();
+    if (!opId) {
+      opId = 'op_srv_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    }
+    var skipUndoLog = !!(payload && payload.__skipUndoLog);
+    var actorHint = payload && payload.actor;
+    var undoLogDiag = {
+      scope: 'scheduler',
+      attempted: false,
+      skipped: !!skipUndoLog,
+      logged: false,
+      logId: '',
+      error: ''
+    };
     var slotToInt_ = function(v, fallback) {
       var n = Math.round(Number(v));
       if (!isFinite(n)) return fallback;
@@ -4164,6 +5149,60 @@ function sv_scheduler_commit_v2(payloadJson) {
     var C_LEN = findColByParts_([['length'], ['lengthmin'], ['duration']]);
     var C_END = findColByParts_([['end', 'slot'], ['end']]);
     var C_MEMO = findColByParts_([['memo'], ['cardmemo']]);
+    var readCell_ = function(row, col) {
+      if (!row || row < 1 || !col || col < 1) return '';
+      return sheet.getRange(row, col).getValue();
+    };
+    var readCardAtRow_ = function(row) {
+      if (!row || row < 1) return null;
+      var out = {
+        id: String(readCell_(row, C_ID) || '').trim(),
+        taskId: String(readCell_(row, C_TASK) || '').trim(),
+        lane: String(readCell_(row, C_LANE) || '').trim(),
+        start: 1,
+        end: 1,
+        len: 1,
+        memo: String(readCell_(row, C_MEMO) || '')
+      };
+      out.start = slotToInt_(readCell_(row, C_START), 1);
+      out.end = slotToInt_(readCell_(row, C_END), out.start);
+      if (out.end < out.start) out.end = out.start;
+      var lv = Number(readCell_(row, C_LEN));
+      out.len = (isFinite(lv) && lv > 0) ? Math.round(lv) : (out.end - out.start + 1);
+      return out;
+    };
+    var appendSchedulerUndoLog_ = function(beforeCard, afterCard, inversePayload, noteText) {
+      if (skipUndoLog) return;
+      undoLogDiag.attempted = true;
+      try {
+        var undoRes = _undo_appendLog_({
+          ts: _undo_nowIso_(),
+          actor: actorHint,
+          scope: 'scheduler',
+          action: String(action || ''),
+          targetSheet: String(activeID || ''),
+          entity: 'card',
+          targetId: String((afterCard && afterCard.id) || (beforeCard && beforeCard.id) || (cardData && cardData.id) || ''),
+          status: 'applied',
+          before: beforeCard || null,
+          after: afterCard || null,
+          inverse: {
+            kind: 'scheduler_commit',
+            payload: (function () {
+              var inv = (inversePayload && typeof inversePayload === 'object') ? inversePayload : {};
+              inv.opId = opId;
+              return inv;
+            })()
+          },
+          note: noteText || 'sv_scheduler_commit_v2'
+        });
+        undoLogDiag.logged = !!(undoRes && undoRes.ok);
+        undoLogDiag.logId = String((undoRes && undoRes.logId) || '');
+      } catch (undoErr) {
+        undoLogDiag.logged = false;
+        undoLogDiag.error = String(undoErr && (undoErr.message || undoErr) || 'undo_log_append_failed');
+      }
+    };
 
     var diag = {
       activeID: activeID,
@@ -4205,17 +5244,25 @@ function sv_scheduler_commit_v2(payloadJson) {
 
     if (action === 'delete') {
       if (targetRow > 0) {
+        var beforeDelete = readCardAtRow_(targetRow);
         sheet.deleteRow(targetRow);
         diag.targetRow = targetRow;
-        return JSON.stringify({ ok: true, action: 'delete', diag: diag });
+        appendSchedulerUndoLog_(
+          beforeDelete,
+          null,
+          { action: 'create', card: beforeDelete || {} },
+          'sv_scheduler_commit_v2:delete'
+        );
+        return JSON.stringify({ ok: true, action: 'delete', opId: opId, diag: diag, undoLog: undoLogDiag });
       }
-      return JSON.stringify({ ok: false, error: { message: 'Card not found for deletion' }, diag: diag });
+      return JSON.stringify({ ok: false, error: { message: 'Card not found for deletion' }, diag: diag, undoLog: undoLogDiag });
     }
 
     if (action === 'update') {
       if (targetRow === -1) {
         return JSON.stringify({ ok: false, error: { message: 'Card ID not found: ' + cardData.id }, diag: diag });
       }
+      var beforeUpdate = readCardAtRow_(targetRow);
       if (C_TASK > 0) sheet.getRange(targetRow, C_TASK).setValue(cardData.taskId || '');
       if (C_LANE > 0) sheet.getRange(targetRow, C_LANE).setValue(cardData.lane);
       if (C_START > 0) sheet.getRange(targetRow, C_START).setValue(cardData.start);
@@ -4223,7 +5270,23 @@ function sv_scheduler_commit_v2(payloadJson) {
       if (C_LEN > 0) sheet.getRange(targetRow, C_LEN).setValue(cardData.len || (cardData.end - cardData.start + 1));
       if (C_MEMO > 0 && cardData.memo !== undefined) sheet.getRange(targetRow, C_MEMO).setValue(cardData.memo);
       diag.targetRow = targetRow;
-      return JSON.stringify({ ok: true, action: 'update', id: cardData.id, diag: diag });
+      var afterUpdate = {
+        id: String(cardData.id || '').trim(),
+        taskId: String(cardData.taskId || '').trim(),
+        lane: String(cardData.lane || '').trim(),
+        start: slotToInt_(cardData.start, 1),
+        end: slotToInt_(cardData.end, slotToInt_(cardData.start, 1)),
+        len: (isFinite(Number(cardData.len)) && Number(cardData.len) > 0) ? Math.round(Number(cardData.len)) : (slotToInt_(cardData.end, slotToInt_(cardData.start, 1)) - slotToInt_(cardData.start, 1) + 1),
+        memo: (cardData.memo === undefined || cardData.memo === null) ? '' : String(cardData.memo)
+      };
+      if (afterUpdate.end < afterUpdate.start) afterUpdate.end = afterUpdate.start;
+      appendSchedulerUndoLog_(
+        beforeUpdate,
+        afterUpdate,
+        { action: 'update', card: beforeUpdate || {} },
+        'sv_scheduler_commit_v2:update'
+      );
+      return JSON.stringify({ ok: true, action: 'update', opId: opId, id: cardData.id, diag: diag, undoLog: undoLogDiag });
     }
 
     if (action === 'create') {
@@ -4237,12 +5300,30 @@ function sv_scheduler_commit_v2(payloadJson) {
       if (C_LEN > 0) sheet.getRange(insertRow, C_LEN).setValue(cardData.len);
       if (C_MEMO > 0) sheet.getRange(insertRow, C_MEMO).setValue(cardData.memo || '');
       diag.targetRow = insertRow;
-      return JSON.stringify({ ok: true, action: 'create', id: newId, diag: diag });
+      var afterCreate = {
+        id: String(newId || '').trim(),
+        taskId: String(cardData.taskId || '').trim(),
+        lane: String(cardData.lane || '').trim(),
+        start: slotToInt_(cardData.start, 1),
+        end: slotToInt_(cardData.end, slotToInt_(cardData.start, 1)),
+        len: (isFinite(Number(cardData.len)) && Number(cardData.len) > 0) ? Math.round(Number(cardData.len)) : (slotToInt_(cardData.end, slotToInt_(cardData.start, 1)) - slotToInt_(cardData.start, 1) + 1),
+        memo: (cardData.memo === undefined || cardData.memo === null) ? '' : String(cardData.memo)
+      };
+      if (afterCreate.end < afterCreate.start) afterCreate.end = afterCreate.start;
+      appendSchedulerUndoLog_(
+        null,
+        afterCreate,
+        { action: 'delete', card: { id: afterCreate.id } },
+        'sv_scheduler_commit_v2:create'
+      );
+      return JSON.stringify({ ok: true, action: 'create', opId: opId, id: newId, diag: diag, undoLog: undoLogDiag });
     }
   } catch (e) {
     return JSON.stringify({ ok: false, error: { message: e.toString() } });
   } finally {
-    lock.releaseLock();
+    if (lock) {
+      try { lock.releaseLock(); } catch (_) {}
+    }
   }
 }
 

@@ -24,7 +24,10 @@ function sv_canonEntityKey_(v) {
     assets: 'asset',
     members: 'member',
     users: 'user',
-    pages: 'page'
+    pages: 'page',
+    scheds: 'sched',
+    schedules: 'sched',
+    schedule: 'sched'
   };
   return map[s] || s;
 }

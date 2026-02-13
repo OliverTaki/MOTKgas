@@ -249,6 +249,7 @@
       if (e === "task" || e === "tasks") return "Tasks";
       if (e === "user" || e === "users") return "Users";
       if (e === "member" || e === "members" || e === "projectmember" || e === "projectmembers") return "ProjectMembers";
+      if (e === "sched" || e === "schedule" || e === "scheds" || e === "schedules") return "Schedules";
       return "Dashboard";
     };
 
@@ -270,6 +271,17 @@
     // NOTE: v2 omits ts and uses only page/entity/id.
     Router.buildEntityUrl = function (entity, id, opts) {
       if (!entity || !id) return SCRIPT_URL;
+      var e = String(entity || "").toLowerCase().trim();
+      if (e === "sched" || e === "schedule" || e === "scheds" || e === "schedules") {
+        var schedParams = Object.assign(
+          {
+            p: "schedule",
+            schedId: id
+          },
+          opts || {}
+        );
+        return Router.pageUrl(schedParams);
+      }
       var params = Object.assign(
         {
           page: Router.detailPageNameForEntity(entity),

@@ -109,6 +109,7 @@
     /* Cards */
     .card { position: absolute; width: calc(var(--lane-w) - 10px); background: #2563eb; border-radius: 3px; font-size: 10px; color: #fff; padding: 2px 4px; overflow: hidden; cursor: grab; z-index: 5; box-shadow: 0 1px 3px rgba(0,0,0,0.5); display: flex; flex-direction: column; justify-content: center; }
     .card.selected { border: 1px solid #fbbf24; z-index: 20; }
+    .card.multi-selected { box-shadow: 0 0 0 1px rgba(110, 231, 255, 0.85), 0 1px 3px rgba(0,0,0,0.5); }
     .card.unsaved { border: 1px dashed #f59e0b; }
     .card:hover { z-index: 15; background: #3b82f6; }
     .card-close { position:absolute; top:0; right:2px; color:#ccc; font-weight:bold; cursor:pointer; display:none; }
@@ -128,6 +129,42 @@
       z-index: 4;
       pointer-events: none;
     }
+    .gap-hitbox {
+      position: absolute;
+      width: calc(var(--lane-w) - 10px);
+      border: 1px dashed rgba(245, 158, 11, 0.18);
+      background: rgba(245, 158, 11, 0.02);
+      border-radius: 3px;
+      z-index: 4;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+    .gap-hitbox:hover {
+      border-color: rgba(245, 158, 11, 0.45);
+      background: rgba(245, 158, 11, 0.08);
+    }
+    .drag-preview {
+      position: absolute;
+      width: calc(var(--lane-w) - 10px);
+      border: 1px dashed rgba(110, 231, 255, 0.95);
+      background: rgba(14, 165, 233, 0.22);
+      border-radius: 3px;
+      z-index: 60;
+      pointer-events: none;
+    }
+    .drag-preview.resize { border-color: rgba(250, 204, 21, 0.95); background: rgba(250, 204, 21, 0.18); }
+    .drag-preview.block { border-color: rgba(34, 197, 94, 0.95); background: rgba(34, 197, 94, 0.16); }
+    .drop-slot-line {
+      position: absolute;
+      height: 2px;
+      width: calc(var(--lane-w) - 10px);
+      background: #22d3ee;
+      box-shadow: 0 0 0 1px rgba(8, 47, 73, 0.65);
+      z-index: 61;
+      pointer-events: none;
+    }
+    .drop-slot-line.resize { background: #facc15; box-shadow: 0 0 0 1px rgba(113, 63, 18, 0.65); }
+    .drop-slot-line.block { background: #22c55e; box-shadow: 0 0 0 1px rgba(20, 83, 45, 0.65); }
     .lane-boundary-line {
       position: absolute;
       top: 0;
@@ -171,6 +208,22 @@
     .settings-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .settings-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
     .settings-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 12px 12px; }
+    .undo-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 130; display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .undo-modal.hidden { display: none; }
+    .undo-panel { width: min(760px, 96vw); max-height: 90vh; overflow: hidden; background: #17171a; border: 1px solid #333; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.45); display: flex; flex-direction: column; }
+    .undo-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid #2c2c30; background: #121214; }
+    .undo-title { font-size: 13px; font-weight: 700; color: #fff; }
+    .undo-body { display: flex; flex-direction: column; gap: 8px; padding: 12px; min-height: 220px; }
+    .undo-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .undo-list { border: 1px solid #2d2d31; border-radius: 8px; overflow: auto; background: #101014; min-height: 180px; max-height: 52vh; }
+    .undo-item { padding: 8px 10px; border-bottom: 1px solid #202024; cursor: pointer; display: flex; flex-direction: column; gap: 3px; font-size: 11px; }
+    .undo-item:last-child { border-bottom: 0; }
+    .undo-item:hover { background: #1a1a1f; }
+    .undo-item.active { background: #10263f; outline: 1px solid #2563eb; }
+    .undo-main { color: #e5e7eb; font-weight: 600; }
+    .undo-meta { color: #9ca3af; font-size: 10px; }
+    .undo-empty { color: #9ca3af; font-size: 11px; padding: 12px; }
+    .undo-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 12px 12px; }
     .lane-row { display: flex; gap: 6px; padding: 4px; border-bottom: 1px solid #222; font-size: 11px; align-items: center; }
     .list-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-bottom: 1px solid #222; cursor: pointer; font-size: 11px; line-height: 1.2; flex-wrap: nowrap; }
     .list-item.unassigned .li-title { color: #ef4444; }
@@ -304,7 +357,7 @@
           <div style="font-size:10px; color:#8b8f98;">Range / End: whichever you change later is applied.</div>
           <div class="pop-row">
             <label for="inp-zoom">Zoom</label>
-            <input id="inp-zoom" type="range" min="1" max="200" value="60" style="flex:1;">
+            <input id="inp-zoom" type="range" min="1" max="100" value="60" style="flex:1;">
             <input id="inp-zoom-val" type="number" value="60" class="inp-dark" style="width:58px; text-align:center;">
           </div>
           <div class="pop-row" style="justify-content:flex-end;">
@@ -338,6 +391,7 @@
       </div>
     </div>
     <div id="saveStatus"></div>
+    <button id="btn-undo" class="btn" title="Undo last scheduler change">Undo</button>
     <button id="btn-reload" class="btn">Reload</button>
     <button id="btn-insp" class="btn">Insp</button>
     <button id="btn-settings" class="btn" title="Settings">Settings</button>
@@ -430,9 +484,28 @@
   </div>
 </div>
 
+<div id="undo-modal" class="undo-modal hidden">
+  <div class="undo-panel">
+    <div class="undo-head">
+      <div class="undo-title">Undo History (Scheduler)</div>
+      <button id="btn-undo-modal-close" class="btn" type="button">Close</button>
+    </div>
+    <div class="undo-body">
+      <div class="undo-toolbar">
+        <div id="undo-summary" class="undo-meta">Loading...</div>
+        <button id="btn-undo-modal-refresh" class="btn" type="button">Refresh</button>
+      </div>
+      <div id="undo-list" class="undo-list"></div>
+    </div>
+    <div class="undo-actions">
+      <button id="btn-undo-apply" class="btn" type="button">Undo To Selected</button>
+    </div>
+  </div>
+</div>
+
 <div id="loadingSpinner">
   <div class="spinner"></div>
-  <div style="color:#fff; font-size:11px; margin-top:10px;">Loading...</div>
+  <div id="loadingSpinnerText" style="color:#fff; font-size:11px; margin-top:10px;">Loading...</div>
 </div>
 
 <script>
@@ -442,8 +515,7 @@ window.app = (function() {
     workHours: 8,
     originDate: null,
     originDisplayText: '',
-    originAnchor: null,
-    workStartH: 0
+    originAnchor: null
   };
 
   const state = {
@@ -451,7 +523,7 @@ window.app = (function() {
     tasksById: {},
     startDate: new Date(), dayCount: 14, slotPx: 20,
     endDate: null, startPreset: 'custom', endPreset: 'custom', viewDriver: 'range',
-    workDayMap: [], selection: null, autoPush: true, suppressClick: false,
+    workDayMap: [], selection: null, autoPush: true,
     schedId: 'sched_0001', schedName: 'Schedule', scriptUrl: (function(){ try { return location.origin + location.pathname; } catch (_) { return location.pathname || ''; } })(), scriptUrlServer: '', viewMeta: {}, allScheds: [],
     laneWidth: 65,
     assetColWidth: 65,
@@ -469,9 +541,34 @@ window.app = (function() {
     legacyOffsetWarned: false,
     gapSelection: null,
     assetCellSelection: null,
-    commitQueueByCard: {},
+    multiSelection: [],
+    multiAnchorCardId: null,
+    dragPreview: null,
+    suppressCanvasPickUntil: 0,
+    requestedSchedId: '',
+    requestedSchedApplied: false,
+    undoBusy: false,
+    undoPhase: '',
+    undoOptions: [],
+    undoSelectedKey: '',
+    undoLoading: false,
+    undoLoadError: '',
+    commitOpId: '',
+    commitQueue: [],
+    commitInflight: null,
+    commitSeq: 0,
     inspEdit: { active: false, cardId: null, fields: {}, dirty: {}, commitLock: false, isTyping: false, isEditingStart: false, isEditingEnd: false, needsResyncAfterEdit: false, refs: {}, timers: {} }
   };
+  const readRequestedSchedId_ = () => {
+    try {
+      var usp = new URLSearchParams(location.search || '');
+      return String(usp.get('schedId') || usp.get('sid') || '').trim();
+    } catch (_) {
+      return '';
+    }
+  };
+  state.requestedSchedId = readRequestedSchedId_();
+  state.requestedSchedApplied = !state.requestedSchedId;
   const INSPECTOR_FIELDS_MODE_KEY = 'motk:scheduler:inspectorFieldsMode';
   try {
     const mode = localStorage.getItem(INSPECTOR_FIELDS_MODE_KEY);
@@ -530,6 +627,78 @@ window.app = (function() {
     if (open) modal.classList.remove('hidden');
     else modal.classList.add('hidden');
   };
+  const setUndoModalOpen_ = (open) => {
+    var modal = document.getElementById('undo-modal');
+    if (!modal) return;
+    if (open) modal.classList.remove('hidden');
+    else modal.classList.add('hidden');
+  };
+  const formatUndoTs_ = (ts) => {
+    const raw = String(ts || '').trim();
+    if (!raw) return '-';
+    const d = new Date(raw);
+    if (!isNaN(d.getTime())) {
+      return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+    }
+    return raw;
+  };
+  const renderUndoModalList_ = () => {
+    const listEl = document.getElementById('undo-list');
+    const summaryEl = document.getElementById('undo-summary');
+    const applyBtn = document.getElementById('btn-undo-apply');
+    if (!listEl || !summaryEl || !applyBtn) return;
+    const items = Array.isArray(state.undoOptions) ? state.undoOptions : [];
+    const isLoading = !!state.undoLoading;
+    const hasError = String(state.undoLoadError || '').trim();
+    summaryEl.textContent = isLoading
+      ? 'Loading undo history...'
+      : (hasError ? (`Error: ${hasError}`) : (`${items.length} history group(s)`));
+    applyBtn.disabled = isLoading || !!hasError || !state.undoSelectedKey || state.undoBusy;
+    listEl.innerHTML = '';
+    if (isLoading) {
+      const d = document.createElement('div');
+      d.className = 'undo-empty';
+      d.textContent = 'Loading...';
+      listEl.appendChild(d);
+      return;
+    }
+    if (hasError) {
+      const d = document.createElement('div');
+      d.className = 'undo-empty';
+      d.textContent = hasError;
+      listEl.appendChild(d);
+      return;
+    }
+    if (!items.length) {
+      const d = document.createElement('div');
+      d.className = 'undo-empty';
+      d.textContent = 'No undo history found.';
+      listEl.appendChild(d);
+      return;
+    }
+    items.forEach((item, idx) => {
+      const key = String((item && item.undoKey) || '').trim();
+      if (!key) return;
+      const row = document.createElement('div');
+      row.className = 'undo-item' + (state.undoSelectedKey === key ? ' active' : '');
+      const count = Math.max(1, Math.round(Number(item.count || 1)));
+      const cardCount = Math.max(0, Math.round(Number(item.targetIdsCount || 0)));
+      const actionSummary = String(item.actionSummary || 'update');
+      const when = formatUndoTs_(item.ts);
+      const targetSheet = String(item.targetSheet || '');
+      const targetIds = Array.isArray(item.targetIds) ? item.targetIds.slice(0, 4) : [];
+      const idsText = targetIds.length ? targetIds.join(', ') : '-';
+      row.innerHTML = '' +
+        `<div class="undo-main">${idx + 1}. ${escapeHtml_(actionSummary)} | steps:${count}</div>` +
+        `<div class="undo-meta">${escapeHtml_(when)} | sheet:${escapeHtml_(targetSheet || '-')} | cards:${cardCount}</div>` +
+        `<div class="undo-meta">ids: ${escapeHtml_(idsText)}${cardCount > targetIds.length ? ` ...(+${cardCount - targetIds.length})` : ''}</div>`;
+      row.addEventListener('click', () => {
+        state.undoSelectedKey = key;
+        renderUndoModalList_();
+      });
+      listEl.appendChild(row);
+    });
+  };
   const closeToolbarMenus_ = () => {
     if (els.viewMenuPopup) els.viewMenuPopup.classList.remove('open');
     if (els.laneMenuPopup) els.laneMenuPopup.classList.remove('open');
@@ -565,9 +734,14 @@ window.app = (function() {
     requestAnimationFrame(() => {
       state.assetInspectorRefreshQueued = false;
       if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) return;
+      var selStart = Math.max(1, Math.round(Number(state.assetCellSelection.rawStart) || 1));
+      var selEnd = Math.max(selStart, Math.round(Number(state.assetCellSelection.rawEnd) || selStart));
+      refreshAssetUsageState_();
+      state.assetCellSelection.rawStart = selStart;
+      state.assetCellSelection.rawEnd = selEnd;
       state.assetCellSelection.rows = summarizeAssetsForRawRange_(
-        state.assetCellSelection.rawStart,
-        state.assetCellSelection.rawEnd
+        selStart,
+        selEnd
       );
       ui.renderInspector();
     });
@@ -616,7 +790,7 @@ window.app = (function() {
     dateToSlot: (d, kind) => {
       if (!d || isNaN(d)) return 1;
       const dateStr = formatYmd_(d);
-      const mins = (d.getHours() * 60 + d.getMinutes()) - (config.workStartH * 60);
+      const mins = (d.getHours() * 60 + d.getMinutes());
       const rel = Math.round(mins / config.slotMin);
       return utils.dateValToSlot(dateStr, rel + 1, kind || 'start');
     },
@@ -845,7 +1019,7 @@ window.app = (function() {
     },
     calcSlotPx: (val) => {
       const n = Number(val);
-      return Math.max(1, Math.min(200, n));
+      return Math.max(1, Math.min(100, n));
     },
     setCacheStatus: () => {}
   };
@@ -1024,6 +1198,274 @@ window.app = (function() {
     return null;
   }
 
+  function slotRectForRawRange_(fromRaw, toRaw, pxPerDay) {
+    var s = utils.normalizeSlot(fromRaw, 'start');
+    var e = utils.normalizeSlot(toRaw, 'end');
+    if (!s || !e) return null;
+    var sDayIdx = state.workDayMap.findIndex(function(wd) { return formatYmd_(wd) === s.dateVal; });
+    var eDayIdx = state.workDayMap.findIndex(function(wd) { return formatYmd_(wd) === e.dateVal; });
+    if (sDayIdx < 0 || eDayIdx < 0 || eDayIdx < sDayIdx) return null;
+    var sSpd = Math.max(1, Number(s.slotsPerDay) || getSlotsPerDay_());
+    var eSpd = Math.max(1, Number(e.slotsPerDay) || getSlotsPerDay_());
+    var top = (sDayIdx * pxPerDay) + (((Math.max(1, Number(s.slotVal) || 1) - 1) / sSpd) * pxPerDay);
+    var bottom = (eDayIdx * pxPerDay) + ((Math.max(1, Number(e.slotVal) || 1) / eSpd) * pxPerDay);
+    if (!isFinite(top) || !isFinite(bottom) || bottom <= top) return null;
+    return {
+      top: top,
+      height: Math.max(6, bottom - top)
+    };
+  }
+
+  function normalizeCardIds_(ids) {
+    var out = [];
+    var seen = {};
+    (Array.isArray(ids) ? ids : []).forEach(function (id) {
+      var key = String(id || '').trim();
+      if (!key || seen[key] || !state.cards[key]) return;
+      seen[key] = true;
+      out.push(key);
+    });
+    return out;
+  }
+
+  function isCardInMultiSelection_(cardId) {
+    var key = String(cardId || '');
+    if (!key) return false;
+    return (state.multiSelection || []).indexOf(key) >= 0;
+  }
+
+  function toggleMultiSelection_(cardId) {
+    var key = String(cardId || '').trim();
+    if (!key || !state.cards[key]) return;
+    var next = normalizeCardIds_(state.multiSelection || []);
+    var idx = next.indexOf(key);
+    if (idx >= 0) next.splice(idx, 1);
+    else next.push(key);
+    state.multiSelection = next;
+  }
+
+  function getLaneSortedCardIds_(laneId) {
+    var key = String(laneId || '');
+    if (!key) return [];
+    return Object.values(state.cards || {})
+      .filter(function (c) {
+        return !!c &&
+          String(c.laneId || '') === key &&
+          isFinite(Number(c.start)) &&
+          isFinite(Number(c.end));
+      })
+      .sort(function (a, b) {
+        if (Number(a.start) !== Number(b.start)) return Number(a.start) - Number(b.start);
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      })
+      .map(function (c) { return String(c.id || ''); })
+      .filter(Boolean);
+  }
+
+  function buildLaneRangeSelection_(anchorId, targetId) {
+    var aId = String(anchorId || '').trim();
+    var tId = String(targetId || '').trim();
+    if (!aId || !tId || !state.cards[aId] || !state.cards[tId]) return [];
+    var aLane = String(state.cards[aId].laneId || '');
+    var tLane = String(state.cards[tId].laneId || '');
+    if (!aLane || aLane === 'unassigned' || aLane !== tLane) return [];
+    var ordered = getLaneSortedCardIds_(aLane);
+    if (!ordered.length) return [];
+    var ai = ordered.indexOf(aId);
+    var ti = ordered.indexOf(tId);
+    if (ai < 0 || ti < 0) return [];
+    var lo = Math.min(ai, ti);
+    var hi = Math.max(ai, ti);
+    return ordered.slice(lo, hi + 1);
+  }
+
+  function getCardLengthSlots_(card) {
+    if (!card) return 1;
+    var s = Math.round(Number(card.start));
+    var e = Math.round(Number(card.end));
+    if (!isFinite(s) || !isFinite(e) || e < s) return 1;
+    return Math.max(1, e - s + 1);
+  }
+
+  function buildDragBlockForCard_(cardId) {
+    var key = String(cardId || '').trim();
+    if (!key || !state.cards[key]) return null;
+    var seed = isCardInMultiSelection_(key) ? normalizeCardIds_(state.multiSelection || []) : [key];
+    if (seed.length <= 1) return null;
+    var laneId = String(state.cards[key].laneId || '');
+    if (!laneId || laneId === 'unassigned') return null;
+    var cards = seed
+      .map(function (id) { return state.cards[id]; })
+      .filter(function (c) {
+        return !!c &&
+          String(c.laneId || '') === laneId &&
+          isFinite(Number(c.start)) &&
+          isFinite(Number(c.end));
+      })
+      .sort(function (a, b) {
+        if (Number(a.start) !== Number(b.start)) return Number(a.start) - Number(b.start);
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      });
+    if (cards.length <= 1) return null;
+    var baseStart = Math.round(Number(cards[0].start) || 1);
+    if (!isFinite(baseStart) || baseStart < 1) baseStart = 1;
+    var entries = cards.map(function (c) {
+      var len = getCardLengthSlots_(c);
+      var rel = Math.max(0, Math.round(Number(c.start) || baseStart) - baseStart);
+      return {
+        id: String(c.id || ''),
+        relStart: rel,
+        len: len
+      };
+    });
+    var anchorRel = 0;
+    entries.forEach(function (ent) {
+      if (String(ent.id || '') === key) anchorRel = ent.relStart;
+    });
+    var spanSlots = 1;
+    entries.forEach(function (ent) {
+      spanSlots = Math.max(spanSlots, ent.relStart + ent.len);
+    });
+    return {
+      laneId: laneId,
+      ids: entries.map(function (ent) { return ent.id; }),
+      entries: entries,
+      baseStart: baseStart,
+      anchorRelStart: anchorRel,
+      spanSlots: spanSlots
+    };
+  }
+
+  function resolveInsertStartByEarlyCards_(laneId, desiredStart, excludeIds) {
+    var laneKey = String(laneId || '');
+    var start = Math.max(1, Math.round(Number(desiredStart) || 1));
+    if (!laneKey) return start;
+    var exclude = {};
+    normalizeCardIds_(excludeIds || []).forEach(function (id) { exclude[id] = true; });
+    var maxEarlyEnd = null;
+    Object.values(state.cards || {}).forEach(function (c) {
+      if (!c) return;
+      var id = String(c.id || '');
+      if (exclude[id]) return;
+      if (String(c.laneId || '') !== laneKey) return;
+      var cStart = Math.round(Number(c.start));
+      var cEnd = Math.round(Number(c.end));
+      if (!isFinite(cStart) || !isFinite(cEnd)) return;
+      if (cEnd < cStart) return;
+      if (cStart >= start) return;
+      if (maxEarlyEnd === null || cEnd > maxEarlyEnd) maxEarlyEnd = cEnd;
+    });
+    if (maxEarlyEnd !== null && maxEarlyEnd >= start) return maxEarlyEnd + 1;
+    return start;
+  }
+
+  function pushDownLaneSuffixPreserveGaps_(laneId, insertStart, insertEnd, excludeIds) {
+    var laneKey = String(laneId || '');
+    if (!laneKey || !isFinite(Number(insertStart)) || !isFinite(Number(insertEnd))) return [];
+    var start = Math.max(1, Math.round(Number(insertStart)));
+    var end = Math.max(start, Math.round(Number(insertEnd)));
+    var exclude = {};
+    if (excludeIds && typeof excludeIds.forEach === 'function') {
+      excludeIds.forEach(function (id) { exclude[String(id || '')] = true; });
+    } else {
+      normalizeCardIds_(excludeIds || []).forEach(function (id) { exclude[id] = true; });
+    }
+    var laneCards = Object.values(state.cards || {})
+      .filter(function (c) {
+        return !!c &&
+          String(c.laneId || '') === laneKey &&
+          !exclude[String(c.id || '')] &&
+          isFinite(Number(c.start)) &&
+          isFinite(Number(c.end));
+      })
+      .sort(function (a, b) {
+        if (Number(a.start) !== Number(b.start)) return Number(a.start) - Number(b.start);
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      });
+    if (!laneCards.length) return [];
+    var firstIdx = -1;
+    for (var i = 0; i < laneCards.length; i++) {
+      var c = laneCards[i];
+      var cEnd = Math.round(Number(c.end) || 0);
+      if (cEnd >= start) {
+        firstIdx = i;
+        break;
+      }
+    }
+    if (firstIdx < 0) return [];
+    var firstStart = Math.round(Number(laneCards[firstIdx].start) || start);
+    var delta = (end - firstStart + 1);
+    if (!isFinite(delta) || delta <= 0) return [];
+    var shifted = [];
+    for (var j = firstIdx; j < laneCards.length; j++) {
+      var card = laneCards[j];
+      card.start = Math.max(1, Math.round(Number(card.start) || 1) + delta);
+      card.end = Math.max(card.start, Math.round(Number(card.end) || card.start) + delta);
+      shifted.push(card);
+    }
+    return shifted;
+  }
+
+  function snapshotLaneLengths_(laneId) {
+    var key = String(laneId || '');
+    var map = {};
+    Object.values(state.cards || {}).forEach(function(card) {
+      if (!card) return;
+      if (String(card.laneId || '') !== key) return;
+      var s = Math.round(Number(card.start));
+      var e = Math.round(Number(card.end));
+      if (!isFinite(s) || !isFinite(e)) return;
+      if (e < s) return;
+      map[String(card.id || '')] = Math.max(1, e - s + 1);
+    });
+    return map;
+  }
+
+  function enforceLaneLengthInvariant_(laneId, expectedById, reason) {
+    var key = String(laneId || '');
+    var fixes = [];
+    var expected = expectedById || {};
+    Object.keys(expected).forEach(function(cardId) {
+      var c = state.cards && state.cards[cardId];
+      if (!c) return;
+      if (String(c.laneId || '') !== key) return;
+      var s = Math.round(Number(c.start));
+      var e = Math.round(Number(c.end));
+      var exp = Math.max(1, Math.round(Number(expected[cardId]) || 1));
+      if (!isFinite(s) || !isFinite(e)) return;
+      var cur = Math.max(1, e - s + 1);
+      if (cur === exp) return;
+      c.end = s + exp - 1;
+      fixes.push({ id: cardId, from: cur, to: exp });
+    });
+    if (fixes.length) {
+      console.warn('[MOTK][Scheduler][LEN_GUARD] corrected', {
+        laneId: key,
+        reason: String(reason || ''),
+        fixes: fixes
+      });
+    }
+    return fixes;
+  }
+
+  function focusSelectedGapHitbox_() {
+    if (!els.canvas || !state.gapSelection) return;
+    var g = state.gapSelection;
+    var laneId = String(g.laneId || '');
+    var from = String(Math.round(Number(g.fromSlot) || 0));
+    var to = String(Math.round(Number(g.toSlot) || 0));
+    var nodes = els.canvas.querySelectorAll('.gap-hitbox');
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      if (!n || !n.dataset) continue;
+      if (String(n.dataset.gapLaneId || '') !== laneId) continue;
+      if (String(n.dataset.gapFrom || '') !== from) continue;
+      if (String(n.dataset.gapTo || '') !== to) continue;
+      try { n.focus({ preventScroll: true }); } catch (_) { try { n.focus(); } catch (_) {} }
+      return;
+    }
+  }
+
   function getPxPerDay_() {
     return state.slotPx * getSlotsPerDay_();
   }
@@ -1048,6 +1490,21 @@ window.app = (function() {
     let snapped = Math.round(mins / snap.min) * snap.min;
     snapped = Math.max(0, Math.min(dayMinutes, snapped));
     return { minutes: snapped, snap: snap };
+  }
+
+  function setDragPreview_(preview) {
+    if (!preview || !preview.laneId || !isFinite(Number(preview.start)) || !isFinite(Number(preview.end))) {
+      state.dragPreview = null;
+      return;
+    }
+    var start = Math.max(1, Math.round(Number(preview.start)));
+    var end = Math.max(start, Math.round(Number(preview.end)));
+    state.dragPreview = {
+      laneId: String(preview.laneId || ''),
+      start: start,
+      end: end,
+      mode: String(preview.mode || 'move')
+    };
   }
 
   function formatYmd_(d) {
@@ -1374,45 +1831,6 @@ window.app = (function() {
       overloadedAssets: overloadedAssets,
       affectedCards: Object.keys(cardConflict).length
     };
-  }
-
-  function buildAssetSlotLinesForCard_(card, limit) {
-    if (!card) return [];
-    var assetIds = getTaskAssetIds_(card.taskId);
-    if (!assetIds.length) return [];
-    var maxLines = Math.max(1, Number(limit) || 60);
-    var start = Math.max(1, Math.round(Number(card.start) || 1));
-    var end = Math.max(start, Math.round(Number(card.end) || start));
-    var lines = [];
-    for (var slot = start; slot <= end; slot++) {
-      var slotUsage = state.assetUsageBySlot[String(slot)] || state.assetUsageBySlot[slot];
-      if (!slotUsage) continue;
-      var parts = [];
-      for (var i = 0; i < assetIds.length; i++) {
-        var aid = assetIds[i];
-        var u = slotUsage[aid];
-        if (!u) continue;
-        var warn = u.count > u.capacity ? ' !' : '';
-        parts.push(getAssetLabel_(aid) + ' ' + u.count + '/' + u.capacity + warn);
-      }
-      if (!parts.length) continue;
-      lines.push(slotLabelFromRaw_(slot) + ': ' + parts.join(', '));
-      if (lines.length >= maxLines) break;
-    }
-    return lines;
-  }
-
-  function getVisibleRawSlotRange_() {
-    if (!state.workDayMap || !state.workDayMap.length) return null;
-    var slotsPerDay = Math.max(1, getSlotsPerDay_());
-    var firstDay = state.workDayMap[0];
-    var lastDay = state.workDayMap[state.workDayMap.length - 1];
-    if (!firstDay || !lastDay) return null;
-    var startRaw = utils.dateValToSlot(formatYmd_(firstDay), 1, 'start');
-    var endRaw = utils.dateValToSlot(formatYmd_(lastDay), slotsPerDay, 'end');
-    startRaw = Math.max(1, Math.round(Number(startRaw) || 1));
-    endRaw = Math.max(startRaw, Math.round(Number(endRaw) || startRaw));
-    return { startRaw: startRaw, endRaw: endRaw, slotsPerDay: slotsPerDay };
   }
 
   function getAssetsColWidth_() {
@@ -1953,12 +2371,6 @@ window.app = (function() {
       var cardMainSel = document.getElementById('sel-card-main');
       var cardSubSel = document.getElementById('sel-card-sub');
       ui.syncCardDisplayFieldSelectors(cardMainSel, cardSubSel);
-      var cfgOrigin = document.getElementById('cfg-origin-date');
-      if (cfgOrigin) cfgOrigin.value = utils.fmtYmdInput(config.originDate);
-      var cfgSlot = document.getElementById('cfg-slot-min');
-      if (cfgSlot) cfgSlot.value = String(config.slotMin);
-      var cfgWork = document.getElementById('cfg-work-hours');
-      if (cfgWork) cfgWork.value = String(config.workHours);
       var renameInput = document.getElementById('sched-rename-input');
       if (renameInput) renameInput.value = state.schedName;
       var laneWInput = document.getElementById('inp-lane-w');
@@ -2084,12 +2496,39 @@ window.app = (function() {
     }
   };
 
-  function flushCommitQueue_(cardKey) {
-    const entry = state.commitQueueByCard[cardKey];
-    if (!entry || entry.inflight || !entry.pending) return;
-    const payload = entry.pending;
-    entry.pending = null;
-    entry.inflight = true;
+  function flushCommitQueue_() {
+    if (state.undoBusy && state.undoPhase === 'rpc' && !state.commitInflight) return;
+    if (state.commitInflight) return;
+    const item = state.commitQueue.shift();
+    if (!item || !item.payload) return;
+    state.commitInflight = item;
+    const payload = item.payload;
+    const finalize_ = () => {
+      state.commitInflight = null;
+      queueAssetInspectorRefresh_();
+      if (state.undoBusy && state.undoPhase === 'rpc') return;
+      flushCommitQueue_();
+    };
+    const retry_ = (reason) => {
+      if (state.undoBusy && state.undoPhase === 'rpc') {
+        console.warn('[MOTK][Scheduler][Commit] retry dropped during undo', { reason, payload });
+        finalize_();
+        return;
+      }
+      const attempts = Number(item.attempts || 0);
+      if (attempts >= 3) {
+        console.error('[MOTK][Scheduler][Commit] final failure after retries', { reason, payload, attempts });
+        utils.saveStatus('error', 'Error');
+        finalize_();
+        return;
+      }
+      item.attempts = attempts + 1;
+      state.commitInflight = null;
+      state.commitQueue.unshift(item);
+      const delayMs = Math.min(120 * item.attempts, 600);
+      console.warn('[MOTK][Scheduler][Commit] retry scheduled', { reason, attempts: item.attempts, delayMs });
+      setTimeout(() => flushCommitQueue_(), delayMs);
+    };
     utils.saveStatus('saving', 'Saving...');
     google.script.run
       .withSuccessHandler((str) => {
@@ -2097,37 +2536,245 @@ window.app = (function() {
         try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
         if (res && res.ok) {
           utils.saveStatus('saved', 'Saved');
+          finalize_();
         } else {
-          console.warn('[MOTK][Scheduler][Commit] RPC error', { cardKey, payload, res });
-          utils.saveStatus('error', 'Error');
+          const msg = String((res && (res.error && (res.error.message || res.error))) || 'rpc_error');
+          console.warn('[MOTK][Scheduler][Commit] RPC error', { payload, res, msg });
+          retry_('rpc:' + msg);
         }
-        entry.inflight = false;
-        queueAssetInspectorRefresh_();
-        if (entry.pending) flushCommitQueue_(cardKey);
       })
       .withFailureHandler((err) => {
-        console.error('[MOTK][Scheduler][Commit] Network failure', { cardKey, payload, err });
-        utils.saveStatus('error', 'Net Error');
-        entry.inflight = false;
-        queueAssetInspectorRefresh_();
-        if (entry.pending) {
-          console.warn('[MOTK][Scheduler][Commit] Pending latest update remains queued after failure.', { cardKey });
-          flushCommitQueue_(cardKey);
-        }
+        console.error('[MOTK][Scheduler][Commit] Network failure', { payload, err });
+        retry_('network');
       })
       .sv_scheduler_commit_v2(JSON.stringify(payload));
   }
 
-  function enqueueCommit_(payload) {
-    const cardId = (payload && payload.card && payload.card.id != null) ? String(payload.card.id) : '__global__';
-    if (!state.commitQueueByCard[cardId]) {
-      state.commitQueueByCard[cardId] = { inflight: false, pending: null };
+  function createCommitOpId_(tag) {
+    const base = String(tag || 'op').replace(/[^a-z0-9_-]/ig, '').toLowerCase() || 'op';
+    return `op_${base}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function withCommitOp_(tag, fn) {
+    const prev = String(state.commitOpId || '');
+    const next = prev || createCommitOpId_(tag);
+    state.commitOpId = next;
+    try {
+      return fn(next);
+    } finally {
+      state.commitOpId = prev;
     }
-    state.commitQueueByCard[cardId].pending = payload;
-    flushCommitQueue_(cardId);
+  }
+
+  function enqueueCommit_(payload) {
+    if (!payload || typeof payload !== 'object') return;
+    if (!payload.opId) payload.opId = createCommitOpId_('single');
+    state.commitSeq = Math.max(0, Math.round(Number(state.commitSeq) || 0)) + 1;
+    state.commitQueue.push({
+      seq: state.commitSeq,
+      payload: payload,
+      attempts: 0,
+      enqueuedAt: Date.now()
+    });
+    flushCommitQueue_();
+  }
+
+  function getCommitQueueStats_() {
+    const pending = Array.isArray(state.commitQueue) ? state.commitQueue.length : 0;
+    const inflight = state.commitInflight ? 1 : 0;
+    const retrying = (state.commitInflight && Number(state.commitInflight.attempts || 0) > 0) ? 1 : 0;
+    return {
+      keys: pending + inflight,
+      inflight: inflight,
+      pending: pending,
+      retrying: retrying
+    };
+  }
+
+  function isCommitQueueIdle_() {
+    const stats = getCommitQueueStats_();
+    return (stats.inflight === 0 && stats.pending === 0);
+  }
+
+  function compactCommitQueueForUndo_() {
+    const q = Array.isArray(state.commitQueue) ? state.commitQueue : [];
+    if (!q.length) return { before: 0, after: 0 };
+    const seen = {};
+    const keptRev = [];
+    for (let i = q.length - 1; i >= 0; i--) {
+      const item = q[i];
+      const p = (item && item.payload && typeof item.payload === 'object') ? item.payload : {};
+      const cardId = (p.card && p.card.id != null) ? String(p.card.id) : '';
+      const key = cardId ? ('card:' + cardId) : ('idx:' + i);
+      if (seen[key]) continue;
+      seen[key] = true;
+      keptRev.push(item);
+    }
+    keptRev.reverse();
+    const before = q.length;
+    state.commitQueue = keptRev;
+    return { before: before, after: keptRev.length };
+  }
+
+  function setBlockingOverlay_(visible, text) {
+    const sp = document.getElementById('loadingSpinner');
+    const label = document.getElementById('loadingSpinnerText');
+    if (label) label.textContent = String(text || 'Loading...');
+    if (sp) sp.style.display = visible ? 'flex' : 'none';
+  }
+
+  function executeUndoRequest_(rpcMethod, payload, afterSuccess) {
+    if (state.undoBusy) return;
+    clearInspectorTimers_();
+    const compacted = compactCommitQueueForUndo_();
+    if (compacted.before > compacted.after) {
+      console.info('[MOTK][Scheduler][Undo] compacted pending queue before wait', compacted);
+    }
+    if (state.inspEdit) {
+      state.inspEdit.isEditingStart = false;
+      state.inspEdit.isEditingEnd = false;
+      state.inspEdit.isTypingStartDate = false;
+      state.inspEdit.isTypingEndDate = false;
+      state.inspEdit.isTyping = false;
+    }
+    try {
+      const ae = document.activeElement;
+      if (ae && typeof ae.blur === 'function') ae.blur();
+    } catch (_) {}
+    state.undoBusy = true;
+    state.undoPhase = 'waiting_queue';
+    renderUndoModalList_();
+    const beginTs = Date.now();
+    const startUndoRpc_ = () => {
+      state.undoPhase = 'rpc';
+      setBlockingOverlay_(true, 'Undo...');
+      utils.saveStatus('saving', 'Undo...');
+      const runner = google.script.run
+        .withSuccessHandler((str) => {
+          let res = null;
+          try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
+          if (res && res.ok) {
+            const undoneCount = Math.max(1, Math.round(Number(res.undoneCount || 1)));
+            const msg = undoneCount > 1 ? ('Undone ×' + undoneCount) : 'Undone';
+            utils.saveStatus('saved', msg);
+            console.info('[MOTK][Scheduler][Undo] applied', {
+              undoneCount: undoneCount,
+              undoneLogIds: Array.isArray(res.undoneLogIds) ? res.undoneLogIds : [],
+              undoneGroupCount: Number(res.undoneGroupCount || 1)
+            });
+            actions.load({
+              forceNetwork: true,
+              onDone: () => {
+                state.undoBusy = false;
+                state.undoPhase = '';
+                setBlockingOverlay_(false);
+                if (typeof afterSuccess === 'function') {
+                  try { afterSuccess(res); } catch (_) {}
+                }
+                flushCommitQueue_();
+                renderUndoModalList_();
+              }
+            });
+            return;
+          }
+          const msg = (res && (res.error || (res.result && res.result.error))) ? String(res.error || res.result.error) : 'Undo failed';
+          console.warn('[MOTK][Scheduler][Undo] failed', { response: res });
+          utils.saveStatus('error', msg);
+          state.undoBusy = false;
+          state.undoPhase = '';
+          setBlockingOverlay_(false);
+          flushCommitQueue_();
+          renderUndoModalList_();
+        })
+        .withFailureHandler((err) => {
+          console.error('[MOTK][Scheduler][Undo] network failure', err);
+          utils.saveStatus('error', String(err && (err.message || err) || 'Undo failed'));
+          state.undoBusy = false;
+          state.undoPhase = '';
+          setBlockingOverlay_(false);
+          flushCommitQueue_();
+          renderUndoModalList_();
+        });
+      const payloadStr = JSON.stringify(payload || { scope: 'scheduler' });
+      if (rpcMethod === 'sv_undo_to_v2') runner.sv_undo_to_v2(payloadStr);
+      else runner.sv_undo_last_v2(payloadStr);
+    };
+    const waitQueueAndUndo_ = () => {
+      if (isCommitQueueIdle_()) {
+        startUndoRpc_();
+        return;
+      }
+      const elapsed = Date.now() - beginTs;
+      if (elapsed > 60000) {
+        const q = getCommitQueueStats_();
+        console.warn('[MOTK][Scheduler][Undo] commit queue timeout', q);
+        utils.saveStatus('error', 'Undo timeout (save queue busy)');
+        state.undoBusy = false;
+        state.undoPhase = '';
+        setBlockingOverlay_(false);
+        renderUndoModalList_();
+        return;
+      }
+      const q = getCommitQueueStats_();
+      setBlockingOverlay_(true, 'Waiting save queue... (' + (q.inflight + q.pending) + ')');
+      setTimeout(waitQueueAndUndo_, 60);
+    };
+    waitQueueAndUndo_();
   }
 
   const actions = {
+    openUndoModal: () => {
+      if (state.undoBusy) return;
+      closeToolbarMenus_();
+      setUndoModalOpen_(true);
+      actions.loadUndoOptions();
+    },
+    closeUndoModal: () => {
+      if (state.undoBusy) return;
+      setUndoModalOpen_(false);
+    },
+    loadUndoOptions: () => {
+      state.undoLoading = true;
+      state.undoLoadError = '';
+      renderUndoModalList_();
+      google.script.run
+        .withSuccessHandler((str) => {
+          let res = null;
+          try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
+          if (!(res && res.ok)) {
+            state.undoOptions = [];
+            state.undoSelectedKey = '';
+            state.undoLoadError = String((res && res.error) || 'Failed to load undo history');
+            state.undoLoading = false;
+            renderUndoModalList_();
+            return;
+          }
+          const items = Array.isArray(res.items) ? res.items : [];
+          state.undoOptions = items;
+          const selectedExists = !!items.find((it) => String((it && it.undoKey) || '') === String(state.undoSelectedKey || ''));
+          state.undoSelectedKey = selectedExists ? String(state.undoSelectedKey || '') : String(((items[0] && items[0].undoKey) || ''));
+          state.undoLoadError = '';
+          state.undoLoading = false;
+          renderUndoModalList_();
+        })
+        .withFailureHandler((err) => {
+          state.undoOptions = [];
+          state.undoSelectedKey = '';
+          state.undoLoadError = String(err && (err.message || err) || 'Failed to load undo history');
+          state.undoLoading = false;
+          renderUndoModalList_();
+        })
+        .sv_undo_options_v2(JSON.stringify({ scope: 'scheduler', limit: 40 }));
+    },
+    undoToSelected: () => {
+      const undoKey = String(state.undoSelectedKey || '').trim();
+      if (!undoKey || state.undoBusy || state.undoLoading) return;
+      executeUndoRequest_(
+        'sv_undo_to_v2',
+        { scope: 'scheduler', undoKey: undoKey },
+        () => actions.loadUndoOptions()
+      );
+    },
     renameSched: (nextName) => {
       const fromInput = (nextName !== undefined && nextName !== null) ? String(nextName).trim() : '';
       const newName = fromInput || prompt('Rename Schedule:', state.schedName);
@@ -2159,7 +2806,17 @@ window.app = (function() {
         .withSuccessHandler(() => { actions.load(); })
         .sv_scheduler_switch_active(id);
     },
-    load: () => {
+    load: (opts) => {
+      opts = opts || {};
+      const onDone = (typeof opts.onDone === 'function') ? opts.onDone : null;
+      let doneCalled = false;
+      const done_ = () => {
+        if (doneCalled) return;
+        doneCalled = true;
+        if (onDone) {
+          try { onDone(); } catch (_) {}
+        }
+      };
       utils.saveStatus('saving', 'Loading...');
       const sp = document.getElementById('loadingSpinner');
       if (sp) sp.style.display='flex';
@@ -2178,24 +2835,27 @@ window.app = (function() {
       };
 
       let cacheUsed = false;
-      try {
-        const raw = localStorage.getItem(SCHED_CACHE_KEY);
-        const rawTs = localStorage.getItem(SCHED_CACHE_TS_KEY);
-        const ts = Number(rawTs);
-        if (raw && isFinite(ts)) {
-          diag.cacheAgeMs = t0 - ts;
-          if (diag.cacheAgeMs >= 0 && diag.cacheAgeMs <= SCHED_CACHE_MAX_AGE_MS) {
-            const cached = JSON.parse(raw);
-            store.init(cached);
-            cacheUsed = true;
-            diag.usedCache = true;
-            diag.t_cache_render_end = Date.now();
-            utils.saveStatus('saved', 'Loaded');
-            if (sp) sp.style.display='none';
+      const shouldBypassCache = !!(opts.forceNetwork || (state.requestedSchedId && !state.requestedSchedApplied));
+      if (!shouldBypassCache) {
+        try {
+          const raw = localStorage.getItem(SCHED_CACHE_KEY);
+          const rawTs = localStorage.getItem(SCHED_CACHE_TS_KEY);
+          const ts = Number(rawTs);
+          if (raw && isFinite(ts)) {
+            diag.cacheAgeMs = t0 - ts;
+            if (diag.cacheAgeMs >= 0 && diag.cacheAgeMs <= SCHED_CACHE_MAX_AGE_MS) {
+              const cached = JSON.parse(raw);
+              store.init(cached);
+              cacheUsed = true;
+              diag.usedCache = true;
+              diag.t_cache_render_end = Date.now();
+              utils.saveStatus('saved', 'Loaded');
+              if (sp) sp.style.display='none';
+            }
           }
+        } catch (e) {
+          console.error('scheduler cache parse error', e);
         }
-      } catch (e) {
-        console.error('scheduler cache parse error', e);
       }
       const tNetStart = Date.now();
       google.script.run
@@ -2208,6 +2868,32 @@ window.app = (function() {
           let res;
           try { res = JSON.parse(str); } catch(e){ console.error(e); }
           if (res && res.ok) {
+            var requested = String(state.requestedSchedId || '').trim();
+            if (requested && !state.requestedSchedApplied) {
+              var active = String((res.schedConfig && res.schedConfig.activeSchedId) || '').trim();
+              var list = (res.schedConfig && Array.isArray(res.schedConfig.allScheds)) ? res.schedConfig.allScheds : [];
+              var exists = !list.length || list.some(function (s) {
+                return String((s && s.id) || '').trim() === requested;
+              });
+              if (exists && active && active !== requested) {
+                state.requestedSchedApplied = true;
+                google.script.run
+                  .withSuccessHandler(function () { actions.load(opts); })
+                  .withFailureHandler(function (err) {
+                    const msg = 'Requested schedule switch failed';
+                    console.error('[MOTK][Scheduler] ' + msg, { requested: requested, err: err });
+                    if (!cacheUsed && sp) sp.style.display = 'none';
+                    diag.ok = false;
+                    diag.error = msg;
+                    if (!cacheUsed) utils.saveStatus('error', msg);
+                    try { sessionStorage.setItem(SCHED_LOAD_DIAG_KEY, JSON.stringify(diag, null, 2)); } catch (_) { }
+                    done_();
+                  })
+                  .sv_scheduler_switch_active(requested);
+                return;
+              }
+              state.requestedSchedApplied = true;
+            }
             store.init(res);
             diag.ok = true;
             utils.saveStatus('saved', 'Loaded');
@@ -2225,6 +2911,7 @@ window.app = (function() {
             }
           }
           try { sessionStorage.setItem(SCHED_LOAD_DIAG_KEY, JSON.stringify(diag, null, 2)); } catch (_) { }
+          done_();
         })
         .withFailureHandler(e => {
           const tNetEnd = Date.now();
@@ -2239,15 +2926,24 @@ window.app = (function() {
             utils.saveStatus('saved', 'Loaded');
           }
           try { sessionStorage.setItem(SCHED_LOAD_DIAG_KEY, JSON.stringify(diag, null, 2)); } catch (_) { }
+          done_();
         })
         .sv_scheduler_load_v2();
     },
 
-    commit: (id, type) => {
+    undoLast: () => executeUndoRequest_('sv_undo_last_v2', { scope: 'scheduler' }),
+
+    commit: (id, type, opts = {}) => {
+      if (state.undoBusy) {
+        utils.saveStatus('saving', 'Undo in progress...');
+        return;
+      }
       const c = state.cards[id];
       if (!c && type !== 'delete') return;
+      const opId = String((opts && opts.opId) || state.commitOpId || createCommitOpId_('single'));
       const payload = {
         action: type,
+        opId: opId,
         card: {
           id: id,
           taskId: c ? c.taskId : '',
@@ -2265,6 +2961,7 @@ window.app = (function() {
     clearAssetCellSelection: (opts = {}) => {
       if (!state.assetCellSelection) return;
       state.assetCellSelection = null;
+      state.dragPreview = null;
       if (opts && opts.skipRender) return;
       render.grid();
       ui.renderInspector();
@@ -2273,6 +2970,7 @@ window.app = (function() {
     clearGapSelection: () => {
       if (!state.gapSelection) return;
       state.gapSelection = null;
+      state.dragPreview = null;
       state.assetCellSelection = null;
       render.grid();
       ui.renderInspector();
@@ -2285,6 +2983,8 @@ window.app = (function() {
       }
       state.selection = null;
       state.gapSelection = null;
+      state.multiSelection = [];
+      state.multiAnchorCardId = null;
       state.assetCellSelection = {
         dateVal: String(selection.dateVal || ''),
         rawStart: Math.max(1, Math.round(Number(selection.rawStart))),
@@ -2303,8 +3003,17 @@ window.app = (function() {
         actions.clearGapSelection();
         return;
       }
+      try {
+        var ae = document.activeElement;
+        if (ae && typeof ae.blur === 'function') {
+          var tag = String(ae.tagName || '').toLowerCase();
+          if (tag === 'input' || tag === 'textarea' || tag === 'select' || ae.isContentEditable) ae.blur();
+        }
+      } catch (_) {}
       state.selection = null;
       state.assetCellSelection = null;
+      state.multiSelection = [];
+      state.multiAnchorCardId = null;
       state.gapSelection = {
         laneId: String(gap.laneId),
         fromSlot: Math.max(1, Math.round(Number(gap.fromSlot))),
@@ -2315,6 +3024,7 @@ window.app = (function() {
       };
       render.grid();
       ui.renderInspector();
+      requestAnimationFrame(() => focusSelectedGapHitbox_());
     },
 
     closeSelectedGap: () => {
@@ -2332,15 +3042,17 @@ window.app = (function() {
         actions.clearGapSelection();
         return;
       }
-      targets.forEach((c) => {
-        const oldStart = Math.round(Number(c.start));
-        const oldEnd = Math.round(Number(c.end));
-        const nextStart = Math.max(1, oldStart - shift);
-        const nextEnd = Math.max(nextStart, oldEnd - shift);
-        if (nextStart === oldStart && nextEnd === oldEnd) return;
-        c.start = nextStart;
-        c.end = nextEnd;
-        actions.commit(c.id, 'update');
+      withCommitOp_('close_gap', () => {
+        targets.forEach((c) => {
+          const oldStart = Math.round(Number(c.start));
+          const oldEnd = Math.round(Number(c.end));
+          const nextStart = Math.max(1, oldStart - shift);
+          const nextEnd = Math.max(nextStart, oldEnd - shift);
+          if (nextStart === oldStart && nextEnd === oldEnd) return;
+          c.start = nextStart;
+          c.end = nextEnd;
+          actions.commit(c.id, 'update');
+        });
       });
       state.gapSelection = null;
       render.grid();
@@ -2349,9 +3061,54 @@ window.app = (function() {
       utils.saveStatus('saved', 'Gap closed');
     },
 
+    clearMultiSelection: () => {
+      if (!state.multiSelection || !state.multiSelection.length) return;
+      state.multiSelection = [];
+      state.multiAnchorCardId = null;
+      render.grid();
+      ui.renderCardList();
+    },
+
+    toggleMultiSelection: (id, opts = {}) => {
+      const key = String(id || '').trim();
+      if (!key || !state.cards[key]) return;
+      const keepContiguous = opts.contiguous !== false;
+      const shiftKey = !!opts.shiftKey;
+      const anchorId = String(state.multiAnchorCardId || state.selection || key).trim();
+      let next = [];
+      if (keepContiguous) {
+        next = buildLaneRangeSelection_(anchorId, key);
+      }
+      if (!next.length) {
+        toggleMultiSelection_(key);
+        next = normalizeCardIds_(state.multiSelection || []);
+      } else {
+        state.multiSelection = normalizeCardIds_(next);
+      }
+      if (!state.multiSelection.length) {
+        state.multiAnchorCardId = null;
+      } else if (!state.multiAnchorCardId || !state.cards[state.multiAnchorCardId]) {
+        state.multiAnchorCardId = key;
+      } else if (!shiftKey && keepContiguous) {
+        state.multiAnchorCardId = anchorId || key;
+      }
+      if (!state.multiSelection.length) {
+        state.selection = key;
+      } else if (state.multiSelection.indexOf(String(state.selection || '')) < 0) {
+        state.selection = key;
+      }
+      render.grid();
+      ui.renderCardList();
+      ui.renderInspector();
+    },
+
     selectCard: (id, opts = {}) => {
       const key = String(id);
       if (!state.cards[key]) return;
+      if (opts && opts.clearMulti) {
+        state.multiSelection = [];
+        state.multiAnchorCardId = null;
+      }
       state.gapSelection = null;
       state.assetCellSelection = null;
       if (String(state.selection || '') !== key) clearInspectorTimers_();
@@ -2486,106 +3243,99 @@ window.app = (function() {
       store.saveViewMeta('lane');
     },
 
-    saveScheduleConfig: () => {
-      var originEl = document.getElementById('cfg-origin-date');
-      var slotEl = document.getElementById('cfg-slot-min');
-      var workEl = document.getElementById('cfg-work-hours');
-      var req = {
-        scheduleId: state.schedId,
-        cfg: {
-          originDate: originEl ? String(originEl.value || '').trim() : '',
-          slotMin: slotEl ? Number(slotEl.value) : NaN,
-          workHours: workEl ? Number(workEl.value) : NaN
-        }
-      };
-      if (!req.cfg.originDate) {
-        alert('Origin Date is required.');
-        return;
-      }
-      if (!isFinite(req.cfg.slotMin) || req.cfg.slotMin <= 0) {
-        alert('Slot Min must be a positive number.');
-        return;
-      }
-      if (!isFinite(req.cfg.workHours) || req.cfg.workHours <= 0) {
-        alert('Work Hours must be a positive number.');
-        return;
-      }
-      utils.saveStatus('saving', 'Saving config...');
-      google.script.run
-        .withSuccessHandler((str) => {
-          var res = null;
-          try { res = JSON.parse(str); } catch (_) { res = { ok: false }; }
-          if (!res || !res.ok) {
-            utils.saveStatus('error', 'Config save failed');
-            return;
-          }
-          utils.saveStatus('saved', 'Config saved');
-          setSettingsModalOpen_(false);
-          actions.load();
-        })
-        .withFailureHandler((err) => {
-          console.error('[MOTK][Scheduler][ConfigSave] failed', err);
-          utils.saveStatus('error', 'Config save failed');
-        })
-        .sv_scheduler_save_config_v2(JSON.stringify(req));
-    },
-
     resolveCollisions: (movedCard) => {
       if (!state.autoPush) return;
       if (!movedCard || !movedCard.laneId || movedCard.laneId === 'unassigned') return;
       if (!isFinite(movedCard.start) || !isFinite(movedCard.end)) return;
-
-      const dur = movedCard.end - movedCard.start + 1;
-      if (!isFinite(dur) || dur <= 0) return;
-
-      const laneCards = Object.values(state.cards)
-        .filter(c => c.laneId === movedCard.laneId && isFinite(c.start) && isFinite(c.end));
-      if (!laneCards.length) return;
-
-      // Sort by start, but keep moved card after any other card with same start.
-      laneCards.sort((a, b) => {
-        if (a.start !== b.start) return a.start - b.start;
-        const aIsMoved = a.id === movedCard.id ? 1 : 0;
-        const bIsMoved = b.id === movedCard.id ? 1 : 0;
-        if (aIsMoved !== bIsMoved) return aIsMoved - bIsMoved;
-        return String(a.id).localeCompare(String(b.id));
-      });
-
-      let cursorEnd = 0;
-      laneCards.forEach(c => {
-        if (c.id === movedCard.id) {
-          if (c.start <= cursorEnd) {
-            c.start = cursorEnd + 1;
-            c.end = c.start + dur - 1;
-          }
-          cursorEnd = Math.max(cursorEnd, c.end);
-          return;
-        }
-        if (c.start <= cursorEnd) {
-          const len = c.end - c.start + 1;
-          c.start = cursorEnd + 1;
-          c.end = c.start + len - 1;
-          actions.commit(c.id, 'update');
-        }
-        cursorEnd = Math.max(cursorEnd, c.end);
-      });
+      var shifted = pushDownLaneSuffixPreserveGaps_(
+        movedCard.laneId,
+        movedCard.start,
+        movedCard.end,
+        [movedCard.id]
+      );
+      shifted.forEach(function (c) { actions.commit(c.id, 'update'); });
     },
 
     moveCard: (id, newStart, newLane) => {
       const c = state.cards[id];
       if (!c) return;
-      const dur = c.end - c.start + 1;
-      c.start = newStart;
-      c.end = newStart + dur - 1;
-      c.laneId = newLane;
-      actions.resolveCollisions(c);
-      render.grid();
-      ui.renderCardList();
-      actions.commit(id, 'update');
-      if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) {
-        ui.refreshInspectorValuesFromCard();
-      }
-      queueAssetInspectorRefresh_();
+      withCommitOp_('move_card', () => {
+        const laneBefore = String(c.laneId || '');
+        const laneAfter = String(newLane || laneBefore);
+        const dur = c.end - c.start + 1;
+        const requestedStart = Math.max(1, Math.round(Number(newStart) || 1));
+        const resolvedStart = resolveInsertStartByEarlyCards_(laneAfter, requestedStart, [id]);
+        const expectedById = snapshotLaneLengths_(laneAfter);
+        expectedById[String(id)] = Math.max(1, Math.round(Number(dur) || 1));
+        c.start = resolvedStart;
+        c.end = resolvedStart + dur - 1;
+        c.laneId = newLane;
+        actions.resolveCollisions(c);
+        const fixed = enforceLaneLengthInvariant_(laneAfter, expectedById, 'moveCard');
+        fixed.forEach((f) => {
+          if (String(f.id) !== String(id)) actions.commit(f.id, 'update');
+        });
+        render.grid();
+        ui.renderCardList();
+        actions.commit(id, 'update');
+        if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) {
+          ui.refreshInspectorValuesFromCard();
+        }
+        queueAssetInspectorRefresh_();
+      });
+    },
+
+    moveCardBlock: (cardIds, targetStart, targetLane) => {
+      var ids = normalizeCardIds_(cardIds);
+      if (!ids.length) return;
+      withCommitOp_('move_block', () => {
+        var cards = ids
+          .map(function (id) { return state.cards[id]; })
+          .filter(function (c) { return !!c && isFinite(Number(c.start)) && isFinite(Number(c.end)); })
+          .sort(function (a, b) {
+            if (Number(a.start) !== Number(b.start)) return Number(a.start) - Number(b.start);
+            return String(a.id || '').localeCompare(String(b.id || ''));
+          });
+        if (!cards.length) return;
+        var laneId = String(targetLane || cards[0].laneId || '');
+        if (!laneId || laneId === 'unassigned') return;
+        var base = Math.round(Number(cards[0].start) || 1);
+        var entries = cards.map(function (c) {
+          var len = getCardLengthSlots_(c);
+          var relStart = Math.max(0, Math.round(Number(c.start) || base) - base);
+          return { id: String(c.id || ''), relStart: relStart, len: len };
+        });
+        var requestedStart = Math.max(1, Math.round(Number(targetStart) || 1));
+        var start = resolveInsertStartByEarlyCards_(laneId, requestedStart, ids);
+        var blockSpan = 1;
+        entries.forEach(function (ent) {
+          blockSpan = Math.max(blockSpan, ent.relStart + ent.len);
+        });
+        var blockEnd = start + blockSpan - 1;
+        var expectedById = {};
+        entries.forEach(function (ent) {
+          var card = state.cards[ent.id];
+          if (!card) return;
+          card.laneId = laneId;
+          card.start = start + ent.relStart;
+          card.end = card.start + ent.len - 1;
+          expectedById[String(card.id || '')] = ent.len;
+        });
+        var shifted = pushDownLaneSuffixPreserveGaps_(laneId, start, blockEnd, ids);
+        shifted.forEach(function (card) { actions.commit(card.id, 'update'); });
+        var fixed = enforceLaneLengthInvariant_(laneId, expectedById, 'moveCardBlock');
+        fixed.forEach(function (f) {
+          if (ids.indexOf(String(f.id || '')) < 0) actions.commit(f.id, 'update');
+        });
+        render.grid();
+        ui.renderCardList();
+        ids.forEach(function (cid) { actions.commit(cid, 'update'); });
+        state.selection = ids[0];
+        state.multiSelection = ids.slice();
+        state.multiAnchorCardId = ids[0];
+        ui.renderInspector();
+        queueAssetInspectorRefresh_();
+      });
     },
 
     toggleLane: (id) => {
@@ -2787,24 +3537,87 @@ window.app = (function() {
         els.canvas.appendChild(sep);
       });
 
+      lanes.forEach((lane, laneIdx) => {
+        const laneCards = Object.values(state.cards || {})
+          .filter((c) => String(c && c.laneId || '') === String(lane.id || '') && isFinite(Number(c && c.start)) && isFinite(Number(c && c.end)))
+          .sort((a, b) => Number(a.start) - Number(b.start));
+        if (laneCards.length < 2) return;
+        for (let gi = 0; gi < laneCards.length - 1; gi++) {
+          const a = laneCards[gi];
+          const b = laneCards[gi + 1];
+          const from = Math.round(Number(a.end)) + 1;
+          const to = Math.round(Number(b.start)) - 1;
+          if (!(isFinite(from) && isFinite(to)) || from > to) continue;
+          const rect = slotRectForRawRange_(from, to, pxPerDay);
+          if (!rect) continue;
+          const hit = document.createElement('div');
+          hit.className = 'gap-hitbox';
+          hit.tabIndex = 0;
+          hit.setAttribute('role', 'button');
+          hit.setAttribute('aria-label', `Gap ${from}-${to}`);
+          hit.style.left = (laneIdx * laneWidth + 4) + 'px';
+          hit.style.top = rect.top + 'px';
+          hit.style.height = rect.height + 'px';
+          hit.title = `Gap ${from}-${to} (${to - from + 1})`;
+          hit.dataset.gapLaneId = String(lane.id || '');
+          hit.dataset.gapFrom = String(from);
+          hit.dataset.gapTo = String(to);
+          hit.addEventListener('mousedown', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+          });
+          hit.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            actions.selectGap({
+              laneId: String(lane.id || ''),
+              fromSlot: from,
+              toSlot: to,
+              sizeSlots: (to - from + 1),
+              prevCardId: String(a.id || ''),
+              nextCardId: String(b.id || '')
+            });
+          });
+          els.canvas.appendChild(hit);
+        }
+      });
+
       if (state.gapSelection && state.gapSelection.sizeSlots > 0) {
         const g = state.gapSelection;
-        const gapStart = utils.normalizeSlot(g.fromSlot, 'start');
         const laneIdx = lanes.findIndex((l) => String(l.id || '') === String(g.laneId || ''));
-        const gapDayIdx = gapStart ? state.workDayMap.findIndex((wd) => formatYmd_(wd) === gapStart.dateVal) : -1;
-        if (laneIdx >= 0 && gapDayIdx >= 0) {
-          const startRatio = gapStart.slotsPerDay > 0 ? ((gapStart.slotVal - 1) / gapStart.slotsPerDay) : 0;
-          const top = (gapDayIdx * pxPerDay) + (startRatio * pxPerDay);
-          const spanSlots = Math.max(1, Math.round(Number(g.toSlot) - Number(g.fromSlot) + 1));
-          const h = Math.max(8, (spanSlots / Math.max(1, gapStart.slotsPerDay)) * pxPerDay);
+        const rect = slotRectForRawRange_(g.fromSlot, g.toSlot, pxPerDay);
+        if (laneIdx >= 0 && rect) {
           const left = (laneIdx * laneWidth) + 4;
           const gapEl = document.createElement('div');
           gapEl.className = 'gap-marker';
-          gapEl.style.top = top + 'px';
+          gapEl.style.top = rect.top + 'px';
           gapEl.style.left = left + 'px';
-          gapEl.style.height = Math.max(6, h - 1) + 'px';
+          gapEl.style.height = Math.max(6, rect.height - 1) + 'px';
           gapEl.title = `Gap ${g.fromSlot}-${g.toSlot} (${g.sizeSlots})`;
           els.canvas.appendChild(gapEl);
+        }
+      }
+
+      if (state.dragPreview && state.dragPreview.laneId) {
+        var p = state.dragPreview;
+        var laneIdxPreview = lanes.findIndex(function (l) { return String(l.id || '') === String(p.laneId || ''); });
+        var previewRect = slotRectForRawRange_(p.start, p.end, pxPerDay);
+        if (laneIdxPreview >= 0 && previewRect) {
+          var previewLeft = (laneIdxPreview * laneWidth) + 4;
+          var previewEl = document.createElement('div');
+          var modeClass = (p.mode === 'resize') ? 'resize' : (p.mode === 'block' ? 'block' : 'move');
+          previewEl.className = 'drag-preview ' + modeClass;
+          previewEl.style.left = previewLeft + 'px';
+          previewEl.style.top = previewRect.top + 'px';
+          previewEl.style.height = Math.max(8, previewRect.height - 1) + 'px';
+          previewEl.title = `Drop ${p.start}-${p.end}`;
+          els.canvas.appendChild(previewEl);
+
+          var lineEl = document.createElement('div');
+          lineEl.className = 'drop-slot-line ' + modeClass;
+          lineEl.style.left = previewLeft + 'px';
+          lineEl.style.top = Math.max(0, previewRect.top - 1) + 'px';
+          els.canvas.appendChild(lineEl);
         }
       }
 
@@ -2825,7 +3638,9 @@ window.app = (function() {
 
         const div = document.createElement('div');
         const conflictInfo = state.cardAssetConflictById[String(c.id)];
-        div.className = `card ${state.selection === c.id ? 'selected' : ''} ${conflictInfo ? 'asset-conflict' : ''}`;
+        const isPrimary = String(state.selection || '') === String(c.id || '');
+        const isMulti = isCardInMultiSelection_(c.id);
+        div.className = `card ${isPrimary ? 'selected' : ''} ${isMulti ? 'multi-selected' : ''} ${conflictInfo ? 'asset-conflict' : ''}`;
         div.style.top = top + 'px'; div.style.left = left + 'px';
         div.style.height = (h - 1) + 'px';
 
@@ -2868,6 +3683,35 @@ window.app = (function() {
       }
     }
   };
+
+  function fmtTaskDateForInspector_(v) {
+    if (!v) return '';
+    if (v instanceof Date && !isNaN(v)) return utils.fmtYmdText(v);
+    const d1 = utils.parseDateTextStrict(v);
+    if (d1) return utils.fmtYmdText(d1);
+    const d2 = utils.parseDateTime(v);
+    return d2 && !isNaN(d2) ? utils.fmtYmdText(d2) : '';
+  }
+
+  function resolveDropTargetFromCanvas_(x, y) {
+    const pxPerDay = getPxPerDay_();
+    const dayIdx = Math.floor(y / pxPerDay);
+    if (!state.workDayMap[dayIdx]) return null;
+    const yInDay = y % pxPerDay;
+    const snapState = snapMinutes_(yInDay, pxPerDay);
+    const snappedMins = snapState.minutes;
+    const d = new Date(state.workDayMap[dayIdx]);
+    d.setHours(0, 0, 0, 0);
+    const spd = getSlotsPerDay_();
+    let slotVal = Math.round(snappedMins / config.slotMin) + 1;
+    slotVal = Math.max(1, Math.min(spd, slotVal));
+    const newStart = utils.dateValToSlot(formatYmd_(d), slotVal, 'start');
+    const lanes = state.lanes.filter(l => l.visible);
+    const laneWidth = getLaneWidth_();
+    const laneIdx = Math.floor(x / laneWidth);
+    const newLane = (laneIdx >= 0 && laneIdx < lanes.length) ? lanes[laneIdx].id : null;
+    return { newStart, newLane, snapState };
+  }
 
   const ui = {
     syncCardDisplayFieldSelectors: (mainSel, subSel) => {
@@ -3025,9 +3869,17 @@ window.app = (function() {
       if (!c) {
         if (state.gapSelection && state.gapSelection.sizeSlots > 0) {
           setInspectorClosed_(false);
-          p.innerHTML = `Gap selected in lane <b>${escapeHtml_(state.gapSelection.laneId)}</b><br>` +
+          p.innerHTML = '';
+          const msg = document.createElement('div');
+          msg.innerHTML = `Gap selected in lane <b>${escapeHtml_(state.gapSelection.laneId)}</b><br>` +
             `Slots: ${state.gapSelection.fromSlot} - ${state.gapSelection.toSlot} (${state.gapSelection.sizeSlots})<br>` +
-            `Press <b>Delete</b> to close this gap.`;
+            `Press <b>Delete</b> or use the button below.`;
+          const btnCloseGap = document.createElement('button');
+          btnCloseGap.className = 'btn';
+          btnCloseGap.textContent = 'Close Gap';
+          btnCloseGap.addEventListener('click', () => actions.closeSelectedGap());
+          p.appendChild(msg);
+          p.appendChild(btnCloseGap);
         } else {
           p.innerHTML = 'Select a card';
         }
@@ -3138,15 +3990,6 @@ window.app = (function() {
       const inspectorSessionId = Number(edit.sessionId) || 0;
 
       const getTaskById_ = (id) => state.tasks.find(t => String(t.id || '') === String(id || ''));
-      const fmtTaskDate_ = (v) => {
-        if (!v) return '';
-        if (v instanceof Date && !isNaN(v)) return utils.fmtYmdText(v);
-        const d1 = utils.parseDateTextStrict(v);
-        if (d1) return utils.fmtYmdText(d1);
-        const d2 = utils.parseDateTime(v);
-        return d2 && !isNaN(d2) ? utils.fmtYmdText(d2) : '';
-      };
-
       const title = document.createElement('div');
       title.style.cssText = 'background:#222; padding:6px; font-weight:bold; border-radius:4px; display:flex; align-items:center; justify-content:space-between; gap:8px;';
       const titleText = document.createElement('span');
@@ -3365,14 +4208,14 @@ window.app = (function() {
         const taskPlanStart = document.createElement('input');
         taskPlanStart.className = 'inp';
         taskPlanStart.readOnly = true;
-        taskPlanStart.value = fmtTaskDate_(t.planStart);
+        taskPlanStart.value = fmtTaskDateForInspector_(t.planStart);
         edit.refs.taskPlanStart = taskPlanStart;
         addField('Plan Start', taskPlanStart);
 
         const taskPlanEnd = document.createElement('input');
         taskPlanEnd.className = 'inp';
         taskPlanEnd.readOnly = true;
-        taskPlanEnd.value = fmtTaskDate_(t.planEnd);
+        taskPlanEnd.value = fmtTaskDateForInspector_(t.planEnd);
         edit.refs.taskPlanEnd = taskPlanEnd;
         addField('Plan End', taskPlanEnd);
       }
@@ -3419,13 +4262,15 @@ window.app = (function() {
         }
         setDateError_(errSD, '');
         edit.isTypingStartDate = false;
-        const dateStr = formatYmd_(d);
-        const newStart = utils.dateValToSlot(dateStr, edit.fields.startSlot, 'start');
-        const len = c.end - c.start + 1;
-        c.start = newStart;
-        c.end = newStart + len - 1;
-        actions.resolveCollisions(c);
-        actions.commit(c.id, 'update');
+        withCommitOp_('inspector_start', () => {
+          const dateStr = formatYmd_(d);
+          const newStart = utils.dateValToSlot(dateStr, edit.fields.startSlot, 'start');
+          const len = c.end - c.start + 1;
+          c.start = newStart;
+          c.end = newStart + len - 1;
+          actions.resolveCollisions(c);
+          actions.commit(c.id, 'update');
+        });
         edit.fields.startDate = utils.fmtYmdText(d);
         refreshEditFromCard_();
         syncInputs_();
@@ -3539,21 +4384,24 @@ window.app = (function() {
         }
         setDateError_(errED, '');
         edit.isTypingEndDate = false;
-        let dateStr = formatYmd_(d0);
-        if (!isFinite(slotNum)) slotNum = slotsPerDay;
-        if (slotNum <= 0) {
-          slotNum = slotsPerDay;
-          const d = utils.parseDateTime(dateStr);
-          if (d && !isNaN(d)) {
-            d.setHours(0,0,0,0);
-            const adj = utils.adjustWeekend(d, 'end');
-            const prev = utils.shiftWorkdays(adj, -1);
-            dateStr = formatYmd_(prev);
+        withCommitOp_('inspector_end', () => {
+          let dateStr = formatYmd_(d0);
+          if (!isFinite(slotNum)) slotNum = slotsPerDay;
+          if (slotNum <= 0) {
+            slotNum = slotsPerDay;
+            const d = utils.parseDateTime(dateStr);
+            if (d && !isNaN(d)) {
+              d.setHours(0,0,0,0);
+              const adj = utils.adjustWeekend(d, 'end');
+              const prev = utils.shiftWorkdays(adj, -1);
+              dateStr = formatYmd_(prev);
+            }
           }
-        }
-        const newEnd = utils.dateValToSlot(dateStr, slotNum, 'end');
-        c.end = Math.max(c.start, newEnd);
-        actions.commit(c.id, 'update');
+          const newEnd = utils.dateValToSlot(dateStr, slotNum, 'end');
+          c.end = Math.max(c.start, newEnd);
+          actions.resolveCollisions(c);
+          actions.commit(c.id, 'update');
+        });
         edit.fields.endDate = utils.fmtYmdText(d0);
         refreshEditFromCard_();
         syncInputs_();
@@ -3720,20 +4568,12 @@ window.app = (function() {
       }
       if (edit.refs.pickStart) edit.refs.pickStart.value = utils.fmtYmdInput(sVal.date);
       if (edit.refs.pickEnd) edit.refs.pickEnd.value = utils.fmtYmdInput(eVal.date);
-      const fmtTaskDate_ = (v) => {
-        if (!v) return '';
-        if (v instanceof Date && !isNaN(v)) return utils.fmtYmdText(v);
-        const d1 = utils.parseDateTextStrict(v);
-        if (d1) return utils.fmtYmdText(d1);
-        const d2 = utils.parseDateTime(v);
-        return d2 && !isNaN(d2) ? utils.fmtYmdText(d2) : '';
-      };
       const t = c.taskId ? (state.tasks.find(x => String(x.id || '') === String(c.taskId)) || {}) : {};
       if (edit.refs.taskName) edit.refs.taskName.value = String(t.name || '');
       if (edit.refs.taskStatus) edit.refs.taskStatus.value = String(t.status || '');
       if (edit.refs.taskAssignee) edit.refs.taskAssignee.value = String(t.assignee || '');
-      if (edit.refs.taskPlanStart) edit.refs.taskPlanStart.value = fmtTaskDate_(t.planStart);
-      if (edit.refs.taskPlanEnd) edit.refs.taskPlanEnd.value = fmtTaskDate_(t.planEnd);
+      if (edit.refs.taskPlanStart) edit.refs.taskPlanStart.value = fmtTaskDateForInspector_(t.planStart);
+      if (edit.refs.taskPlanEnd) edit.refs.taskPlanEnd.value = fmtTaskDateForInspector_(t.planEnd);
       if (edit.refs.metaStart) edit.refs.metaStart.textContent = `rawSlot: ${utils.normalizeSlot(c.start, 'start').rawSlot}`;
       if (edit.refs.metaEnd) edit.refs.metaEnd.textContent = `rawSlot: ${utils.normalizeSlot(c.end, 'end').rawSlot}`;
       if (edit.refs.lenBox) {
@@ -3750,10 +4590,85 @@ window.app = (function() {
   };
 
   let drag = null;
+  let dragPreviewNode = null;
+  let dragPreviewLineNode = null;
+
+  function clearDragPreviewNodes_() {
+    if (dragPreviewNode && dragPreviewNode.parentNode) dragPreviewNode.parentNode.removeChild(dragPreviewNode);
+    if (dragPreviewLineNode && dragPreviewLineNode.parentNode) dragPreviewLineNode.parentNode.removeChild(dragPreviewLineNode);
+    dragPreviewNode = null;
+    dragPreviewLineNode = null;
+    state.dragPreview = null;
+  }
+
+  function renderDragPreviewNodes_(preview) {
+    if (!els.canvas) return;
+    if (!preview || !preview.laneId || !isFinite(Number(preview.start)) || !isFinite(Number(preview.end))) {
+      clearDragPreviewNodes_();
+      return;
+    }
+    setDragPreview_(preview);
+    const p = state.dragPreview;
+    if (!p) {
+      clearDragPreviewNodes_();
+      return;
+    }
+    const lanes = state.lanes.filter((l) => l.visible);
+    const laneIdx = lanes.findIndex((l) => String(l.id || '') === String(p.laneId || ''));
+    const rect = slotRectForRawRange_(p.start, p.end, getPxPerDay_());
+    if (laneIdx < 0 || !rect) {
+      clearDragPreviewNodes_();
+      return;
+    }
+    const laneWidth = getLaneWidth_();
+    const left = (laneIdx * laneWidth) + 4;
+    const modeClass = (p.mode === 'resize') ? 'resize' : (p.mode === 'block' ? 'block' : 'move');
+    if (!dragPreviewNode) {
+      dragPreviewNode = document.createElement('div');
+      els.canvas.appendChild(dragPreviewNode);
+    }
+    if (!dragPreviewLineNode) {
+      dragPreviewLineNode = document.createElement('div');
+      els.canvas.appendChild(dragPreviewLineNode);
+    }
+    dragPreviewNode.className = 'drag-preview ' + modeClass;
+    dragPreviewNode.style.left = left + 'px';
+    dragPreviewNode.style.top = rect.top + 'px';
+    dragPreviewNode.style.height = Math.max(8, rect.height - 1) + 'px';
+    dragPreviewLineNode.className = 'drop-slot-line ' + modeClass;
+    dragPreviewLineNode.style.left = left + 'px';
+    dragPreviewLineNode.style.top = Math.max(0, rect.top - 1) + 'px';
+  }
+
+  function pointerToCanvas_(clientX, clientY) {
+    const rect = els.canvas.getBoundingClientRect();
+    const scrollX = els.gridScroll ? els.gridScroll.scrollLeft : 0;
+    const scrollY = els.gridScroll ? els.gridScroll.scrollTop : 0;
+    return {
+      x: (clientX - rect.left) + scrollX,
+      y: (clientY - rect.top) + scrollY
+    };
+  }
+
   function dragStart(e, card, el) {
+    if (state.undoBusy) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (e.target.classList.contains('card-close')) return;
-    e.stopPropagation(); e.preventDefault();
     const isResizing = e.target.classList.contains('card-resizer');
+    if (!isResizing && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      e.stopPropagation();
+      actions.toggleMultiSelection(card.id, { shiftKey: !!e.shiftKey, contiguous: true });
+      actions.selectCard(card.id, { focus: false });
+      state.suppressCanvasPickUntil = Date.now() + 250;
+      return;
+    }
+    e.stopPropagation();
+    e.preventDefault();
+    const block = (!isResizing) ? buildDragBlockForCard_(card.id) : null;
     drag = {
       card,
       el,
@@ -3762,143 +4677,196 @@ window.app = (function() {
       startTop: parseFloat(el.style.top),
       startHeight: parseFloat(el.style.height),
       isResizing,
+      isBlockMove: !!block,
+      block: block,
       didMove: false
     };
+    clearDragPreviewNodes_();
     document.addEventListener('mousemove', dragMove);
     document.addEventListener('mouseup', dragEnd);
   }
+
   function dragMove(e) {
-    if (!drag) return;
+    if (!drag || state.undoBusy) return;
     const dy = e.clientY - drag.startY;
     const dx = e.clientX - drag.startX;
     if (!drag.didMove && (Math.abs(dy) > 6 || Math.abs(dx) > 6)) drag.didMove = true;
     if (!drag.didMove) return;
+    const pxPerDay = getPxPerDay_();
     if (drag.isResizing) {
-      drag.el.style.height = (drag.startHeight + dy) + 'px';
-    } else {
-      drag.el.style.top = (drag.startTop + dy) + 'px';
-      drag.el.style.transform = 'translateX(' + dx + 'px)';
-    }
-  }
-  function dragEnd(e) {
-    document.removeEventListener('mousemove', dragMove); document.removeEventListener('mouseup', dragEnd);
-    if (drag) {
-      if (drag.el) drag.el.style.transform = '';
-      if (!drag.didMove) {
-        actions.selectCard(drag.card.id, { focus: false });
-        drag = null;
-        return;
-      }
+      const nextHeight = Math.max(6, drag.startHeight + dy);
+      drag.el.style.height = nextHeight + 'px';
       const top = parseFloat(drag.el.style.top);
-      const h = parseFloat(drag.el.style.height);
-      const pxPerDay = getPxPerDay_();
-
-      const dayIdx = Math.floor(top / pxPerDay);
-      const yInDay = top % pxPerDay;
-
-      if (state.workDayMap[dayIdx]) {
-        const snapState = snapMinutes_(yInDay, pxPerDay);
-        const snappedMins = snapState.minutes;
-        const snap = snapState.snap;
-
-        const d = new Date(state.workDayMap[dayIdx]);
-        d.setHours(0, 0, 0, 0);
-        const spd = getSlotsPerDay_();
-        let slotVal = Math.round(snappedMins / config.slotMin) + 1;
-        slotVal = Math.max(1, Math.min(spd, slotVal));
-        const newStart = utils.dateValToSlot(formatYmd_(d), slotVal, 'start');
-
-        const rect = els.canvas.getBoundingClientRect();
-        const scrollX = els.gridScroll ? els.gridScroll.scrollLeft : 0;
-        const x = (e.clientX - rect.left) + scrollX;
-        const laneWidth = getLaneWidth_();
-        const colIdx = Math.floor(x / laneWidth);
-        const lanes = state.lanes.filter(l => l.visible);
-        const newLane = (colIdx>=0 && colIdx<lanes.length) ? lanes[colIdx].id : drag.card.laneId;
-
-        if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) {
-          state.selection = drag.card.id;
-        }
-        const prevStart = drag.card.start;
-        const prevEnd = drag.card.end;
-        const prevLane = drag.card.laneId;
-        let changed = false;
-        if (drag.isResizing) {
-          const hRatio = h / pxPerDay;
-          const durMins = hRatio * (config.workHours * 60);
-          let snappedDur = Math.round(durMins / snap.min) * snap.min;
-          if (snappedDur < snap.min) snappedDur = snap.min;
-          const slots = Math.max(1, Math.round(snappedDur / config.slotMin));
-          const nextEnd = drag.card.start + slots - 1;
-          if (nextEnd !== prevEnd) {
-            drag.card.end = nextEnd;
-            changed = true;
-          }
-        } else {
-          const len = drag.card.end - drag.card.start + 1;
-          const nextStart = newStart;
-          const nextEnd = newStart + len - 1;
-          if (nextStart !== prevStart || nextEnd !== prevEnd || String(newLane) !== String(prevLane)) {
-            drag.card.start = nextStart;
-            drag.card.end = nextEnd;
-            drag.card.laneId = newLane;
-            changed = true;
-          }
-        }
-        if (changed) {
-          actions.moveCard(drag.card.id, drag.card.start, drag.card.laneId);
-        } else {
-          render.grid();
-          ui.refreshInspectorValuesFromCard();
-        }
+      const pt = pointerToCanvas_(e.clientX, e.clientY);
+      const dropTarget = resolveDropTargetFromCanvas_(pt.x, top);
+      if (dropTarget) {
+        const snap = dropTarget.snapState.snap;
+        const hRatio = nextHeight / pxPerDay;
+        const durMins = hRatio * (config.workHours * 60);
+        let snappedDur = Math.round(durMins / snap.min) * snap.min;
+        if (snappedDur < snap.min) snappedDur = snap.min;
+        const slots = Math.max(1, Math.round(snappedDur / config.slotMin));
+        const previewStart = Math.max(1, Math.round(Number(drag.card.start) || 1));
+        const previewEnd = previewStart + slots - 1;
+        renderDragPreviewNodes_({
+          laneId: String(drag.card.laneId || ''),
+          start: previewStart,
+          end: previewEnd,
+          mode: 'resize'
+        });
       } else {
-         render.grid();
+        clearDragPreviewNodes_();
       }
+      return;
+    }
+
+    const top = drag.startTop + dy;
+    drag.el.style.top = top + 'px';
+    drag.el.style.transform = 'translateX(' + dx + 'px)';
+    const pt = pointerToCanvas_(e.clientX, e.clientY);
+    const dropTarget = resolveDropTargetFromCanvas_(pt.x, top);
+    if (!dropTarget) {
+      clearDragPreviewNodes_();
+      return;
+    }
+    const newStart = dropTarget.newStart;
+    const newLane = dropTarget.newLane || drag.card.laneId;
+    if (drag.isBlockMove && drag.block) {
+      var blockStartRaw = Math.max(1, Math.round(Number(newStart) || 1) - Math.max(0, Math.round(Number(drag.block.anchorRelStart) || 0)));
+      var blockStart = resolveInsertStartByEarlyCards_(String(newLane || drag.block.laneId || ''), blockStartRaw, drag.block.ids);
+      renderDragPreviewNodes_({
+        laneId: String(newLane || drag.block.laneId || ''),
+        start: blockStart,
+        end: blockStart + drag.block.spanSlots - 1,
+        mode: 'block'
+      });
+      return;
+    }
+    const len = getCardLengthSlots_(drag.card);
+    const previewStart = resolveInsertStartByEarlyCards_(String(newLane || drag.card.laneId || ''), newStart, [drag.card.id]);
+    renderDragPreviewNodes_({
+      laneId: String(newLane || drag.card.laneId || ''),
+      start: previewStart,
+      end: previewStart + len - 1,
+      mode: 'move'
+    });
+  }
+
+  function dragEnd(e) {
+    document.removeEventListener('mousemove', dragMove);
+    document.removeEventListener('mouseup', dragEnd);
+    if (!drag) return;
+    if (state.undoBusy) {
+      render.grid();
+      drag = null;
+      return;
+    }
+    if (drag.el) drag.el.style.transform = '';
+    clearDragPreviewNodes_();
+    if (!drag.didMove) {
+      state.suppressCanvasPickUntil = Date.now() + 250;
+      if (drag.isBlockMove && drag.block && Array.isArray(state.multiSelection) && state.multiSelection.length > 1) {
+        actions.selectCard(drag.card.id, { focus: false, clearMulti: false });
+      } else {
+        actions.selectCard(drag.card.id, { focus: false, clearMulti: true });
+      }
+      drag = null;
+      return;
+    }
+    const top = parseFloat(drag.el.style.top);
+    const h = parseFloat(drag.el.style.height);
+    const pt = pointerToCanvas_(e.clientX, e.clientY);
+    const dropTarget = resolveDropTargetFromCanvas_(pt.x, top);
+    state.suppressCanvasPickUntil = Date.now() + 250;
+    if (!dropTarget) {
+      render.grid();
+      ui.refreshInspectorValuesFromCard();
+      drag = null;
+      return;
+    }
+    const newStart = dropTarget.newStart;
+    const newLane = dropTarget.newLane || drag.card.laneId;
+    const snap = dropTarget.snapState.snap;
+    if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) {
+      state.selection = drag.card.id;
+    }
+    if (drag.isResizing) {
+      const pxPerDay = getPxPerDay_();
+      const hRatio = h / pxPerDay;
+      const durMins = hRatio * (config.workHours * 60);
+      let snappedDur = Math.round(durMins / snap.min) * snap.min;
+      if (snappedDur < snap.min) snappedDur = snap.min;
+      const slots = Math.max(1, Math.round(snappedDur / config.slotMin));
+      const prevEnd = drag.card.end;
+      const nextEnd = drag.card.start + slots - 1;
+      if (nextEnd !== prevEnd) {
+        drag.card.end = nextEnd;
+        actions.moveCard(drag.card.id, drag.card.start, drag.card.laneId);
+      } else {
+        render.grid();
+        ui.refreshInspectorValuesFromCard();
+      }
+      drag = null;
+      return;
+    }
+    if (drag.isBlockMove && drag.block) {
+      var blockStartRaw = Math.max(1, Math.round(Number(newStart) || 1) - Math.max(0, Math.round(Number(drag.block.anchorRelStart) || 0)));
+      var blockStart = resolveInsertStartByEarlyCards_(String(newLane || drag.block.laneId || ''), blockStartRaw, drag.block.ids);
+      const unchanged = (Math.round(Number(blockStart) || 1) === Math.round(Number(drag.block.baseStart) || 1)) &&
+        (String(newLane || '') === String(drag.block.laneId || ''));
+      if (!unchanged) actions.moveCardBlock(drag.block.ids, blockStart, newLane);
+      else {
+        render.grid();
+        ui.refreshInspectorValuesFromCard();
+      }
+      drag = null;
+      return;
+    }
+    const prevStart = drag.card.start;
+    const prevEnd = drag.card.end;
+    const prevLane = drag.card.laneId;
+    const len = getCardLengthSlots_(drag.card);
+    const nextStart = resolveInsertStartByEarlyCards_(String(newLane || drag.card.laneId || ''), newStart, [drag.card.id]);
+    const nextEnd = nextStart + len - 1;
+    if (nextStart !== prevStart || nextEnd !== prevEnd || String(newLane) !== String(prevLane)) {
+      actions.moveCard(drag.card.id, nextStart, newLane);
+    } else {
+      render.grid();
+      ui.refreshInspectorValuesFromCard();
     }
     drag = null;
   }
 
   function handleCanvasDrop_(e) {
     e.preventDefault();
+    if (state.undoBusy) return;
     const cardId = e.dataTransfer.getData('text/plain');
     const key = String(cardId || '');
     if (!key || !state.cards[key]) return;
 
     const c = state.cards[key];
-    const pxPerDay = getPxPerDay_();
-    const rect = els.canvas.getBoundingClientRect();
-    const scrollX = els.gridScroll ? els.gridScroll.scrollLeft : 0;
-    const scrollY = els.gridScroll ? els.gridScroll.scrollTop : 0;
-    const x = (e.clientX - rect.left) + scrollX;
-    const y = (e.clientY - rect.top) + scrollY;
+      const rect = els.canvas.getBoundingClientRect();
+      const scrollX = els.gridScroll ? els.gridScroll.scrollLeft : 0;
+      const scrollY = els.gridScroll ? els.gridScroll.scrollTop : 0;
+      const x = (e.clientX - rect.left) + scrollX;
+      const y = (e.clientY - rect.top) + scrollY;
 
-    const dayIdx = Math.floor(y / pxPerDay);
-    if (!state.workDayMap[dayIdx]) return;
-
-    const yInDay = y % pxPerDay;
-    const snapState = snapMinutes_(yInDay, pxPerDay);
-    const snappedMins = snapState.minutes;
-
-    const d = new Date(state.workDayMap[dayIdx]);
-    d.setHours(0, 0, 0, 0);
-    const spd = getSlotsPerDay_();
-    let slotVal = Math.round(snappedMins / config.slotMin) + 1;
-    slotVal = Math.max(1, Math.min(spd, slotVal));
-    const newStart = utils.dateValToSlot(formatYmd_(d), slotVal, 'start');
-
-    const lanes = state.lanes.filter(l => l.visible);
-    const laneWidth = getLaneWidth_();
-    const laneIdx = Math.floor(x / laneWidth);
-    const newLane = (laneIdx >= 0 && laneIdx < lanes.length) ? lanes[laneIdx].id : c.laneId;
-
-    var dur = (c.start !== null && c.end !== null && isFinite(c.end - c.start) && (c.end - c.start) >= 0) ? (c.end - c.start + 1) : Math.max(1, Math.round(snapState.snap.min / config.slotMin));
-    c.start = newStart;
-    c.end = newStart + dur - 1;
-    c.laneId = newLane;
+    const dropTarget = resolveDropTargetFromCanvas_(x, y);
+    if (!dropTarget) return;
+    const newStart = dropTarget.newStart;
+    const newLane = dropTarget.newLane || c.laneId;
+    var block = buildDragBlockForCard_(c.id);
+    if (block) {
+      var blockStartRaw = Math.max(1, Math.round(Number(newStart) || 1) - Math.max(0, Math.round(Number(block.anchorRelStart) || 0)));
+      var blockStart = resolveInsertStartByEarlyCards_(String(newLane || block.laneId || ''), blockStartRaw, block.ids);
+      actions.moveCardBlock(block.ids, blockStart, newLane);
+      return;
+    }
+    var resolvedStart = resolveInsertStartByEarlyCards_(String(newLane || c.laneId || ''), newStart, [c.id]);
     if (!(state.assetCellSelection && isFinite(Number(state.assetCellSelection.rawStart)))) {
       state.selection = c.id;
     }
-    actions.moveCard(c.id, c.start, c.laneId);
+    actions.moveCard(c.id, resolvedStart, newLane);
   }
 
   function bindEvents() {
@@ -3911,6 +4879,8 @@ window.app = (function() {
       return false;
     };
     const pickGapFromCanvasEvent_ = (e) => {
+      if (state.undoBusy) return;
+      if (Date.now() < Number(state.suppressCanvasPickUntil || 0)) return;
       const canvas = els.canvas || document.getElementById('grid-canvas');
       if (!canvas) return;
       if (e.target && e.target.closest && e.target.closest('.card')) return;
@@ -4101,7 +5071,11 @@ window.app = (function() {
       state.autoPush = !!(e && e.target && e.target.checked);
       markViewDirty_();
     });
-    safeAdd('btn-reload', 'click', actions.load);
+    safeAdd('btn-undo', 'click', actions.openUndoModal);
+    safeAdd('btn-undo-modal-close', 'click', actions.closeUndoModal);
+    safeAdd('btn-undo-modal-refresh', 'click', actions.loadUndoOptions);
+    safeAdd('btn-undo-apply', 'click', actions.undoToSelected);
+    safeAdd('btn-reload', 'click', () => actions.load({ forceNetwork: true }));
     safeAdd('btn-insp', 'click', () => {
       const insp = document.getElementById('inspector');
       if (!insp) return;
@@ -4126,7 +5100,6 @@ window.app = (function() {
       setSettingsModalOpen_(true);
     });
     safeAdd('btn-settings-close', 'click', () => setSettingsModalOpen_(false));
-    safeAdd('btn-save-sched-cfg', 'click', actions.saveScheduleConfig);
     safeAdd('btn-rename-sched-save', 'click', actions.renameSchedFromSettings);
     safeAdd('sched-rename-input', 'keydown', (e) => {
       if (e.key === 'Enter') {
@@ -4144,10 +5117,12 @@ window.app = (function() {
     safeAdd('grid-canvas', 'dragover', (e) => { e.preventDefault(); });
     safeAdd('grid-canvas', 'drop', handleCanvasDrop_);
     safeAdd('grid-canvas', 'mousedown', (e) => {
+      if (state.undoBusy) return;
       if (e.button !== 0) return;
       pickGapFromCanvasEvent_(e);
     });
     safeAdd('grid-canvas', 'click', (e) => {
+      if (state.undoBusy) return;
       if (e.button !== 0) return;
       pickGapFromCanvasEvent_(e);
     });
@@ -4156,18 +5131,34 @@ window.app = (function() {
         if (e.target === els.settingsModal) setSettingsModalOpen_(false);
       });
     }
+    const undoModal = document.getElementById('undo-modal');
+    if (undoModal) {
+      undoModal.addEventListener('click', (e) => {
+        if (e.target === undoModal) actions.closeUndoModal();
+      });
+    }
     document.addEventListener('keydown', (e) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && state.gapSelection) {
-        if (isTypingElement_(e.target)) return;
+      if (state.undoBusy) {
+        if (e.key === 'Delete' || e.key === 'Backspace' || e.key === 'Escape' || e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
+      if (state.gapSelection && (e.key === 'Delete' || (e.key === 'Backspace' && !isTypingElement_(e.target)))) {
         e.preventDefault();
+        e.stopPropagation();
         actions.closeSelectedGap();
         return;
       }
       if (e.key === 'Escape') {
         closeToolbarMenus_();
         setSettingsModalOpen_(false);
+        setUndoModalOpen_(false);
         actions.clearGapSelection();
         actions.clearAssetCellSelection({ skipRender: true });
+        actions.clearMultiSelection();
+        clearDragPreviewNodes_();
         ui.renderInspector();
       }
     });

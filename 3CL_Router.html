@@ -76,6 +76,9 @@
       };
 
       Router.buildEntityUrl = function (entity, id) {
+        if (String(entity || '').toLowerCase() === 'sched') {
+          return Router.buildScheduleUrl(id);
+        }
         var base = Router.baseUrl();
         var url = new URL(base);
         url.searchParams.set('page', Router.entityPageName(entity));
@@ -83,6 +86,14 @@
         if (id) {
           url.searchParams.set('id', id);
         }
+        return url.toString();
+      };
+
+      Router.buildScheduleUrl = function (schedId) {
+        var base = Router.baseUrl();
+        var url = new URL(base);
+        url.searchParams.set('p', 'schedule');
+        if (schedId) url.searchParams.set('schedId', String(schedId));
         return url.toString();
       };
 

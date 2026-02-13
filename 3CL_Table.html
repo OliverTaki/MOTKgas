@@ -274,6 +274,7 @@
         if (s === 'tasks' || s === 'task') return 'task';
         if (s === 'users' || s === 'user') return 'user';
         if (s === 'projectmembers' || s === 'projectmember' || s === 'members' || s === 'member') return 'member';
+        if (s === 'scheds' || s === 'sched' || s === 'schedules' || s === 'schedule') return 'sched';
         return '';
       }
 
@@ -289,6 +290,7 @@
         if (s === 'task') return 'Tasks';
         if (s === 'user') return 'Users';
         if (s === 'member') return 'ProjectMembers';
+        if (s === 'sched') return 'Scheds';
         return 'Shots';
       }
 
@@ -328,7 +330,7 @@
         } catch (_) { return ''; }
       }
 
-      var _CANON_ENTITIES_ = ['shot', 'asset', 'task', 'member', 'user'];
+      var _CANON_ENTITIES_ = ['shot', 'asset', 'task', 'member', 'user', 'sched'];
 
       function normalizeEntityToken_(raw) {
         var s = String(raw || '').trim();
@@ -1538,6 +1540,21 @@
 
         var idIdx = indexOf(nextFieldIds, resolveIdFieldId_());
         if (idIdx < 0 && nextFieldIds.length) idIdx = 0;
+        var entityKeyForRows = canonEntityKey_(state.sheetName || (p && p.entity) || '', '');
+        if (entityKeyForRows === 'sched' && idIdx >= 0 && nextRows.length) {
+          var filteredSchedRows = nextRows.filter(function (row) {
+            return !!String(row && row[idIdx] || '').trim();
+          });
+          if (filteredSchedRows.length !== nextRows.length) {
+            try {
+              console.warn('[MOTK][Table] filtered blank sched rows', {
+                before: nextRows.length,
+                after: filteredSchedRows.length
+              });
+            } catch (_) { }
+            nextRows = filteredSchedRows;
+          }
+        }
         var nextRowsById = {};
         if (idIdx >= 0 && nextRows.length) {
           for (var ri = 0; ri < nextRows.length; ri++) {
@@ -1623,6 +1640,9 @@
 
         var total = Number(p.total);
         var nextTotal = (isFinite(total) && total >= 0) ? total : nextRows.length;
+        if (entityKeyForRows === 'sched') {
+          nextTotal = nextRows.length;
+        }
         var nextVersion = incomingVersion || (state.__TABLE_VERSION__ + 1);
 
         state.fieldIds = nextFieldIds;
@@ -3551,8 +3571,63 @@ window.applyData = applyData;
             td.textContent = _toScalarText_(raw, { rowId: rowId, fid: fid, where: "renderCellIntoTd" });
             return;
           }
+          function nodeHasAnchor_(node) {
+            try {
+              if (!node) return false;
+              if ((node.nodeType === 1 || node.nodeType === 11) && node.tagName && String(node.tagName).toLowerCase() === 'a') return true;
+              return !!(node && node.querySelector && node.querySelector('a'));
+            } catch (_) {
+              return false;
+            }
+          }
+          function retargetNodeAnchors_(node, href, target) {
+            try {
+              if (!node || !href || (node.nodeType !== 1 && node.nodeType !== 11)) return;
+              if (node.nodeType === 1 && String(node.tagName || '').toLowerCase() === 'a') {
+                node.href = href;
+                if (target) {
+                  node.target = target;
+                  node.rel = 'noopener';
+                  node.setAttribute('data-sched-open-newtab', '1');
+                }
+              }
+              if (node.querySelectorAll) {
+                var anchors = node.querySelectorAll('a');
+                for (var ai = 0; ai < anchors.length; ai++) {
+                  anchors[ai].href = href;
+                  if (target) {
+                    anchors[ai].target = target;
+                    anchors[ai].rel = 'noopener';
+                    anchors[ai].setAttribute('data-sched-open-newtab', '1');
+                  }
+                }
+              }
+            } catch (_) { }
+          }
+          function ensureNodeLink_(node, href, target, isSched) {
+            if (!node || !href) return node;
+            if (nodeHasAnchor_(node)) {
+              retargetNodeAnchors_(node, href, target);
+              return node;
+            }
+            var a = document.createElement('a');
+            a.href = href;
+            if (target) {
+              a.target = target;
+              a.rel = 'noopener';
+            }
+            if (isSched) a.setAttribute('data-sched-open-newtab', '1');
+            a.appendChild(node);
+            return a;
+          }
+
           var entitySing = singularEntityFor(_entityForUI());
+          var canon = _canon(STATE && STATE.sheetName);
           var meta = getNormalizedFieldMeta_(STATE.sheetName, fid);
+          var fidIdx = indexOf((STATE && STATE.fieldIds) || [], fid);
+          var headTxt = '';
+          if (fidIdx >= 0 && STATE && Array.isArray(STATE.header)) headTxt = STATE.header[fidIdx] || '';
+          if (!headTxt) headTxt = (meta && (meta.label || meta.name || meta.field_name)) || fid;
           var rowObj = null;
           try { if (STATE && STATE.rowsById && STATE.rowsById[rowId]) rowObj = STATE.rowsById[rowId]; } catch (_) { }
           if (!rowObj) {
@@ -3588,7 +3663,22 @@ window.applyData = applyData;
               try { console.info('[MOTK][Table] render: ShotCode uses href=true'); } catch (_) { }
             }
           } else {
-            td.appendChild(CommonRenderer.renderCellByField(entitySing, fid, raw, m));
+            var node = CommonRenderer.renderCellByField(entitySing, fid, raw, m);
+            if (!(node && node.nodeType)) {
+              node = document.createTextNode(_toScalarText_(node, { rowId: rowId, fid: fid, where: "renderCellIntoTdNodeFallback" }));
+            }
+            if (shouldNameCellLinkToDetail(canon, headTxt, rowId) && window.__Router__) {
+              var ent = singularEntityFor(canon);
+              var isSchedLike = (ent === 'sched' || ent === 'schedule' || ent === 'scheds' || ent === 'schedules');
+              if (isSchedLike && typeof Router.buildScheduleUrl === 'function') {
+                node = ensureNodeLink_(node, Router.buildScheduleUrl(rowId), '_blank', true);
+              } else if (!nodeHasAnchor_(node) && typeof Router.buildEntityUrl === 'function') {
+                node = ensureNodeLink_(node, Router.buildEntityUrl(ent, rowId), '', false);
+              }
+            } else if (/shotcode/i.test(String(headTxt || '')) && isRowIdLike(rowId) && window.__Router__ && typeof Router.buildEntityUrl === 'function') {
+              node = ensureNodeLink_(node, Router.buildEntityUrl('shot', rowId), '', false);
+            }
+            td.appendChild(node);
           }
         } catch (_) {
           td.textContent = _toScalarText_(raw, { rowId: rowId, fid: fid, where: "renderCellIntoTdCatch" });
@@ -3693,6 +3783,21 @@ window.applyData = applyData;
         window.__MOTK_TABLE_DEBUG__.isInlineEditBound = function() {
           return !!window.__MOTK_TABLE_INLINE_EDIT_BOUND;
         };
+
+        // Enforce new-tab open for schedule index links even if browser/frame rewrites target handling.
+        tableWrap.addEventListener("click", function(ev) {
+          try {
+            var a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
+            if (!a) return;
+            var flagged = a.getAttribute && a.getAttribute('data-sched-open-newtab') === '1';
+            if (!flagged && !isScheduleEditorHref_(a.href)) return;
+            if (ev.defaultPrevented) return;
+            if (ev.button !== 0) return;
+            if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+            ev.preventDefault();
+            window.open(a.href, '_blank', 'noopener');
+          } catch (_) { }
+        }, true);
 
         function logInlineEditSkip_(reason, detail) {
           var bucket = window.__MOTK_INLINE_EDIT_LOG__ = window.__MOTK_INLINE_EDIT_LOG__ || {};
@@ -4527,12 +4632,41 @@ window.applyData = applyData;
         function isNodeWithAnchor_(n) {
           try {
             if (!n) return false;
-            if (n.nodeType === 1) {
+            if (n.nodeType === 1 || n.nodeType === 11) {
               if (n.tagName && String(n.tagName).toLowerCase() === 'a') return true;
               return !!(n.querySelector && n.querySelector('a'));
             }
           } catch (_) { }
           return false;
+        }
+
+        function retargetNodeAnchors_(n, href, target) {
+          try {
+            if (!n || !href) return;
+            if (n.nodeType !== 1 && n.nodeType !== 11) return;
+            if (n.nodeType === 1) {
+              var tag = (n.tagName || '').toLowerCase();
+              if (tag === 'a') {
+                n.href = href;
+                if (target) {
+                  n.target = target;
+                  n.rel = 'noopener';
+                  n.setAttribute('data-sched-open-newtab', '1');
+                }
+              }
+            }
+            if (n.querySelectorAll) {
+              var anchors = n.querySelectorAll('a');
+              for (var ai = 0; ai < anchors.length; ai++) {
+                anchors[ai].href = href;
+                if (target) {
+                  anchors[ai].target = target;
+                  anchors[ai].rel = 'noopener';
+                  anchors[ai].setAttribute('data-sched-open-newtab', '1');
+                }
+              }
+            }
+          } catch (_) { }
         }
 
         function renderCellNode_(entitySing, fid, raw, meta, rowId, rowObj) {
@@ -4706,12 +4840,28 @@ window.applyData = applyData;
                 aPM.href = Router.buildEntityUrl('member', rowId);
                 aPM.appendChild(node);
                 node = aPM;
-              } else if (shouldNameCellLinkToDetail(canon, headTxt, rowId) && !isNodeWithAnchor_(node)) {
+              } else if (shouldNameCellLinkToDetail(canon, headTxt, rowId)) {
                 var ent = singularEntityFor(canon);
-                var a2 = document.createElement('a');
-                a2.href = Router.buildEntityUrl(ent, rowId);
-                a2.appendChild(node);
-                node = a2;
+                var schedLike = (ent === 'sched' || ent === 'schedule' || ent === 'scheds' || ent === 'schedules');
+                if (schedLike && Router && typeof Router.buildScheduleUrl === 'function') {
+                  var schedHref = Router.buildScheduleUrl(rowId);
+                  if (isNodeWithAnchor_(node)) {
+                    retargetNodeAnchors_(node, schedHref, '_blank');
+                  } else {
+                    var a2s = document.createElement('a');
+                    a2s.href = schedHref;
+                    a2s.target = '_blank';
+                    a2s.rel = 'noopener';
+                    a2s.setAttribute('data-sched-open-newtab', '1');
+                    a2s.appendChild(node);
+                    node = a2s;
+                  }
+                } else if (!isNodeWithAnchor_(node)) {
+                  var a2 = document.createElement('a');
+                  a2.href = Router.buildEntityUrl(ent, rowId);
+                  a2.appendChild(node);
+                  node = a2;
+                }
               } else if (/shotcode/i.test(headTxt) && isRowIdLike(rowId) && !isNodeWithAnchor_(node)) {
                 var a3 = document.createElement('a');
                 a3.href = Router.buildEntityUrl('shot', rowId);
@@ -5351,6 +5501,19 @@ window.applyData = applyData;
 
       function isRowIdLike(id) { return /^[a-z]{2}_[0-9]+$/i.test(String(id || '')); }
 
+      function isScheduleEditorHref_(href) {
+        try {
+          if (!href) return false;
+          var u = new URL(String(href), location.href);
+          var p = String(u.searchParams.get('p') || u.searchParams.get('page') || '').toLowerCase();
+          if (p !== 'schedule') return false;
+          var sid = String(u.searchParams.get('schedId') || u.searchParams.get('sid') || '').trim();
+          return !!sid;
+        } catch (_) {
+          return false;
+        }
+      }
+
       function isLinkColumn(header) { return /link/i.test(String(header || '')); }
 
       function isLinkish(fieldId, header) {
@@ -5392,9 +5555,12 @@ window.applyData = applyData;
 
         if (!ent) { ent = guessEntityFromId(pid); }
 
-        // Use Router.buildEntityUrl to build the Detail URL.
+        // Use Router URL builders; sched should open in a new tab.
         var url = Router.buildEntityUrl(ent, pid);
-        return '<a href="' + escapeHTML(url) + '" title="' + escapeHTML(pid) + '">' + escapeHTML(label) + '</a>';
+        var target = (ent === 'sched' || ent === 'schedule' || ent === 'scheds' || ent === 'schedules')
+          ? ' target="_blank" rel="noopener" data-sched-open-newtab="1"'
+          : '';
+        return '<a href="' + escapeHTML(url) + '"' + target + ' title="' + escapeHTML(pid) + '">' + escapeHTML(label) + '</a>';
       }
 
       function guessEntityFromId(id) {
@@ -5403,6 +5569,7 @@ window.applyData = applyData;
         if (/^tk_/i.test(id)) return 'task';
         if (/^u_/i.test(id)) return 'user';
         if (/^(pm|mem)_/i.test(id)) return 'member';
+        if (/^sched_/i.test(id)) return 'sched';
         return 'item';
       }
 
@@ -8502,7 +8669,6 @@ window.applyData = applyData;
 
         // 左クリックの SPA ルーティングは使用しない（通常のページ遷移）
         try { readUrlState && readUrlState(); } catch (_) { }
-
         Promise.resolve(start()).then(function () {
           bindLinkPickerInlineEdit();
         });
