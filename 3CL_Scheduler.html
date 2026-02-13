@@ -496,6 +496,7 @@
     <div class="undo-body">
       <div class="undo-toolbar">
         <div id="undo-summary" class="undo-meta">Loading...</div>
+        <button id="btn-undo-snap-take" class="btn" type="button">Take SNAP</button>
         <button id="btn-undo-snap-rename" class="btn" type="button">Rename SNAP</button>
         <button id="btn-undo-modal-refresh" class="btn" type="button">Refresh</button>
       </div>
@@ -558,6 +559,7 @@ window.app = (function() {
     undoLoading: false,
     undoLoadError: '',
     snapBusy: false,
+    snapPhase: '',
     autoSnapPending: false,
     autoSnapThresholdMs: 10 * 60 * 1000,
     lastSnapshotAtMs: Date.now(),
@@ -667,6 +669,7 @@ window.app = (function() {
     const listEl = document.getElementById('undo-list');
     const summaryEl = document.getElementById('undo-summary');
     const applyBtn = document.getElementById('btn-undo-apply');
+    const takeSnapBtn = document.getElementById('btn-undo-snap-take');
     const renameSnapBtn = document.getElementById('btn-undo-snap-rename');
     if (!listEl || !summaryEl || !applyBtn) return;
     const items = Array.isArray(state.undoOptions) ? state.undoOptions : [];
@@ -682,6 +685,9 @@ window.app = (function() {
       : (hasError ? (`Error: ${hasError}`) : (`SNAP:${snapCount} | named:${namedCount}`));
     applyBtn.disabled = isLoading || !!hasError || !state.undoSelectedKey || state.undoBusy || !selectedIsSnapshot;
     applyBtn.textContent = 'Restore Selected SNAP';
+    if (takeSnapBtn) {
+      takeSnapBtn.disabled = isLoading || !!hasError || state.undoBusy || state.snapBusy;
+    }
     if (renameSnapBtn) {
       renameSnapBtn.disabled = isLoading || !!hasError || state.undoBusy || !selectedIsSnapshot;
     }
@@ -2546,7 +2552,7 @@ window.app = (function() {
 
   function flushCommitQueue_() {
     // Keep edits possible during SNAP, but serialize server writes to avoid lock contention.
-    if (state.snapBusy) return;
+    if (state.snapBusy && state.snapPhase === 'rpc') return;
     if (state.undoBusy && state.undoPhase === 'rpc' && !state.commitInflight) return;
     if (state.commitInflight) return;
     const item = state.commitQueue.shift();
@@ -2778,11 +2784,13 @@ window.app = (function() {
     const onDone = (typeof options.onDone === 'function') ? options.onDone : null;
     if (state.undoBusy || state.snapBusy) return;
     state.snapBusy = true;
+    state.snapPhase = 'waiting_queue';
     state.lastSnapshotAttemptAtMs = Date.now();
     state.autoSnapPending = false;
     const beginTs = Date.now();
     const finish_ = (ok, msg) => {
       state.snapBusy = false;
+      state.snapPhase = '';
       if (ok) markSnapshotTs_(options.snapshotTs || '');
       if (msg) utils.saveStatus(ok ? 'saved' : 'error', msg);
       if (onDone) {
@@ -2791,6 +2799,7 @@ window.app = (function() {
       flushCommitQueue_();
     };
     const runSnapshotRpc_ = () => {
+      state.snapPhase = 'rpc';
       if (!isAuto) utils.saveStatus('saving', 'SNAP...');
       google.script.run
         .withSuccessHandler((str) => {
@@ -2806,7 +2815,10 @@ window.app = (function() {
         .withFailureHandler((err) => {
           finish_(false, isAuto ? 'Auto SNAP failed' : String(err && (err.message || err) || 'SNAP failed'));
         })
-        .sv_scheduler_snapshot_create_v1(JSON.stringify({ scope: 'scheduler' }));
+        .sv_scheduler_snapshot_create_v1(JSON.stringify({
+          scope: 'scheduler',
+          name: isAuto ? '' : String(options.name || '').trim()
+        }));
     };
     const waitQueueAndRun_ = () => {
       if (isCommitQueueIdle_()) {
@@ -2962,6 +2974,21 @@ window.app = (function() {
         return;
       }
       utils.saveStatus('error', 'Only SNAP items are restorable here');
+    },
+    takeSnapshotFromUndoMenu: () => {
+      if (state.undoBusy || state.snapBusy || state.undoLoading) return;
+      const name = prompt('Snapshot name (required):', '');
+      if (name === null) return;
+      const trimmed = String(name || '').trim();
+      if (!trimmed) {
+        utils.saveStatus('error', 'Snapshot name is required');
+        return;
+      }
+      executeSnapshotRequest_({
+        auto: false,
+        name: trimmed,
+        onDone: () => actions.loadUndoOptions()
+      });
     },
     renameSelectedSnapshot: () => {
       if (state.undoBusy || state.undoLoading) return;
@@ -3146,7 +3173,7 @@ window.app = (function() {
     },
 
     undoLast: () => executeUndoRequest_('sv_undo_last_v2', { scope: 'scheduler' }),
-    createSnap: () => executeSnapshotRequest_(),
+    createSnap: () => actions.openUndoModal(),
 
     commit: (id, type, opts = {}) => {
       if (state.undoBusy) {
@@ -5289,6 +5316,7 @@ window.app = (function() {
     });
     safeAdd('btn-undo', 'click', actions.openUndoModal);
     safeAdd('btn-undo-modal-close', 'click', actions.closeUndoModal);
+    safeAdd('btn-undo-snap-take', 'click', actions.takeSnapshotFromUndoMenu);
     safeAdd('btn-undo-modal-refresh', 'click', actions.loadUndoOptions);
     safeAdd('btn-undo-snap-rename', 'click', actions.renameSelectedSnapshot);
     safeAdd('btn-undo-apply', 'click', actions.undoToSelected);
