@@ -23,8 +23,10 @@ Implemented fixes:
 - `clasp push`
 - `clasp deploy -d "TAKE374 fix snapshot history error and snap save stall"`
 - `git add 2SV_DataCore.js 3CL_Scheduler.html change_log/2026-02-13_374_TAKE374_fix_snapshot_history_error_and_snap_save_stall.md`
-- `git commit -m "TAKE374 fix snapshot options crash and snap/commit contention"` (pending)
-- `git push origin main` (pending)
+- `git commit -m "TAKE374 fix snapshot options crash and snap/commit contention"`
+- `git push origin main`
+- Branch: `main`
+- Commit: `50261a5`
 
 # 4. Test Evidence
 - Syntax check:
