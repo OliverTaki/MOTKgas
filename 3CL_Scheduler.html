@@ -567,6 +567,7 @@ window.app = (function() {
     commitQueue: [],
     commitInflight: null,
     commitSeq: 0,
+    disableBatchCommit: false,
     inspEdit: { active: false, cardId: null, fields: {}, dirty: {}, commitLock: false, isTyping: false, isEditingStart: false, isEditingEnd: false, needsResyncAfterEdit: false, refs: {}, timers: {} }
   };
   const readRequestedSchedId_ = () => {
@@ -2552,6 +2553,7 @@ window.app = (function() {
   function dequeueCommitBatch_() {
     const q = Array.isArray(state.commitQueue) ? state.commitQueue : [];
     if (!q.length) return [];
+    if (state.disableBatchCommit) return [q.shift()];
     const first = q[0];
     const firstPayload = (first && first.payload && typeof first.payload === 'object') ? first.payload : null;
     if (!firstPayload) {
@@ -2628,6 +2630,27 @@ window.app = (function() {
       console.warn('[MOTK][Scheduler][Commit] retry scheduled', { reason, attempts: inflight.attempts, delayMs, count: payloadList.length });
       setTimeout(() => flushCommitQueue_(), delayMs);
     };
+    const isBatchUnsupportedError_ = (msgLike) => {
+      const m = String(msgLike || '').toLowerCase();
+      if (!m) return false;
+      return (
+        m.indexOf('not a function') >= 0 ||
+        m.indexOf('is not defined') >= 0 ||
+        m.indexOf('undefined') >= 0 ||
+        m.indexOf('no such function') >= 0 ||
+        m.indexOf('function not found') >= 0
+      );
+    };
+    const fallbackBatchToSingle_ = (reason) => {
+      state.disableBatchCommit = true;
+      state.commitInflight = null;
+      for (let i = items.length - 1; i >= 0; i--) state.commitQueue.unshift(items[i]);
+      console.warn('[MOTK][Scheduler][Commit] batch unsupported; fallback to single commits', {
+        reason: String(reason || ''),
+        count: items.length
+      });
+      setTimeout(() => flushCommitQueue_(), 0);
+    };
     utils.saveStatus('saving', (payloadList.length > 1) ? ('Saving ×' + payloadList.length + '...') : 'Saving...');
     const onSuccess_ = (str) => {
       let res = null;
@@ -2637,11 +2660,20 @@ window.app = (function() {
         finalize_();
       } else {
         const msg = String((res && (res.error && (res.error.message || res.error))) || 'rpc_error');
+        if (inflight.batch && isBatchUnsupportedError_(msg)) {
+          fallbackBatchToSingle_(msg);
+          return;
+        }
         console.warn('[MOTK][Scheduler][Commit] RPC error', { payload: primaryPayload, count: payloadList.length, res, msg });
         retry_('rpc:' + msg);
       }
     };
     const onFailure_ = (err) => {
+      const msg = String(err && (err.message || err) || '');
+      if (inflight.batch && isBatchUnsupportedError_(msg)) {
+        fallbackBatchToSingle_(msg);
+        return;
+      }
       console.error('[MOTK][Scheduler][Commit] Network failure', { payload: primaryPayload, count: payloadList.length, err });
       retry_('network');
     };
@@ -2991,6 +3023,7 @@ window.app = (function() {
     state.lastSnapshotAttemptAtMs = Date.now();
     state.autoSnapPending = false;
     const beginTs = Date.now();
+    const waitTimeoutMs = isAuto ? 6000 : 20000;
     const finish_ = (ok, msg) => {
       state.snapBusy = false;
       state.snapPhase = '';
@@ -3029,7 +3062,7 @@ window.app = (function() {
         return;
       }
       const elapsed = Date.now() - beginTs;
-      if (elapsed > 60000) {
+      if (elapsed > waitTimeoutMs) {
         finish_(false, isAuto ? 'Auto SNAP skipped (save queue busy)' : 'SNAP timeout (save queue busy)');
         return;
       }

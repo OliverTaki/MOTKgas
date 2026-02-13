@@ -5457,6 +5457,162 @@ function sv_scheduler_commit_batch_v1(payloadJson) {
     if (!items.length) return JSON.stringify({ ok: false, error: { message: 'No commit items' } });
     lock = LockService.getScriptLock();
     if (!lock.tryLock(3000)) return JSON.stringify({ ok: false, error: { message: 'Server busy, try again.' } });
+    var canFastPath = true;
+    for (var fi = 0; fi < items.length; fi++) {
+      var it = items[fi] || {};
+      var action = String(it.action || '').trim().toLowerCase();
+      if (action !== 'update') { canFastPath = false; break; }
+      if (Object.prototype.hasOwnProperty.call(it, '__skipUndoLog') && !it.__skipUndoLog) { canFastPath = false; break; }
+    }
+    if (canFastPath) {
+      var slotToInt_ = function(v, fallback) {
+        var n = Math.round(Number(v));
+        if (!isFinite(n)) return fallback;
+        if (n < 1) return 1;
+        return n;
+      };
+      var ss = SpreadsheetApp.getActive();
+      var schedsSheet = ss.getSheetByName('Scheds');
+      var activeID = 'sched_0001';
+      if (schedsSheet) {
+        var sData = schedsSheet.getDataRange().getValues();
+        var sHeaders = sData[1] || [];
+        var sSysHeaders = sData[0] || [];
+        var getSchedCol = function(keys) {
+          for (var ki = 0; ki < keys.length; ki++) {
+            var idx = sHeaders.indexOf(keys[ki]);
+            if (idx > -1) return idx;
+            idx = sSysHeaders.indexOf(keys[ki]);
+            if (idx > -1) return idx;
+          }
+          return -1;
+        };
+        var fidSchedId = schemaGetFidByFieldName('sched', 'schedId');
+        var fidActive = schemaGetFidByFieldName('sched', 'active');
+        var sId = getSchedCol(['schedId', 'ID', fidSchedId]);
+        var sAct = getSchedCol(['active', fidActive]);
+        for (var si = 2; si < sData.length; si++) {
+          if (sAct > -1 && String(sData[si][sAct]).toLowerCase() === 'true') {
+            if (sId > -1 && sData[si][sId]) activeID = sData[si][sId];
+            break;
+          }
+        }
+      }
+      var sheet = ss.getSheetByName(activeID);
+      if (!sheet) return JSON.stringify({ ok: false, error: { message: 'Schedule sheet not found: ' + activeID } });
+      var lastCol = sheet.getLastColumn();
+      var headers = sheet.getRange(2, 1, 1, lastCol).getValues()[0];
+      var sysHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+      var colMap = {};
+      headers.forEach(function(h, i) { if (h) colMap[String(h).trim().toLowerCase()] = i + 1; });
+      sysHeaders.forEach(function(h, i) { if (h) colMap[String(h).trim().toLowerCase()] = i + 1; });
+      var findColByParts_ = function(partsList) {
+        for (var i = 0; i < partsList.length; i++) {
+          var parts = partsList[i];
+          for (var key in colMap) {
+            if (!colMap.hasOwnProperty(key)) continue;
+            var ok = true;
+            for (var p = 0; p < parts.length; p++) {
+              if (key.indexOf(parts[p]) === -1) { ok = false; break; }
+            }
+            if (ok) return colMap[key];
+          }
+        }
+        return -1;
+      };
+      var C_ID = findColByParts_([['card', 'number'], ['card', 'no'], ['card']]);
+      var C_TASK = findColByParts_([['task', 'id'], ['task', 'link']]);
+      var C_LANE = findColByParts_([['lane'], ['assignee'], ['laneval']]);
+      var C_START = findColByParts_([['start', 'slot'], ['start']]);
+      var C_LEN = findColByParts_([['length'], ['lengthmin'], ['duration']]);
+      var C_END = findColByParts_([['end', 'slot'], ['end']]);
+      var C_MEMO = findColByParts_([['memo'], ['cardmemo']]);
+      if (C_ID < 0) return JSON.stringify({ ok: false, error: { message: 'Invalid Sheet Structure (No ID col)' } });
+      var lastRow = sheet.getLastRow();
+      if (lastRow <= 2) return JSON.stringify({ ok: false, error: { message: 'No scheduler rows to update' } });
+      var rowCount = lastRow - 2;
+      var idValues = sheet.getRange(3, C_ID, rowCount, 1).getValues();
+      var allRows = sheet.getRange(3, 1, rowCount, lastCol).getValues();
+      var rowById = {};
+      for (var ri = 0; ri < idValues.length; ri++) {
+        var raw = String(idValues[ri][0] || '').trim();
+        if (!raw) continue;
+        var row = ri + 3;
+        rowById['s:' + raw] = row;
+        var num = Number(raw);
+        if (isFinite(num)) rowById['n:' + String(num)] = row;
+      }
+      var findRowById_ = function(rawId) {
+        var sid = String(rawId || '').trim();
+        if (!sid) return -1;
+        if (Object.prototype.hasOwnProperty.call(rowById, 's:' + sid)) return rowById['s:' + sid];
+        var num = Number(sid);
+        if (isFinite(num) && Object.prototype.hasOwnProperty.call(rowById, 'n:' + String(num))) return rowById['n:' + String(num)];
+        return -1;
+      };
+      var changed = {};
+      var fastResults = [];
+      for (var ui = 0; ui < items.length; ui++) {
+        var oneRaw = items[ui] || {};
+        var cardData = (oneRaw.card && typeof oneRaw.card === 'object') ? oneRaw.card : {};
+        var cardId = String(cardData.id || '').trim();
+        var targetRow = findRowById_(cardId);
+        if (targetRow < 3) {
+          return JSON.stringify({
+            ok: false,
+            error: { message: 'Card ID not found: ' + cardId },
+            committed: ui,
+            failedIndex: ui,
+            results: fastResults
+          });
+        }
+        cardData.start = slotToInt_(cardData.start, 1);
+        cardData.end = slotToInt_(cardData.end, cardData.start);
+        if (cardData.end < cardData.start) cardData.end = cardData.start;
+        var slotsInclusive = cardData.end - cardData.start + 1;
+        var lenVal = Number(cardData.len);
+        cardData.len = (isFinite(lenVal) && lenVal > 0) ? Math.round(lenVal) : slotsInclusive;
+        var rowIdx = targetRow - 3;
+        var rowVals = allRows[rowIdx];
+        if (!rowVals || rowVals.length !== lastCol) {
+          rowVals = new Array(lastCol);
+          for (var rc = 0; rc < lastCol; rc++) rowVals[rc] = '';
+        }
+        if (C_TASK > 0) rowVals[C_TASK - 1] = cardData.taskId || '';
+        if (C_LANE > 0) rowVals[C_LANE - 1] = cardData.lane;
+        if (C_START > 0) rowVals[C_START - 1] = cardData.start;
+        if (C_END > 0) rowVals[C_END - 1] = cardData.end;
+        if (C_LEN > 0) rowVals[C_LEN - 1] = cardData.len || (cardData.end - cardData.start + 1);
+        if (C_MEMO > 0 && cardData.memo !== undefined) rowVals[C_MEMO - 1] = cardData.memo;
+        allRows[rowIdx] = rowVals;
+        changed[rowIdx] = true;
+        fastResults.push({
+          ok: true,
+          action: 'update',
+          opId: String(oneRaw.opId || ''),
+          id: cardId,
+          diag: { activeID: activeID, targetRow: targetRow, fastPath: true },
+          undoLog: { scope: 'scheduler', attempted: false, skipped: true, logged: false, logId: '', error: '' }
+        });
+      }
+      var changedRows = Object.keys(changed).map(function(k) { return Math.max(0, Math.round(Number(k) || 0)); }).sort(function(a, b) { return a - b; });
+      if (changedRows.length) {
+        var segStart = changedRows[0];
+        var prev = changedRows[0];
+        for (var ci = 1; ci <= changedRows.length; ci++) {
+          var cur = (ci < changedRows.length) ? changedRows[ci] : (prev + 2);
+          if (cur === prev + 1) {
+            prev = cur;
+            continue;
+          }
+          var segLen = prev - segStart + 1;
+          sheet.getRange(3 + segStart, 1, segLen, lastCol).setValues(allRows.slice(segStart, prev + 1));
+          segStart = cur;
+          prev = cur;
+        }
+      }
+      return JSON.stringify({ ok: true, committed: fastResults.length, results: fastResults, fastPath: true });
+    }
     var results = [];
     var committed = 0;
     for (var i = 0; i < items.length; i++) {
