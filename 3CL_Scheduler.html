@@ -392,7 +392,7 @@
     </div>
     <div id="saveStatus"></div>
     <button id="btn-undo" class="btn" title="Undo last scheduler change">Undo</button>
-    <button id="btn-reload" class="btn">Reload</button>
+    <button id="btn-snap" class="btn" title="Save scheduler snapshot">SNAP</button>
     <button id="btn-insp" class="btn">Insp</button>
     <button id="btn-settings" class="btn" title="Settings">Settings</button>
   </div>
@@ -553,6 +553,7 @@ window.app = (function() {
     undoSelectedKey: '',
     undoLoading: false,
     undoLoadError: '',
+    snapBusy: false,
     commitOpId: '',
     commitQueue: [],
     commitInflight: null,
@@ -2722,6 +2723,51 @@ window.app = (function() {
     waitQueueAndUndo_();
   }
 
+  function executeSnapshotRequest_() {
+    if (state.undoBusy || state.snapBusy) return;
+    state.snapBusy = true;
+    const beginTs = Date.now();
+    const finish_ = (ok, msg) => {
+      state.snapBusy = false;
+      setBlockingOverlay_(false);
+      utils.saveStatus(ok ? 'saved' : 'error', msg || (ok ? 'SNAP Saved' : 'SNAP Failed'));
+      flushCommitQueue_();
+    };
+    const runSnapshotRpc_ = () => {
+      setBlockingOverlay_(true, 'Saving SNAP...');
+      utils.saveStatus('saving', 'SNAP...');
+      google.script.run
+        .withSuccessHandler((str) => {
+          let res = null;
+          try { res = JSON.parse(str); } catch (e) { res = { ok: false, error: String(e) }; }
+          if (res && res.ok) {
+            finish_(true, 'SNAP Saved');
+            return;
+          }
+          finish_(false, String((res && res.error) || 'SNAP failed'));
+        })
+        .withFailureHandler((err) => {
+          finish_(false, String(err && (err.message || err) || 'SNAP failed'));
+        })
+        .sv_scheduler_snapshot_create_v1(JSON.stringify({ scope: 'scheduler' }));
+    };
+    const waitQueueAndRun_ = () => {
+      if (isCommitQueueIdle_()) {
+        runSnapshotRpc_();
+        return;
+      }
+      const elapsed = Date.now() - beginTs;
+      if (elapsed > 60000) {
+        finish_(false, 'SNAP timeout (save queue busy)');
+        return;
+      }
+      const q = getCommitQueueStats_();
+      setBlockingOverlay_(true, 'Waiting save queue... (' + (q.inflight + q.pending) + ')');
+      setTimeout(waitQueueAndRun_, 60);
+    };
+    waitQueueAndRun_();
+  }
+
   const actions = {
     openUndoModal: () => {
       if (state.undoBusy) return;
@@ -2932,6 +2978,7 @@ window.app = (function() {
     },
 
     undoLast: () => executeUndoRequest_('sv_undo_last_v2', { scope: 'scheduler' }),
+    createSnap: () => executeSnapshotRequest_(),
 
     commit: (id, type, opts = {}) => {
       if (state.undoBusy) {
@@ -5075,7 +5122,7 @@ window.app = (function() {
     safeAdd('btn-undo-modal-close', 'click', actions.closeUndoModal);
     safeAdd('btn-undo-modal-refresh', 'click', actions.loadUndoOptions);
     safeAdd('btn-undo-apply', 'click', actions.undoToSelected);
-    safeAdd('btn-reload', 'click', () => actions.load({ forceNetwork: true }));
+    safeAdd('btn-snap', 'click', actions.createSnap);
     safeAdd('btn-insp', 'click', () => {
       const insp = document.getElementById('inspector');
       if (!insp) return;

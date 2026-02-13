@@ -2842,6 +2842,25 @@ function _undo_trim_(sh, maxRows) {
   }
 }
 
+function _undo_trimSnapshots_(sh, maxSnapshots) {
+  if (!sh) return;
+  var cap = Math.round(Number(maxSnapshots));
+  if (!isFinite(cap) || cap < 1) cap = 5;
+  var lastRow = sh.getLastRow();
+  if (lastRow < 2) return;
+  var values = sh.getRange(2, 1, lastRow - 1, _UNDO_CACHE_HEADERS_.length).getValues();
+  var snapshotRows = [];
+  for (var i = 0; i < values.length; i++) {
+    var scope = String((values[i] && values[i][3]) || '').trim().toLowerCase();
+    var action = String((values[i] && values[i][4]) || '').trim().toLowerCase();
+    if (scope === 'scheduler_snapshot' && action === 'snapshot') snapshotRows.push(i + 2);
+  }
+  if (snapshotRows.length <= cap) return;
+  for (var d = snapshotRows.length - 1; d >= cap; d--) {
+    sh.deleteRow(snapshotRows[d]);
+  }
+}
+
 function _undo_appendLog_(entry) {
   var e = entry || {};
   var sh = _undo_getCacheSheet_();
@@ -3320,6 +3339,33 @@ function _undo_scheduler_normalizeCard_(cardLike) {
     len: lenNum,
     memo: (card.memo == null ? '' : String(card.memo))
   };
+}
+
+function _undo_scheduler_collectCards_(ctx) {
+  var out = [];
+  if (!ctx || !ctx.ok || !ctx.sheet || !ctx.cols || ctx.cols.id < 1) return out;
+  var sh = ctx.sheet;
+  var lastRow = sh.getLastRow();
+  if (lastRow < 3) return out;
+  var lastCol = Math.max(1, Math.round(Number(ctx.lastCol || 0)) || sh.getLastColumn() || 1);
+  var rows = sh.getRange(3, 1, lastRow - 2, lastCol).getValues();
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i] || [];
+    var rawId = ctx.cols.id > 0 ? row[ctx.cols.id - 1] : '';
+    var id = String(rawId == null ? '' : rawId).trim();
+    if (!id) continue;
+    var card = _undo_scheduler_normalizeCard_({
+      id: id,
+      taskId: (ctx.cols.task > 0 ? row[ctx.cols.task - 1] : ''),
+      lane: (ctx.cols.lane > 0 ? row[ctx.cols.lane - 1] : ''),
+      start: (ctx.cols.start > 0 ? row[ctx.cols.start - 1] : 1),
+      end: (ctx.cols.end > 0 ? row[ctx.cols.end - 1] : 1),
+      len: (ctx.cols.len > 0 ? row[ctx.cols.len - 1] : 1),
+      memo: (ctx.cols.memo > 0 ? row[ctx.cols.memo - 1] : '')
+    });
+    out.push(card);
+  }
+  return out;
 }
 
 function _undo_scheduler_writeCardAtRow_(ctx, row, cardLike) {
@@ -5029,6 +5075,86 @@ function sv_scheduler_rename_sched(jsonPayload) {
  */
 function sv_scheduler_debug_ping() {
   return 'PONG: Server is reachable. Time: ' + new Date().toISOString();
+}
+
+function sv_scheduler_snapshot_create_v1(reqPayload) {
+  var lock = null;
+  try {
+    lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    var req = reqPayload;
+    if (typeof reqPayload === 'string') req = _undo_parseJson_(reqPayload, {});
+    req = req || {};
+
+    var sheetHint = String(req.schedId || '').trim();
+    var ctx = _undo_scheduler_getCtx_(sheetHint);
+    if (!ctx.ok) return JSON.stringify({ ok: false, error: ctx.error || 'Schedule context not found' });
+
+    var cards = _undo_scheduler_collectCards_(ctx);
+    var snapshot = {
+      version: 1,
+      type: 'scheduler_snapshot',
+      schedId: String(ctx.sheetName || ''),
+      capturedAt: _undo_nowIso_(),
+      cardCount: cards.length,
+      cards: cards
+    };
+    var rawJson = _undo_toJson_(snapshot);
+    var payloadText = rawJson;
+    var encoding = 'json';
+    if (payloadText.length > 24000) {
+      try {
+        var blob = Utilities.newBlob(payloadText, 'application/json', 'scheduler_snapshot.json');
+        payloadText = Utilities.base64EncodeWebSafe(Utilities.gzip(blob).getBytes());
+        encoding = 'gzip_base64_json';
+      } catch (_) {}
+    }
+    if (payloadText.length > 45000) {
+      return JSON.stringify({
+        ok: false,
+        error: 'Snapshot too large to store in Cache row',
+        schedId: String(ctx.sheetName || ''),
+        cardCount: cards.length
+      });
+    }
+
+    var appendRes = _undo_appendLog_({
+      ts: _undo_nowIso_(),
+      actor: req.actor,
+      scope: 'scheduler_snapshot',
+      action: 'snapshot',
+      targetSheet: String(ctx.sheetName || ''),
+      entity: 'snapshot',
+      targetId: String(ctx.sheetName || ''),
+      status: 'applied',
+      before: null,
+      after: {
+        encoding: encoding,
+        schedId: String(ctx.sheetName || ''),
+        capturedAt: _undo_nowIso_(),
+        cardCount: cards.length,
+        payload: payloadText
+      },
+      inverse: null,
+      note: String(req.note || 'sv_scheduler_snapshot_create_v1')
+    });
+    var cacheSh = _undo_getCacheSheet_();
+    _undo_trimSnapshots_(cacheSh, 5);
+
+    return JSON.stringify({
+      ok: true,
+      logId: String((appendRes && appendRes.logId) || ''),
+      schedId: String(ctx.sheetName || ''),
+      cardCount: cards.length,
+      encoding: encoding
+    });
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
+  } finally {
+    if (lock) {
+      try { lock.releaseLock(); } catch (_) {}
+    }
+  }
 }
 
 /**
