@@ -2849,16 +2849,70 @@ function _undo_trimSnapshots_(sh, maxSnapshots) {
   var lastRow = sh.getLastRow();
   if (lastRow < 2) return;
   var values = sh.getRange(2, 1, lastRow - 1, _UNDO_CACHE_HEADERS_.length).getValues();
-  var snapshotRows = [];
+  var deleteRows = [];
+  var unnamedSeen = 0;
   for (var i = 0; i < values.length; i++) {
     var scope = String((values[i] && values[i][3]) || '').trim().toLowerCase();
     var action = String((values[i] && values[i][4]) || '').trim().toLowerCase();
-    if (scope === 'scheduler_snapshot' && action === 'snapshot') snapshotRows.push(i + 2);
+    if (scope !== 'scheduler_snapshot' || action !== 'snapshot') continue;
+    var note = String((values[i] && values[i][12]) || '').trim();
+    var named = (_undo_snapshot_nameFromNote_(note) !== '');
+    // Named snapshots are retained and excluded from rolling cleanup.
+    if (named) continue;
+    unnamedSeen++;
+    if (unnamedSeen > cap) deleteRows.push(i + 2);
   }
-  if (snapshotRows.length <= cap) return;
-  for (var d = snapshotRows.length - 1; d >= cap; d--) {
-    sh.deleteRow(snapshotRows[d]);
+  for (var d = deleteRows.length - 1; d >= 0; d--) {
+    sh.deleteRow(deleteRows[d]);
   }
+}
+
+function _undo_snapshot_nameFromNote_(noteText) {
+  var note = String(noteText || '').trim();
+  if (!note) return '';
+  var prefix = 'snapshot_name:';
+  if (note.toLowerCase().indexOf(prefix) !== 0) return '';
+  return String(note.slice(prefix.length)).trim();
+}
+
+function _undo_snapshot_buildNote_(nameText) {
+  var name = String(nameText || '').trim();
+  if (!name) return 'sv_scheduler_snapshot_create_v1';
+  return 'snapshot_name:' + name;
+}
+
+function _undo_findLogRowById_(sh, logId) {
+  var id = String(logId || '').trim();
+  if (!sh || !id) return -1;
+  var lastRow = sh.getLastRow();
+  if (lastRow < 2) return -1;
+  var vals = sh.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (var i = 0; i < vals.length; i++) {
+    if (String((vals[i] && vals[i][0]) || '').trim() === id) return i + 2;
+  }
+  return -1;
+}
+
+function _undo_readLogAtRow_(sh, row) {
+  if (!sh || !row || row < 2) return null;
+  var v = sh.getRange(row, 1, 1, _UNDO_CACHE_HEADERS_.length).getValues()[0] || [];
+  return {
+    row: row,
+    logId: String(v[0] || ''),
+    ts: String(v[1] || ''),
+    actor: String(v[2] || ''),
+    scope: String(v[3] || ''),
+    action: String(v[4] || ''),
+    targetSheet: String(v[5] || ''),
+    entity: String(v[6] || ''),
+    targetId: String(v[7] || ''),
+    status: String(v[8] || ''),
+    before: _undo_parseJson_(v[9], {}),
+    after: _undo_parseJson_(v[10], {}),
+    inverse: _undo_parseJson_(v[11], {}),
+    note: String(v[12] || ''),
+    undoOf: String(v[13] || '')
+  };
 }
 
 function _undo_appendLog_(entry) {
@@ -3571,6 +3625,41 @@ function sv_undo_last_v2(reqPayload) {
   }
 }
 
+function _undo_collectSnapshotItems_(logs, req) {
+  var list = Array.isArray(logs) ? logs : [];
+  var actor = String((req && req.actor) || '').trim();
+  var admin = !!(req && req.admin);
+  var items = [];
+  for (var i = 0; i < list.length; i++) {
+    var row = list[i] || {};
+    if (String(row.status || '').toLowerCase() !== 'applied') continue;
+    if (String(row.scope || '').toLowerCase() !== 'scheduler_snapshot') continue;
+    if (String(row.action || '').toLowerCase() !== 'snapshot') continue;
+    if (!admin && actor && String(row.actor || '') !== actor) continue;
+    var after = (row.after && typeof row.after === 'object') ? row.after : {};
+    var cardCount = Math.max(0, Math.round(Number(after.cardCount || 0)));
+    var snapshotName = _undo_snapshot_nameFromNote_(row.note);
+    if (!snapshotName) snapshotName = String(after.name || '').trim();
+    items.push({
+      undoKey: 'snap:' + String(row.logId || ''),
+      kind: 'snapshot',
+      logId: String(row.logId || ''),
+      opId: '',
+      scope: String(row.scope || ''),
+      actor: String(row.actor || ''),
+      ts: String(row.ts || ''),
+      targetSheet: String(row.targetSheet || ''),
+      actionSummary: snapshotName ? ('SNAP "' + snapshotName + '"') : 'SNAP',
+      count: 1,
+      targetIds: [],
+      targetIdsCount: cardCount,
+      snapshotName: snapshotName,
+      snapshotNamed: !!snapshotName
+    });
+  }
+  return items;
+}
+
 function sv_undo_options_v2(reqPayload) {
   var lock = null;
   try {
@@ -3593,6 +3682,7 @@ function sv_undo_options_v2(reqPayload) {
       var targetIds = Array.isArray(g.targetIds) ? g.targetIds : [];
       items.push({
         undoKey: String(g.key || ''),
+        kind: 'undo_group',
         logId: String((g.anchor && g.anchor.logId) || ''),
         opId: String(g.opId || ''),
         scope: String(g.scope || ''),
@@ -3604,6 +3694,17 @@ function sv_undo_options_v2(reqPayload) {
         targetIds: targetIds.slice(0, 20),
         targetIdsCount: targetIds.length
       });
+    }
+    if (req.scope === 'scheduler') {
+      var snapshots = _undo_collectSnapshotItems_(logs, req);
+      var combined = items.concat(snapshots);
+      combined.sort(function(a, b) {
+        var ta = Date.parse(String((a && a.ts) || '')) || 0;
+        var tb = Date.parse(String((b && b.ts) || '')) || 0;
+        return tb - ta;
+      });
+      if (combined.length > limit) combined = combined.slice(0, limit);
+      items = combined;
     }
     return JSON.stringify({
       ok: true,
@@ -5085,6 +5186,7 @@ function sv_scheduler_snapshot_create_v1(reqPayload) {
     var req = reqPayload;
     if (typeof reqPayload === 'string') req = _undo_parseJson_(reqPayload, {});
     req = req || {};
+    var snapshotName = String(req.name || '').trim();
 
     var sheetHint = String(req.schedId || '').trim();
     var ctx = _undo_scheduler_getCtx_(sheetHint);
@@ -5130,13 +5232,14 @@ function sv_scheduler_snapshot_create_v1(reqPayload) {
       before: null,
       after: {
         encoding: encoding,
+        name: snapshotName,
         schedId: String(ctx.sheetName || ''),
         capturedAt: _undo_nowIso_(),
         cardCount: cards.length,
         payload: payloadText
       },
       inverse: null,
-      note: String(req.note || 'sv_scheduler_snapshot_create_v1')
+      note: String(req.note || _undo_snapshot_buildNote_(snapshotName))
     });
     var cacheSh = _undo_getCacheSheet_();
     _undo_trimSnapshots_(cacheSh, 5);
@@ -5147,6 +5250,160 @@ function sv_scheduler_snapshot_create_v1(reqPayload) {
       schedId: String(ctx.sheetName || ''),
       cardCount: cards.length,
       encoding: encoding
+    });
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
+  } finally {
+    if (lock) {
+      try { lock.releaseLock(); } catch (_) {}
+    }
+  }
+}
+
+function _undo_snapshot_decodePayload_(afterObj) {
+  var after = (afterObj && typeof afterObj === 'object') ? afterObj : {};
+  var encoding = String(after.encoding || 'json').trim().toLowerCase();
+  var payloadText = String(after.payload || '');
+  if (!payloadText) return { ok: false, error: 'Snapshot payload missing' };
+  var text = payloadText;
+  if (encoding === 'gzip_base64_json') {
+    try {
+      var bytes = Utilities.base64DecodeWebSafe(payloadText);
+      var blob = Utilities.newBlob(bytes, 'application/octet-stream');
+      text = Utilities.ungzip(blob).getDataAsString();
+    } catch (e) {
+      return { ok: false, error: 'Snapshot decode failed: ' + String(e && e.message ? e.message : e) };
+    }
+  } else if (encoding !== 'json') {
+    return { ok: false, error: 'Unsupported snapshot encoding: ' + encoding };
+  }
+  var snap = _undo_parseJson_(text, null);
+  if (!snap || typeof snap !== 'object') return { ok: false, error: 'Snapshot JSON invalid' };
+  var cards = Array.isArray(snap.cards) ? snap.cards : [];
+  return {
+    ok: true,
+    snapshot: snap,
+    cards: cards
+  };
+}
+
+function _undo_scheduler_applySnapshotState_(sheetHint, cardsLike) {
+  var ctx = _undo_scheduler_getCtx_(sheetHint);
+  if (!ctx.ok) return { ok: false, error: ctx.error || 'Schedule context not found' };
+  var sh = ctx.sheet;
+  var lastCol = Math.max(1, Math.round(Number(ctx.lastCol || 0)) || sh.getLastColumn() || 1);
+  var cards = Array.isArray(cardsLike) ? cardsLike : [];
+
+  var currentLastRow = sh.getLastRow();
+  if (currentLastRow > 2) sh.deleteRows(3, currentLastRow - 2);
+
+  if (!cards.length) {
+    return { ok: true, schedId: String(ctx.sheetName || ''), rowCount: 0 };
+  }
+
+  sh.insertRowsAfter(2, cards.length);
+  var rows = [];
+  for (var i = 0; i < cards.length; i++) {
+    var card = _undo_scheduler_normalizeCard_(cards[i] || {});
+    if (!card.id) continue;
+    var row = new Array(lastCol);
+    for (var c = 0; c < lastCol; c++) row[c] = '';
+    if (ctx.cols.id > 0) row[ctx.cols.id - 1] = card.id;
+    if (ctx.cols.task > 0) row[ctx.cols.task - 1] = card.taskId;
+    if (ctx.cols.lane > 0) row[ctx.cols.lane - 1] = card.lane;
+    if (ctx.cols.start > 0) row[ctx.cols.start - 1] = card.start;
+    if (ctx.cols.end > 0) row[ctx.cols.end - 1] = card.end;
+    if (ctx.cols.len > 0) row[ctx.cols.len - 1] = card.len;
+    if (ctx.cols.memo > 0) row[ctx.cols.memo - 1] = card.memo;
+    rows.push(row);
+  }
+
+  if (!rows.length) return { ok: true, schedId: String(ctx.sheetName || ''), rowCount: 0 };
+  sh.getRange(3, 1, rows.length, lastCol).setValues(rows);
+  return { ok: true, schedId: String(ctx.sheetName || ''), rowCount: rows.length };
+}
+
+function sv_scheduler_snapshot_rename_v1(reqPayload) {
+  var lock = null;
+  try {
+    lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    var req = reqPayload;
+    if (typeof reqPayload === 'string') req = _undo_parseJson_(reqPayload, {});
+    req = req || {};
+    var logId = String(req.logId || '').trim();
+    if (!logId) return JSON.stringify({ ok: false, error: 'logId is required' });
+    var name = String(req.name || '').trim();
+
+    var sh = _undo_getCacheSheet_();
+    _undo_ensureHeader_(sh);
+    var row = _undo_findLogRowById_(sh, logId);
+    if (row < 2) return JSON.stringify({ ok: false, error: 'Snapshot log not found' });
+    var log = _undo_readLogAtRow_(sh, row);
+    if (!log) return JSON.stringify({ ok: false, error: 'Snapshot log read failed' });
+    if (String(log.scope || '').toLowerCase() !== 'scheduler_snapshot' || String(log.action || '').toLowerCase() !== 'snapshot') {
+      return JSON.stringify({ ok: false, error: 'Selected log is not a snapshot' });
+    }
+    sh.getRange(row, 13).setValue(_undo_snapshot_buildNote_(name));
+    return JSON.stringify({ ok: true, logId: logId, name: name, named: !!name });
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
+  } finally {
+    if (lock) {
+      try { lock.releaseLock(); } catch (_) {}
+    }
+  }
+}
+
+function sv_scheduler_snapshot_restore_v1(reqPayload) {
+  var lock = null;
+  try {
+    lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    var req = reqPayload;
+    if (typeof reqPayload === 'string') req = _undo_parseJson_(reqPayload, {});
+    req = req || {};
+    var logId = String(req.logId || '').trim();
+    if (!logId) return JSON.stringify({ ok: false, error: 'logId is required' });
+
+    var sh = _undo_getCacheSheet_();
+    _undo_ensureHeader_(sh);
+    var row = _undo_findLogRowById_(sh, logId);
+    if (row < 2) return JSON.stringify({ ok: false, error: 'Snapshot log not found' });
+    var log = _undo_readLogAtRow_(sh, row);
+    if (!log) return JSON.stringify({ ok: false, error: 'Snapshot log read failed' });
+    if (String(log.scope || '').toLowerCase() !== 'scheduler_snapshot' || String(log.action || '').toLowerCase() !== 'snapshot') {
+      return JSON.stringify({ ok: false, error: 'Selected log is not a snapshot' });
+    }
+
+    var decoded = _undo_snapshot_decodePayload_(log.after);
+    if (!decoded.ok) return JSON.stringify({ ok: false, error: decoded.error || 'Snapshot decode failed' });
+    var snapshot = decoded.snapshot || {};
+    var cards = Array.isArray(decoded.cards) ? decoded.cards : [];
+    var targetSchedId = String(snapshot.schedId || log.targetSheet || '').trim();
+    var applyRes = _undo_scheduler_applySnapshotState_(targetSchedId, cards);
+    if (!applyRes.ok) return JSON.stringify({ ok: false, error: applyRes.error || 'Snapshot apply failed' });
+
+    _undo_appendLog_({
+      ts: _undo_nowIso_(),
+      actor: req.actor,
+      scope: 'scheduler',
+      action: 'snapshot_restore',
+      targetSheet: String(applyRes.schedId || targetSchedId || ''),
+      entity: 'snapshot',
+      targetId: logId,
+      status: 'applied',
+      before: null,
+      after: { restoredFrom: logId, rowCount: Number(applyRes.rowCount || 0) },
+      inverse: null,
+      note: 'sv_scheduler_snapshot_restore_v1'
+    });
+
+    return JSON.stringify({
+      ok: true,
+      logId: logId,
+      schedId: String(applyRes.schedId || targetSchedId || ''),
+      rowCount: Number(applyRes.rowCount || 0)
     });
   } catch (e) {
     return JSON.stringify({ ok: false, error: String(e && e.message ? e.message : e) });
