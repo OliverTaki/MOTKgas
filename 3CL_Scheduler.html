@@ -561,6 +561,7 @@ window.app = (function() {
     autoSnapPending: false,
     autoSnapThresholdMs: 10 * 60 * 1000,
     lastSnapshotAtMs: Date.now(),
+    lastSnapshotAttemptAtMs: 0,
     commitOpId: '',
     commitQueue: [],
     commitInflight: null,
@@ -2544,6 +2545,8 @@ window.app = (function() {
   };
 
   function flushCommitQueue_() {
+    // Keep edits possible during SNAP, but serialize server writes to avoid lock contention.
+    if (state.snapBusy) return;
     if (state.undoBusy && state.undoPhase === 'rpc' && !state.commitInflight) return;
     if (state.commitInflight) return;
     const item = state.commitQueue.shift();
@@ -2775,6 +2778,7 @@ window.app = (function() {
     const onDone = (typeof options.onDone === 'function') ? options.onDone : null;
     if (state.undoBusy || state.snapBusy) return;
     state.snapBusy = true;
+    state.lastSnapshotAttemptAtMs = Date.now();
     state.autoSnapPending = false;
     const beginTs = Date.now();
     const finish_ = (ok, msg) => {
@@ -2891,7 +2895,10 @@ window.app = (function() {
 
   function maybeAutoSnapshotByEdit_() {
     if (state.undoBusy || state.snapBusy || state.autoSnapPending) return;
-    const lastTs = Number(state.lastSnapshotAtMs || 0);
+    const lastTs = Math.max(
+      Number(state.lastSnapshotAtMs || 0),
+      Number(state.lastSnapshotAttemptAtMs || 0)
+    );
     const threshold = Math.max(60 * 1000, Number(state.autoSnapThresholdMs || 0));
     const elapsed = Date.now() - lastTs;
     if (!isFinite(elapsed) || elapsed < threshold) return;

@@ -3681,12 +3681,15 @@ function sv_undo_options_v2(reqPayload) {
     if (limit > 100) limit = 100;
     var logs = _undo_readLogs_(2000);
     var items = [];
+    var totalGroups = 0;
     if (req.scope === 'scheduler') {
       // Scheduler menu is SNAP-only by policy.
       items = _undo_collectSnapshotItems_(logs, req);
       if (items.length > limit) items = items.slice(0, limit);
+      totalGroups = items.length;
     } else {
       var groups = _undo_collectGroupsFromLogs_(logs, req);
+      totalGroups = groups.length;
       for (var i = 0; i < groups.length && items.length < limit; i++) {
         var g = groups[i] || {};
         var targetIds = Array.isArray(g.targetIds) ? g.targetIds : [];
@@ -3711,7 +3714,7 @@ function sv_undo_options_v2(reqPayload) {
       scope: req.scope,
       actor: req.actor,
       admin: req.admin,
-      totalGroups: groups.length,
+      totalGroups: totalGroups,
       items: items
     });
   } catch (e) {
