@@ -24,8 +24,10 @@ Implemented scheduler snapshot creation to the `Cache` sheet and retention trimm
 - `clasp push`
 - `clasp deploy -d "TAKE371 SNAP button and snapshot retention"`
 - `git add 2SV_DataCore.js 3CL_Scheduler.html change_log/2026-02-13_371_TAKE371_scheduler_snap_button_and_cache_retention.md`
-- `git commit -m "TAKE371 replace reload with snap and keep latest 5 snapshots"` (pending)
-- `git push origin main` (pending)
+- `git commit -m "TAKE371 replace reload with snap and keep latest 5 snapshots"`
+- `git push origin main`
+- Branch: `main`
+- Commit: `03a19d1`
 
 # 4. Test Evidence
 - Syntax check:
