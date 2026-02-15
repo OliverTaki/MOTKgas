@@ -244,6 +244,22 @@
     .undo-meta { color: #9ca3af; font-size: 10px; }
     .undo-empty { color: #9ca3af; font-size: 11px; padding: 12px; }
     .undo-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 12px 12px; }
+    .remove-card-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 140; display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .remove-card-modal.hidden { display: none; }
+    .remove-card-panel {
+      width: min(420px, 96vw);
+      background: #17171a;
+      border: 1px solid #333;
+      border-radius: 10px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.45);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 12px;
+    }
+    .remove-card-title { color: #fff; font-size: 13px; font-weight: 700; }
+    .remove-card-msg { color: #aab0ba; font-size: 12px; }
+    .remove-card-actions { display: flex; justify-content: flex-end; gap: 8px; }
     .lane-row { display: flex; gap: 6px; padding: 4px; border-bottom: 1px solid #222; font-size: 11px; align-items: center; }
     .list-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-bottom: 1px solid #222; cursor: pointer; font-size: 11px; line-height: 1.2; flex-wrap: nowrap; }
     .list-item.unassigned .li-title { color: #ef4444; }
@@ -524,6 +540,17 @@
   </div>
 </div>
 
+<div id="remove-card-modal" class="remove-card-modal hidden">
+  <div class="remove-card-panel">
+    <div class="remove-card-title">Remove Card</div>
+    <div id="remove-card-msg" class="remove-card-msg">Remove this card from lane?</div>
+    <div class="remove-card-actions">
+      <button id="btn-remove-card-cancel" class="btn" type="button">Cancel</button>
+      <button id="btn-remove-card-confirm" class="btn" type="button">Remove</button>
+    </div>
+  </div>
+</div>
+
 <div id="loadingSpinner">
   <div class="spinner"></div>
   <div id="loadingSpinnerText" style="color:#fff; font-size:11px; margin-top:10px;">Loading...</div>
@@ -574,6 +601,7 @@ window.app = (function() {
     undoSelectedKey: '',
     undoLoading: false,
     undoLoadError: '',
+    removeCardPendingId: '',
     snapBusy: false,
     snapPhase: '',
     autoSnapPending: false,
@@ -672,6 +700,36 @@ window.app = (function() {
     if (!modal) return;
     if (open) modal.classList.remove('hidden');
     else modal.classList.add('hidden');
+  };
+  const setRemoveCardModalOpen_ = (open) => {
+    var modal = document.getElementById('remove-card-modal');
+    if (!modal) return;
+    if (open) modal.classList.remove('hidden');
+    else modal.classList.add('hidden');
+  };
+  const requestRemoveCardFromLane_ = (cardId) => {
+    if (state.undoBusy) return;
+    var key = String(cardId || '').trim();
+    if (!key || !state.cards[key]) return;
+    state.removeCardPendingId = key;
+    var msg = document.getElementById('remove-card-msg');
+    if (msg) msg.textContent = 'Remove this card from lane?';
+    setRemoveCardModalOpen_(true);
+  };
+  const cancelRemoveCardFromLane_ = () => {
+    state.removeCardPendingId = '';
+    setRemoveCardModalOpen_(false);
+  };
+  const confirmRemoveCardFromLane_ = () => {
+    var key = String(state.removeCardPendingId || '').trim();
+    cancelRemoveCardFromLane_();
+    if (!key || !state.cards[key]) return;
+    var c = state.cards[key];
+    c.laneId = '';
+    render.grid();
+    ui.renderCardList();
+    ui.refreshInspectorValuesFromCard();
+    actions.commit(c.id, 'update');
   };
   const formatUndoTs_ = (ts) => {
     const raw = String(ts || '').trim();
@@ -1297,6 +1355,15 @@ window.app = (function() {
       out.push(key);
     });
     return out;
+  }
+
+  function keepOnlyLaneSelection_(ids, laneId) {
+    var targetLane = String(laneId || '');
+    if (!targetLane) return normalizeCardIds_(ids);
+    return normalizeCardIds_(ids).filter(function (id) {
+      var c = state.cards[String(id || '')];
+      return !!c && String(c.laneId || '') === targetLane;
+    });
   }
 
   function isCardInMultiSelection_(cardId) {
@@ -3551,6 +3618,7 @@ window.app = (function() {
     toggleMultiSelection: (id, opts = {}) => {
       const key = String(id || '').trim();
       if (!key || !state.cards[key]) return;
+      const laneId = String((state.cards[key] && state.cards[key].laneId) || '').trim();
       const hasExplicitChecked = Object.prototype.hasOwnProperty.call(opts || {}, 'checked');
       const explicitChecked = hasExplicitChecked ? !!opts.checked : null;
       const keepContiguous = opts.contiguous !== false;
@@ -3574,6 +3642,8 @@ window.app = (function() {
           state.multiSelection = normalizeCardIds_(next);
         }
       }
+      // Multi-selection is lane-scoped to prevent cross-lane partial block moves.
+      state.multiSelection = keepOnlyLaneSelection_(state.multiSelection || [], laneId);
       if (!state.multiSelection.length) {
         state.multiAnchorCardId = null;
       } else if (!state.multiAnchorCardId || !state.cards[state.multiAnchorCardId]) {
@@ -4167,13 +4237,7 @@ window.app = (function() {
         const xBtn = document.createElement('div'); xBtn.className='card-close'; xBtn.textContent='×';
         xBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          const ok = confirm('Remove this card from lane?');
-          if (!ok) return;
-          c.laneId = '';
-          render.grid();
-          ui.renderCardList();
-          ui.refreshInspectorValuesFromCard();
-          actions.commit(c.id, 'update');
+          requestRemoveCardFromLane_(c.id);
         });
         div.appendChild(xBtn);
 
@@ -5591,6 +5655,8 @@ window.app = (function() {
     safeAdd('btn-undo-modal-refresh', 'click', actions.loadUndoOptions);
     safeAdd('btn-undo-snap-rename', 'click', actions.renameSelectedSnapshot);
     safeAdd('btn-undo-apply', 'click', actions.undoToSelected);
+    safeAdd('btn-remove-card-cancel', 'click', cancelRemoveCardFromLane_);
+    safeAdd('btn-remove-card-confirm', 'click', confirmRemoveCardFromLane_);
     safeAdd('btn-insp', 'click', () => {
       const insp = document.getElementById('inspector');
       if (!insp) return;
@@ -5652,6 +5718,12 @@ window.app = (function() {
         if (e.target === undoModal) actions.closeUndoModal();
       });
     }
+    const removeCardModal = document.getElementById('remove-card-modal');
+    if (removeCardModal) {
+      removeCardModal.addEventListener('click', (e) => {
+        if (e.target === removeCardModal) cancelRemoveCardFromLane_();
+      });
+    }
     document.addEventListener('keydown', (e) => {
       if (state.undoBusy) {
         if (e.key === 'Delete' || e.key === 'Backspace' || e.key === 'Escape' || e.key === 'Enter') {
@@ -5668,6 +5740,7 @@ window.app = (function() {
       }
       if (e.key === 'Escape') {
         closeToolbarMenus_();
+        cancelRemoveCardFromLane_();
         setSettingsModalOpen_(false);
         setUndoModalOpen_(false);
         actions.clearGapSelection();
