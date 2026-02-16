@@ -112,6 +112,12 @@
     .card.multi-selected { box-shadow: 0 0 0 1px rgba(110, 231, 255, 0.85), 0 1px 3px rgba(0,0,0,0.5); }
     .card.unsaved { border: 1px dashed #f59e0b; }
     .card:hover { z-index: 15; background: #3b82f6; }
+    .card.status-not_started { background: #1d4ed8; }
+    .card.status-in_progress { background: #7c3aed; }
+    .card.status-review { background: #d97706; }
+    .card.status-approved { background: #0f766e; }
+    .card.status-completed { background: #166534; }
+    .card.camera-move { box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.95), 0 1px 3px rgba(0,0,0,0.5); }
     .card-multi-toggle {
       position:absolute;
       top:1px;
@@ -270,6 +276,24 @@
     .li-lane { font-size: 10px; padding: 2px 6px; border: 1px solid #333; border-radius: 4px; color: #aaa; white-space: nowrap; max-width: 40%; overflow: hidden; text-overflow: ellipsis; flex: 0 0 auto; text-align: right; margin-left: auto; }
     .list-item.unassigned .li-lane { color: #ef4444; border-color: #ef4444; }
     .list-item.attention .li-lane { color: #ef4444; border-color: #ef4444; }
+    .status-pill {
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-height:22px;
+      padding:2px 8px;
+      border-radius:999px;
+      border:1px solid #3f3f46;
+      font-size:10px;
+      font-weight:700;
+      letter-spacing:0.02em;
+      text-transform:uppercase;
+    }
+    .status-pill.not_started { background:#1e3a8a; color:#bfdbfe; border-color:#1d4ed8; }
+    .status-pill.in_progress { background:#4c1d95; color:#ddd6fe; border-color:#7c3aed; }
+    .status-pill.review { background:#78350f; color:#fde68a; border-color:#d97706; }
+    .status-pill.approved { background:#134e4a; color:#99f6e4; border-color:#0f766e; }
+    .status-pill.completed { background:#14532d; color:#bbf7d0; border-color:#16a34a; }
     .task-suggest-box {
       position: absolute;
       left: 0;
@@ -430,6 +454,7 @@
     <button id="btn-undo" class="btn" title="Undo last scheduler change">Undo</button>
     <button id="btn-insp" class="btn">Insp</button>
     <button id="btn-settings" class="btn" title="Settings">Settings</button>
+    <button id="btn-publish" class="btn" title="Publish schedule to Tasks">Publish</button>
   </div>
 
   <div id="main">
@@ -604,6 +629,8 @@ window.app = (function() {
     removeCardPendingId: '',
     snapBusy: false,
     snapPhase: '',
+    publishBusy: false,
+    publishPhase: '',
     autoSnapPending: false,
     autoSnapThresholdMs: 10 * 60 * 1000,
     lastSnapshotAtMs: Date.now(),
@@ -747,7 +774,7 @@ window.app = (function() {
     const takeSnapBtn = document.getElementById('btn-undo-snap-take');
     const renameSnapBtn = document.getElementById('btn-undo-snap-rename');
     if (!listEl || !summaryEl || !applyBtn) return;
-    const items = Array.isArray(state.undoOptions) ? state.undoOptions : [];
+    const items = Array.isArray(state.undoOptions) ? state.undoOptions.filter((it) => !!it && typeof it === 'object') : [];
     const selected = items.find((it) => String((it && it.undoKey) || '') === String(state.undoSelectedKey || '')) || null;
     const selectedKind = String((selected && selected.kind) || '').trim().toLowerCase();
     const selectedIsSnapshot = (selectedKind === 'snapshot');
@@ -1759,6 +1786,156 @@ window.app = (function() {
       .replace(/'/g, '&#39;');
   }
 
+  const TASK_FIDS = {
+    status: 'fi_0027',
+    shotLink: 'fi_0031',
+    startDate: 'fi_0029',
+    endDate: 'fi_0030',
+    stillShot: 'fi_0067',
+    travelChars: 'fi_0068',
+    noTravelChars: 'fi_0069',
+    cameraMovement: 'fi_0070',
+    shootingFps: 'fi_0071',
+    shootingFrames: 'fi_0072',
+    difficultyFactor: 'fi_0073',
+    estLength: 'fi_0074',
+    finished: 'fi_0075',
+    spentLength: 'fi_0076',
+    overrunRatio: 'fi_0077',
+    taskOrder: 'fi_0095'
+  };
+
+  const TASK_STATUS_OPTIONS = ['not_started', 'in_progress', 'review', 'approved', 'completed'];
+
+  function normalizeTaskStatus_(value) {
+    const s = String(value || '').trim().toLowerCase();
+    if (!s) return '';
+    return TASK_STATUS_OPTIONS.indexOf(s) >= 0 ? s : s.replace(/\s+/g, '_');
+  }
+
+  function taskRawValue_(task, fid, fallbackKeys) {
+    const t = task || {};
+    const raw = (t.raw && typeof t.raw === 'object') ? t.raw : {};
+    if (fid && raw[fid] != null && raw[fid] !== '') return raw[fid];
+    const arr = Array.isArray(fallbackKeys) ? fallbackKeys : [];
+    for (let i = 0; i < arr.length; i++) {
+      const k = String(arr[i] || '');
+      if (!k) continue;
+      if (t[k] != null && t[k] !== '') return t[k];
+      if (raw[k] != null && raw[k] !== '') return raw[k];
+    }
+    return '';
+  }
+
+  function taskNumberValue_(task, fid, fallbackKeys, fallback) {
+    const v = taskRawValue_(task, fid, fallbackKeys);
+    const n = Number(v);
+    return isFinite(n) ? n : fallback;
+  }
+
+  function taskBoolValue_(task, fid, fallbackKeys) {
+    const v = taskRawValue_(task, fid, fallbackKeys);
+    if (v === true || v === 1) return true;
+    const s = String(v == null ? '' : v).trim().toLowerCase();
+    return s === 'true' || s === '1' || s === 'yes' || s === 'on';
+  }
+
+  function getTaskOrderValue_(task) {
+    const n = Number(taskRawValue_(task, TASK_FIDS.taskOrder, ['taskOrder', 'order']));
+    if (!isFinite(n)) return Number.MAX_SAFE_INTEGER;
+    return Math.max(1, Math.round(n));
+  }
+
+  function getTaskEstLengthMin_(task) {
+    const n = taskNumberValue_(task, TASK_FIDS.estLength, ['estLength', 'est_length'], NaN);
+    if (!isFinite(n) || n <= 0) return 60;
+    return Math.max(1, Math.round(n));
+  }
+
+  function applyTaskPatchLocally_(taskId, patch) {
+    const key = String(taskId || '').trim();
+    if (!key) return;
+    const task = state.tasksById[key];
+    if (!task) return;
+    if (!task.raw || typeof task.raw !== 'object') task.raw = {};
+    const p = (patch && typeof patch === 'object') ? patch : {};
+    Object.keys(p).forEach((fid) => {
+      task.raw[fid] = p[fid];
+      if (fid === TASK_FIDS.status) task.status = String(p[fid] || '').trim();
+      if (fid === TASK_FIDS.startDate) task.planStart = String(p[fid] || '').trim();
+      if (fid === TASK_FIDS.endDate) task.planEnd = String(p[fid] || '').trim();
+      if (fid === TASK_FIDS.taskOrder) task.taskOrder = String(p[fid] || '').trim();
+    });
+    Object.values(state.cards || {}).forEach((card) => {
+      if (String(card && card.taskId || '') !== key) return;
+      card.status = String(task.status || '');
+      if (task.name) card.title = String(task.name || card.title || '');
+    });
+  }
+
+  function refreshTaskFromServer_(taskId, onDone) {
+    const key = String(taskId || '').trim();
+    const done = (typeof onDone === 'function') ? onDone : function () {};
+    if (!key) {
+      done(false);
+      return;
+    }
+    google.script.run
+      .withSuccessHandler((record) => {
+        const rec = (record && typeof record === 'object') ? record : {};
+        const t = state.tasksById[key];
+        if (t) {
+          if (!t.raw || typeof t.raw !== 'object') t.raw = {};
+          Object.keys(rec).forEach((rk) => { t.raw[rk] = rec[rk]; });
+          t.status = String(rec[TASK_FIDS.status] || t.status || '').trim();
+          t.planStart = String(rec[TASK_FIDS.startDate] || t.planStart || '').trim();
+          t.planEnd = String(rec[TASK_FIDS.endDate] || t.planEnd || '').trim();
+          t.taskOrder = String(rec[TASK_FIDS.taskOrder] || t.taskOrder || '').trim();
+          Object.values(state.cards || {}).forEach((card) => {
+            if (String(card && card.taskId || '') !== key) return;
+            card.status = String(t.status || '');
+            if (t.name) card.title = String(t.name || card.title || '');
+          });
+        }
+        done(true);
+      })
+      .withFailureHandler(() => done(false))
+      .sv_getRecord_v2({ entity: 'task', id: key });
+  }
+
+  function commitTaskPatchFromInspector_(taskId, patch, onDone) {
+    const key = String(taskId || '').trim();
+    const p = (patch && typeof patch === 'object') ? patch : {};
+    const done = (typeof onDone === 'function') ? onDone : function () {};
+    if (!key || !Object.keys(p).length) {
+      done(false);
+      return;
+    }
+    utils.saveStatus('saving', 'Saving task...');
+    google.script.run
+      .withSuccessHandler((res) => {
+        const ok = !!(res && res.ok);
+        if (!ok) {
+          utils.saveStatus('error', String((res && (res.error || res.note)) || 'Task save failed'));
+          done(false);
+          return;
+        }
+        applyTaskPatchLocally_(key, p);
+        refreshTaskFromServer_(key, () => {
+          render.grid();
+          ui.renderCardList();
+          ui.refreshInspectorValuesFromCard();
+          utils.saveStatus('saved', 'Task saved');
+          done(true);
+        });
+      })
+      .withFailureHandler((err) => {
+        utils.saveStatus('error', String(err && (err.message || err) || 'Task save failed'));
+        done(false);
+      })
+      .sv_setRecord_v2('task', key, p, { actor: 'scheduler_inspector' });
+  }
+
   function getTaskByIdSafe_(id) {
     var key = String(id || '').trim();
     if (!key) return null;
@@ -2357,6 +2534,7 @@ window.app = (function() {
         var shotCodeK = _sch_inferKeyByParts_(t, ['shot', 'code']) || _sch_inferKeyByParts_(t, ['shotcode']);
         var shotIdK = _sch_inferKeyByParts_(t, ['shot', 'id']) || _sch_inferKeyByParts_(t, ['shot', 'link']) || _sch_inferKeyByParts_(t, ['shot']);
         var assetLinkK = _sch_inferKeyByParts_(t, ['asset', 'link']) || _sch_inferKeyByParts_(t, ['asset']) || _sch_inferKeyByParts_(t, ['resource']);
+        var orderK = _sch_inferKeyByParts_(t, ['task', 'order']) || _sch_inferKeyByParts_(t, ['order']);
         var idVal = String(tidK ? t[tidK] : (t.taskId || t.id || '')).trim();
         return {
           id: idVal,
@@ -2371,6 +2549,18 @@ window.app = (function() {
           shotCode: String(shotCodeK ? t[shotCodeK] : (t.shotCode || t.shot_code || '')).trim(),
           shotId: String(shotIdK ? t[shotIdK] : (t.shotId || t.shot_id || t.shotLink || t.shot_link || t.shot || '')).trim(),
           assetIds: parseEntityIdsClient_(assetLinkK ? t[assetLinkK] : (t.assetIds || t.asset_ids || t.assetLink || t.asset_link || t.resources || ''), 'as'),
+          taskOrder: String(orderK ? t[orderK] : (t.taskOrder || t.order || '')).trim(),
+          stillShot: String(taskRawValue_(t, TASK_FIDS.stillShot, ['stillShot', 'still_shot']) || '').trim(),
+          travelChars: String(taskRawValue_(t, TASK_FIDS.travelChars, ['travelChars', 'travel_characters']) || '').trim(),
+          noTravelChars: String(taskRawValue_(t, TASK_FIDS.noTravelChars, ['noTravelChars', 'no_travel_characters']) || '').trim(),
+          cameraMovement: String(taskRawValue_(t, TASK_FIDS.cameraMovement, ['cameraMovement', 'camera_movement']) || '').trim(),
+          shootingFps: String(taskRawValue_(t, TASK_FIDS.shootingFps, ['shootingFps', 'shooting_fps']) || '').trim(),
+          shootingFrames: String(taskRawValue_(t, TASK_FIDS.shootingFrames, ['shootingFrames', 'shooting_frames']) || '').trim(),
+          difficultyFactor: String(taskRawValue_(t, TASK_FIDS.difficultyFactor, ['difficultyFactor', 'difficulty_factor']) || '').trim(),
+          estLength: String(taskRawValue_(t, TASK_FIDS.estLength, ['estLength', 'est_length']) || '').trim(),
+          finished: String(taskRawValue_(t, TASK_FIDS.finished, ['finished']) || '').trim(),
+          spentLength: String(taskRawValue_(t, TASK_FIDS.spentLength, ['spentLength', 'spent_length']) || '').trim(),
+          overrunRatio: String(taskRawValue_(t, TASK_FIDS.overrunRatio, ['overrunRatio', 'overrun_ratio']) || '').trim(),
           raw: t
         };
       }).filter(t => t.id);
@@ -2875,6 +3065,30 @@ window.app = (function() {
   function isCommitQueueIdle_() {
     const stats = getCommitQueueStats_();
     return (stats.inflight === 0 && stats.pending === 0);
+  }
+
+  function waitForCommitQueueIdle_(opts) {
+    const cfg = (opts && typeof opts === 'object') ? opts : {};
+    const timeoutMs = Math.max(1000, Math.round(Number(cfg.timeoutMs || 60000)));
+    const message = String(cfg.message || 'Waiting save queue...');
+    const onReady = (typeof cfg.onReady === 'function') ? cfg.onReady : function () {};
+    const onTimeout = (typeof cfg.onTimeout === 'function') ? cfg.onTimeout : function () {};
+    const start = Date.now();
+    const tick_ = () => {
+      if (isCommitQueueIdle_()) {
+        onReady();
+        return;
+      }
+      const elapsed = Date.now() - start;
+      if (elapsed > timeoutMs) {
+        onTimeout(getCommitQueueStats_());
+        return;
+      }
+      const q = getCommitQueueStats_();
+      setBlockingOverlay_(true, `${message} (${q.inflight + q.pending})`);
+      setTimeout(tick_, 70);
+    };
+    tick_();
   }
 
   function compactCommitQueueForUndo_() {
@@ -3478,6 +3692,71 @@ window.app = (function() {
     },
 
     undoLast: () => executeUndoRequest_('sv_undo_last_v2', { scope: 'scheduler' }),
+    publish: () => {
+      if (state.undoBusy || state.snapBusy || state.publishBusy) return;
+      if (!confirm('Publish current schedule to Tasks?\n\nThis updates Assigned member / Start Date / End Date / task Order.\nCompleted tasks are skipped.')) return;
+      state.publishBusy = true;
+      state.publishPhase = 'waiting_queue';
+      const btn = document.getElementById('btn-publish');
+      if (btn) btn.disabled = true;
+      utils.saveStatus('saving', 'Publishing...');
+      waitForCommitQueueIdle_({
+        timeoutMs: 60000,
+        message: 'Waiting save queue...',
+        onReady: () => {
+          state.publishPhase = 'rpc';
+          setBlockingOverlay_(true, 'Publishing...');
+          const cards = Object.values(state.cards || {}).map((c) => ({
+            id: String(c && c.id || ''),
+            cardId: String(c && c.id || ''),
+            taskId: String(c && c.taskId || ''),
+            lane: String(c && c.laneId || ''),
+            laneVal: String(c && c.laneId || ''),
+            start: Number(c && c.start || 0),
+            end: Number(c && c.end || 0),
+            startSlot: Number(c && c.start || 0),
+            endSlot: Number(c && c.end || 0)
+          }));
+          google.script.run
+            .withSuccessHandler((resRaw) => {
+              let res = resRaw;
+              if (typeof resRaw === 'string') {
+                try { res = JSON.parse(resRaw); } catch (_) { res = { ok: false, error: 'Invalid publish response' }; }
+              }
+              if (res && res.ok) {
+                const msg = `Publish done: updated ${Number(res.updated || 0)} / skipped ${Number(res.skipped || 0)}`;
+                utils.saveStatus('saved', msg);
+                actions.load({ forceNetwork: true });
+              } else {
+                utils.saveStatus('error', String((res && (res.error || res.details)) || 'Publish failed'));
+              }
+              state.publishBusy = false;
+              state.publishPhase = '';
+              if (btn) btn.disabled = false;
+              setBlockingOverlay_(false);
+            })
+            .withFailureHandler((err) => {
+              utils.saveStatus('error', String(err && (err.message || err) || 'Publish failed'));
+              state.publishBusy = false;
+              state.publishPhase = '';
+              if (btn) btn.disabled = false;
+              setBlockingOverlay_(false);
+            })
+            .sv_schedule_publish_v1({
+              schedId: String(state.schedId || ''),
+              viewSlotMin: Number(config.slotMin || 30),
+              cards: cards
+            });
+        },
+        onTimeout: () => {
+          utils.saveStatus('error', 'Publish timeout (save queue busy)');
+          state.publishBusy = false;
+          state.publishPhase = '';
+          if (btn) btn.disabled = false;
+          setBlockingOverlay_(false);
+        }
+      });
+    },
     commit: (id, type, opts = {}) => {
       if (state.undoBusy) {
         utils.saveStatus('saving', 'Undo in progress...');
@@ -3964,12 +4243,26 @@ window.app = (function() {
 
     autoCreate: () => {
       const used = new Set(Object.values(state.cards).map(c => c.taskId));
-      const orphans = state.tasks.filter(t => t.id && !used.has(t.id));
+      const orphans = state.tasks
+        .filter(t => t.id && !used.has(t.id))
+        .slice()
+        .sort((a, b) => getTaskOrderValue_(a) - getTaskOrderValue_(b));
       if (!orphans.length) { alert('No orphans.'); return; }
       if (!confirm(`Create ${orphans.length} cards?`)) return;
       orphans.forEach((t, i) => {
         const id = 'c_auto_' + Date.now() + '_' + i;
-        state.cards[id] = { id, taskId: t.id, title: t.name, laneId: 'unassigned', start: 1, end: 2, memo: '', status: t.status };
+        const estMin = getTaskEstLengthMin_(t);
+        const durSlots = Math.max(1, Math.ceil(estMin / Math.max(1, Number(config.slotMin) || 1)));
+        state.cards[id] = {
+          id,
+          taskId: t.id,
+          title: t.name,
+          laneId: 'unassigned',
+          start: 1,
+          end: 1 + durSlots - 1,
+          memo: '',
+          status: t.status
+        };
         actions.commit(id, 'create');
       });
       ui.renderCardList();
@@ -3986,7 +4279,7 @@ window.app = (function() {
       });
       const nextNum = String(maxNum + 1).padStart(3, '0');
       const id = nextNum;
-      const card = { id, taskId: '', title: 'New_Task', laneId: 'unassigned', start: 1, end: 10, memo: '' };
+      const card = { id, taskId: '', title: 'New_Task', laneId: 'unassigned', start: 1, end: 2, memo: '', status: '' };
       state.cards[id] = card;
       actions.commit(id, 'create');
       ui.renderCardList();
@@ -4203,7 +4496,10 @@ window.app = (function() {
         const conflictInfo = state.cardAssetConflictById[String(c.id)];
         const isPrimary = String(state.selection || '') === String(c.id || '');
         const isMulti = isCardInMultiSelection_(c.id);
-        div.className = `card ${isPrimary ? 'selected' : ''} ${isMulti ? 'multi-selected' : ''} ${conflictInfo ? 'asset-conflict' : ''}`;
+        const t = getTaskByIdSafe_(c.taskId);
+        const cardStatus = normalizeTaskStatus_(c.status || (t && t.status) || '');
+        const cameraMove = taskBoolValue_(t, TASK_FIDS.cameraMovement, ['cameraMovement', 'camera_movement']);
+        div.className = `card ${isPrimary ? 'selected' : ''} ${isMulti ? 'multi-selected' : ''} ${conflictInfo ? 'asset-conflict' : ''} ${cardStatus ? ('status-' + cardStatus) : ''} ${cameraMove ? 'camera-move' : ''}`;
         div.style.top = top + 'px'; div.style.left = left + 'px';
         div.style.height = (h - 1) + 'px';
 
@@ -4607,7 +4903,7 @@ window.app = (function() {
       const modeSel = document.createElement('select');
       modeSel.className = 'inp';
       modeSel.style.cssText = 'height:24px; padding:2px 6px;';
-      modeSel.innerHTML = '<option value="card">Card</option><option value="card+task">Card+Task (read-only)</option>';
+      modeSel.innerHTML = '<option value="card">Card</option><option value="card+task">Card+Task</option>';
       modeSel.value = state.inspectorFieldsMode || 'card';
       modeSel.addEventListener('change', () => {
         state.inspectorFieldsMode = modeSel.value || 'card';
@@ -4683,9 +4979,16 @@ window.app = (function() {
       const applyTaskLink_ = (rawTaskId, force) => {
         const nextTaskId = String(rawTaskId || '').trim();
         if (!force && String(c.taskId || '') === nextTaskId) return;
+        const prevTaskId = String(c.taskId || '').trim();
         c.taskId = nextTaskId;
         const t = state.tasks.find(x => x.id === c.taskId);
         if (t && t.name) c.title = t.name;
+        if (!prevTaskId && t) {
+          const estMin = getTaskEstLengthMin_(t);
+          const durSlots = Math.max(1, Math.ceil(estMin / Math.max(1, Number(config.slotMin) || 1)));
+          c.end = Math.max(c.start, c.start + durSlots - 1);
+          c.status = String(t.status || '');
+        }
         syncTaskLinkBtn_();
         actions.commit(c.id, 'update');
         ui.renderCardList();
@@ -4759,7 +5062,32 @@ window.app = (function() {
       addField('Task', linkWrap);
 
       if (state.inspectorFieldsMode === 'card+task') {
-        const t = c.taskId ? (getTaskById_(c.taskId) || {}) : {};
+        const taskId = String(c.taskId || '').trim();
+        const t = taskId ? (getTaskById_(taskId) || {}) : {};
+        const makeTaskTextInput_ = (fid, label, fallbackKeys, readOnly, typeHint) => {
+          const inp = document.createElement('input');
+          inp.className = 'inp';
+          inp.readOnly = !!readOnly;
+          if (typeHint === 'number') inp.inputMode = 'numeric';
+          inp.value = String(taskRawValue_(t, fid, fallbackKeys) || '').trim();
+          if (!readOnly && taskId) {
+            inp.addEventListener('blur', () => {
+              const next = String(inp.value || '').trim();
+              const patch = {};
+              patch[fid] = next;
+              commitTaskPatchFromInspector_(taskId, patch, () => ui.renderInspector());
+            });
+            inp.addEventListener('keydown', (ev) => {
+              if (ev.key === 'Enter') {
+                ev.preventDefault();
+                inp.blur();
+              }
+            });
+          }
+          addField(label, inp);
+          return inp;
+        };
+
         const taskName = document.createElement('input');
         taskName.className = 'inp';
         taskName.readOnly = true;
@@ -4767,33 +5095,65 @@ window.app = (function() {
         edit.refs.taskName = taskName;
         addField('Task Name', taskName);
 
-        const taskStatus = document.createElement('input');
-        taskStatus.className = 'inp';
-        taskStatus.readOnly = true;
-        taskStatus.value = String(t.status || '');
-        edit.refs.taskStatus = taskStatus;
-        addField('Status', taskStatus);
+        const statusWrap = document.createElement('div');
+        statusWrap.style.cssText = 'display:flex; align-items:center; gap:6px;';
+        const taskStatusSel = document.createElement('select');
+        taskStatusSel.className = 'inp';
+        taskStatusSel.style.maxWidth = '220px';
+        taskStatusSel.innerHTML = TASK_STATUS_OPTIONS.map((s) => `<option value="${s}">${s}</option>`).join('');
+        taskStatusSel.value = normalizeTaskStatus_(taskRawValue_(t, TASK_FIDS.status, ['status'])) || 'not_started';
+        const statusPill = document.createElement('div');
+        statusPill.className = 'status-pill ' + normalizeTaskStatus_(taskStatusSel.value || '');
+        statusPill.textContent = String(taskStatusSel.value || '').replace(/_/g, ' ');
+        taskStatusSel.addEventListener('change', () => {
+          if (!taskId) return;
+          const next = normalizeTaskStatus_(taskStatusSel.value);
+          const patch = {};
+          patch[TASK_FIDS.status] = next;
+          commitTaskPatchFromInspector_(taskId, patch, () => {
+            taskStatusSel.value = next || 'not_started';
+            statusPill.className = 'status-pill ' + (next || '');
+            statusPill.textContent = String(next || '').replace(/_/g, ' ');
+            ui.renderInspector();
+          });
+        });
+        statusWrap.appendChild(taskStatusSel);
+        statusWrap.appendChild(statusPill);
+        edit.refs.taskStatus = taskStatusSel;
+        addField('Status', statusWrap);
 
-        const taskAssignee = document.createElement('input');
-        taskAssignee.className = 'inp';
-        taskAssignee.readOnly = true;
-        taskAssignee.value = String(t.assignee || '');
-        edit.refs.taskAssignee = taskAssignee;
-        addField('Assignee', taskAssignee);
+        const cameraWrap = document.createElement('label');
+        cameraWrap.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:11px; color:#d1d5db;';
+        const cameraChk = document.createElement('input');
+        cameraChk.type = 'checkbox';
+        cameraChk.checked = taskBoolValue_(t, TASK_FIDS.cameraMovement, ['cameraMovement', 'camera_movement']);
+        cameraChk.addEventListener('change', () => {
+          if (!taskId) return;
+          const patch = {};
+          patch[TASK_FIDS.cameraMovement] = cameraChk.checked ? 'TRUE' : 'FALSE';
+          commitTaskPatchFromInspector_(taskId, patch, () => ui.renderInspector());
+        });
+        cameraWrap.appendChild(cameraChk);
+        cameraWrap.appendChild(document.createTextNode('Camera movement'));
+        addField('Camera movement', cameraWrap);
 
-        const taskPlanStart = document.createElement('input');
-        taskPlanStart.className = 'inp';
-        taskPlanStart.readOnly = true;
-        taskPlanStart.value = fmtTaskDateForInspector_(t.planStart);
-        edit.refs.taskPlanStart = taskPlanStart;
-        addField('Plan Start', taskPlanStart);
+        edit.refs.taskStillShot = makeTaskTextInput_(TASK_FIDS.stillShot, 'Still Shot', ['stillShot', 'still_shot'], false, 'number');
+        edit.refs.taskTravel = makeTaskTextInput_(TASK_FIDS.travelChars, 'Travel Characters', ['travelChars', 'travel_characters'], false, 'number');
+        edit.refs.taskNoTravel = makeTaskTextInput_(TASK_FIDS.noTravelChars, 'No-Travel Characters', ['noTravelChars', 'no_travel_characters'], false, 'number');
+        edit.refs.taskShootFps = makeTaskTextInput_(TASK_FIDS.shootingFps, 'Shooting fps', ['shootingFps', 'shooting_fps'], false, 'number');
+        edit.refs.taskDifficulty = makeTaskTextInput_(TASK_FIDS.difficultyFactor, 'difficulty_factor', ['difficultyFactor', 'difficulty_factor'], false, 'number');
+        edit.refs.taskShootFrames = makeTaskTextInput_(TASK_FIDS.shootingFrames, 'shooting_frames', ['shootingFrames', 'shooting_frames'], true);
+        edit.refs.taskEstLength = makeTaskTextInput_(TASK_FIDS.estLength, 'Est length', ['estLength', 'est_length'], true);
+        edit.refs.taskFinished = makeTaskTextInput_(TASK_FIDS.finished, 'finished', ['finished'], true);
+        edit.refs.taskSpentLength = makeTaskTextInput_(TASK_FIDS.spentLength, 'Spent length', ['spentLength', 'spent_length'], true);
+        edit.refs.taskOverrun = makeTaskTextInput_(TASK_FIDS.overrunRatio, 'Overrun Ratio', ['overrunRatio', 'overrun_ratio'], true);
 
-        const taskPlanEnd = document.createElement('input');
-        taskPlanEnd.className = 'inp';
-        taskPlanEnd.readOnly = true;
-        taskPlanEnd.value = fmtTaskDateForInspector_(t.planEnd);
-        edit.refs.taskPlanEnd = taskPlanEnd;
-        addField('Plan End', taskPlanEnd);
+        const taskOrder = document.createElement('input');
+        taskOrder.className = 'inp';
+        taskOrder.readOnly = true;
+        taskOrder.value = String(taskRawValue_(t, TASK_FIDS.taskOrder, ['taskOrder', 'order']) || '').trim();
+        edit.refs.taskOrder = taskOrder;
+        addField('task Order', taskOrder);
       }
 
       const gStart = document.createElement('div');
@@ -5146,10 +5506,21 @@ window.app = (function() {
       if (edit.refs.pickEnd) edit.refs.pickEnd.value = utils.fmtYmdInput(eVal.date);
       const t = c.taskId ? (state.tasks.find(x => String(x.id || '') === String(c.taskId)) || {}) : {};
       if (edit.refs.taskName) edit.refs.taskName.value = String(t.name || '');
-      if (edit.refs.taskStatus) edit.refs.taskStatus.value = String(t.status || '');
+      if (edit.refs.taskStatus) edit.refs.taskStatus.value = normalizeTaskStatus_(taskRawValue_(t, TASK_FIDS.status, ['status'])) || 'not_started';
       if (edit.refs.taskAssignee) edit.refs.taskAssignee.value = String(t.assignee || '');
       if (edit.refs.taskPlanStart) edit.refs.taskPlanStart.value = fmtTaskDateForInspector_(t.planStart);
       if (edit.refs.taskPlanEnd) edit.refs.taskPlanEnd.value = fmtTaskDateForInspector_(t.planEnd);
+      if (edit.refs.taskStillShot) edit.refs.taskStillShot.value = String(taskRawValue_(t, TASK_FIDS.stillShot, ['stillShot', 'still_shot']) || '');
+      if (edit.refs.taskTravel) edit.refs.taskTravel.value = String(taskRawValue_(t, TASK_FIDS.travelChars, ['travelChars', 'travel_characters']) || '');
+      if (edit.refs.taskNoTravel) edit.refs.taskNoTravel.value = String(taskRawValue_(t, TASK_FIDS.noTravelChars, ['noTravelChars', 'no_travel_characters']) || '');
+      if (edit.refs.taskShootFps) edit.refs.taskShootFps.value = String(taskRawValue_(t, TASK_FIDS.shootingFps, ['shootingFps', 'shooting_fps']) || '');
+      if (edit.refs.taskDifficulty) edit.refs.taskDifficulty.value = String(taskRawValue_(t, TASK_FIDS.difficultyFactor, ['difficultyFactor', 'difficulty_factor']) || '');
+      if (edit.refs.taskShootFrames) edit.refs.taskShootFrames.value = String(taskRawValue_(t, TASK_FIDS.shootingFrames, ['shootingFrames', 'shooting_frames']) || '');
+      if (edit.refs.taskEstLength) edit.refs.taskEstLength.value = String(taskRawValue_(t, TASK_FIDS.estLength, ['estLength', 'est_length']) || '');
+      if (edit.refs.taskFinished) edit.refs.taskFinished.value = String(taskRawValue_(t, TASK_FIDS.finished, ['finished']) || '');
+      if (edit.refs.taskSpentLength) edit.refs.taskSpentLength.value = String(taskRawValue_(t, TASK_FIDS.spentLength, ['spentLength', 'spent_length']) || '');
+      if (edit.refs.taskOverrun) edit.refs.taskOverrun.value = String(taskRawValue_(t, TASK_FIDS.overrunRatio, ['overrunRatio', 'overrun_ratio']) || '');
+      if (edit.refs.taskOrder) edit.refs.taskOrder.value = String(taskRawValue_(t, TASK_FIDS.taskOrder, ['taskOrder', 'order']) || '');
       if (edit.refs.metaStart) edit.refs.metaStart.textContent = `rawSlot: ${utils.normalizeSlot(c.start, 'start').rawSlot}`;
       if (edit.refs.metaEnd) edit.refs.metaEnd.textContent = `rawSlot: ${utils.normalizeSlot(c.end, 'end').rawSlot}`;
       if (edit.refs.lenBox) {
@@ -5680,6 +6051,7 @@ window.app = (function() {
       closeToolbarMenus_();
       setSettingsModalOpen_(true);
     });
+    safeAdd('btn-publish', 'click', actions.publish);
     safeAdd('btn-settings-close', 'click', () => setSettingsModalOpen_(false));
     safeAdd('btn-rename-sched-save', 'click', actions.renameSchedFromSettings);
     safeAdd('sched-rename-input', 'keydown', (e) => {

@@ -3798,6 +3798,375 @@ function sv_undo_to_v2(reqPayload) {
   }
 }
 
+function _dc_normMetaKey_(k) {
+  return String(k || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s\-\/]+/g, '_')
+    .replace(/[^\w]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function _dc_toNumber_(v, fallback) {
+  var n = Number(v);
+  if (!isFinite(n)) return fallback;
+  return n;
+}
+
+function _dc_toBool_(v) {
+  if (v === true || v === 1) return true;
+  var s = String(v == null ? '' : v).trim().toLowerCase();
+  return s === 'true' || s === '1' || s === 'yes' || s === 'y' || s === 'on';
+}
+
+function _dc_safeJsonStringify_(obj) {
+  try { return JSON.stringify(obj == null ? {} : obj); } catch (_) { return '{}'; }
+}
+
+function _dc_firstEntityId_(value, prefix) {
+  var pfx = String(prefix || '').trim().toLowerCase();
+  if (value == null || value === '') return '';
+  var raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    if (typeof parseEntityIds_ === 'function') {
+      var ids = parseEntityIds_(raw, pfx);
+      if (ids && ids.length) return String(ids[0] || '').trim();
+    }
+  } catch (_) {}
+  if (!pfx) return raw;
+  var re = new RegExp(pfx + '_[a-z0-9]+', 'ig');
+  var hit = raw.match(re);
+  return hit && hit.length ? String(hit[0] || '').trim() : '';
+}
+
+function _dc_getProjectMeta_() {
+  try {
+    if (typeof _sv_getMeta_ === 'function') {
+      var m1 = _sv_getMeta_({});
+      if (m1 && typeof m1 === 'object') return m1;
+    }
+  } catch (_) {}
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) return {};
+    var sh = ss.getSheetByName('project_meta') || ss.getSheetByName('ProjectMeta');
+    if (!sh) return {};
+    if (typeof _sv_readProjectMeta_ === 'function') {
+      var m2 = _sv_readProjectMeta_(sh);
+      return (m2 && typeof m2 === 'object') ? m2 : {};
+    }
+  } catch (_) {}
+  return {};
+}
+
+function _dc_metaValue_(meta, keys, fallback) {
+  var m = (meta && typeof meta === 'object') ? meta : {};
+  var map = {};
+  try {
+    var mk = Object.keys(m);
+    for (var i = 0; i < mk.length; i++) {
+      map[_dc_normMetaKey_(mk[i])] = m[mk[i]];
+    }
+  } catch (_) {}
+  var arr = Array.isArray(keys) ? keys : [keys];
+  for (var j = 0; j < arr.length; j++) {
+    var key = String(arr[j] || '').trim();
+    if (!key) continue;
+    if (Object.prototype.hasOwnProperty.call(m, key) && m[key] !== '' && m[key] != null) return m[key];
+    var norm = _dc_normMetaKey_(key);
+    if (Object.prototype.hasOwnProperty.call(map, norm) && map[norm] !== '' && map[norm] != null) return map[norm];
+  }
+  return fallback;
+}
+
+function _dc_metaNum_(meta, keys, fallback) {
+  var v = _dc_metaValue_(meta, keys, fallback);
+  var n = Number(v);
+  return isFinite(n) ? n : fallback;
+}
+
+function _dc_resolveTimezone_(meta) {
+  var tz = String(_dc_metaValue_(meta, ['Timezone', 'timezone'], Session.getScriptTimeZone()) || '').trim();
+  if (!tz) return Session.getScriptTimeZone();
+  if (tz.toLowerCase() === 'tokyo/japan') return 'Asia/Tokyo';
+  return tz;
+}
+
+function _dc_nowIsoInTimezone_(tz) {
+  var zone = String(tz || Session.getScriptTimeZone());
+  try {
+    return Utilities.formatDate(new Date(), zone, "yyyy-MM-dd'T'HH:mm:ssXXX");
+  } catch (_) {
+    return new Date().toISOString();
+  }
+}
+
+function _dc_normalizeDateOnly_(value, tz) {
+  if (value == null || value === '') return '';
+  var zone = String(tz || Session.getScriptTimeZone());
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    try { return Utilities.formatDate(value, zone, 'yyyy-MM-dd'); } catch (_) {}
+  }
+  var s = String(value).trim();
+  if (!s) return '';
+  var m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+  if (m) {
+    return [m[1], String(Number(m[2])).padStart(2, '0'), String(Number(m[3])).padStart(2, '0')].join('-');
+  }
+  var d = new Date(s);
+  if (isNaN(d.getTime())) return '';
+  try { return Utilities.formatDate(d, zone, 'yyyy-MM-dd'); } catch (_) { return ''; }
+}
+
+function _dc_minutesBetweenDates_(startValue, endValue) {
+  var s = new Date(startValue);
+  var e = new Date(endValue);
+  if (isNaN(s.getTime()) || isNaN(e.getTime())) return NaN;
+  return Math.max(0, Math.round((e.getTime() - s.getTime()) / 60000));
+}
+
+function _dc_getActiveSchedConfig_() {
+  var out = { slotMin: 30, workHours: 8 };
+  try {
+    var sh = _findSheetByCandidates_(['Scheds', 'scheds', 'SCHEDS']);
+    if (!sh) return out;
+    var lastRow = sh.getLastRow();
+    var lastCol = sh.getLastColumn();
+    if (lastRow < 3 || lastCol < 1) return out;
+    var ids = sh.getRange(1, 1, 1, lastCol).getValues()[0] || [];
+    var labels = sh.getRange(2, 1, 1, lastCol).getValues()[0] || [];
+    var map = _buildColumnIndexMap_(ids, labels);
+    var idxActive = _resolveColumnIndex_(map, schemaGetFidByFieldName('sched', 'active'));
+    var idxSlot = _resolveColumnIndex_(map, schemaGetFidByFieldName('sched', 'slotMin'));
+    var idxWork = _resolveColumnIndex_(map, schemaGetFidByFieldName('sched', 'workHours'));
+    if (idxActive < 0) idxActive = _resolveColumnIndex_(map, 'active');
+    if (idxSlot < 0) idxSlot = _resolveColumnIndex_(map, 'slotmin');
+    if (idxWork < 0) idxWork = _resolveColumnIndex_(map, 'workhours');
+    var data = sh.getRange(3, 1, lastRow - 2, lastCol).getValues();
+    var pick = null;
+    for (var i = 0; i < data.length; i++) {
+      var row = data[i] || [];
+      if (idxActive >= 0 && _dc_toBool_(row[idxActive])) { pick = row; break; }
+    }
+    if (!pick && data.length) pick = data[0];
+    if (!pick) return out;
+    var slotMin = Number(idxSlot >= 0 ? pick[idxSlot] : '');
+    var workHours = Number(idxWork >= 0 ? pick[idxWork] : '');
+    if (isFinite(slotMin) && slotMin > 0) out.slotMin = Math.round(slotMin);
+    if (isFinite(workHours) && workHours > 0) out.workHours = workHours;
+    return out;
+  } catch (_) {
+    return out;
+  }
+}
+
+function _dc_taskCalcFids_() {
+  var out = {};
+  var safeSet_ = function (k, entity, fieldName) {
+    try { out[k] = schemaGetFidByFieldName(entity, fieldName); } catch (_) { out[k] = ''; }
+  };
+  safeSet_('status', 'task', 'Status');
+  safeSet_('shotLink', 'task', 'Shot Link');
+  safeSet_('startDate', 'task', 'Start Date');
+  safeSet_('stillShot', 'task', 'Still Shot');
+  safeSet_('travelChars', 'task', 'Travel Characters');
+  safeSet_('noTravelChars', 'task', 'No-Travel Characters');
+  safeSet_('cameraMove', 'task', 'Camera movement');
+  safeSet_('shootFps', 'task', 'Shooting fps');
+  safeSet_('shootFrames', 'task', 'shooting_frames');
+  safeSet_('difficulty', 'task', 'difficulty_factor');
+  safeSet_('estLength', 'task', 'Est length');
+  safeSet_('finished', 'task', 'finished');
+  safeSet_('spentLength', 'task', 'Spent length');
+  safeSet_('overrunRatio', 'task', 'Overrun Ratio');
+  safeSet_('shotFrames24', 'shot', 'Frames @fps24');
+  safeSet_('shotStatus', 'shot', 'Status');
+  return out;
+}
+
+function _dc_pickTierValue_(count, oneVal, twoVal, threeVal) {
+  var n = Math.max(0, Math.floor(Number(count) || 0));
+  if (n >= 3) return Number(threeVal) || 0;
+  if (n === 2) return Number(twoVal) || 0;
+  if (n === 1) return Number(oneVal) || 0;
+  return 0;
+}
+
+function _dc_calculateTaskDerivedPatch_(taskId, beforeRecord, cleanPatch) {
+  var patchOut = {};
+  var f = _dc_taskCalcFids_();
+  if (!f.shootFrames || !f.estLength || !f.difficulty) return patchOut;
+
+  var merged = {};
+  var srcBefore = (beforeRecord && typeof beforeRecord === 'object') ? beforeRecord : {};
+  var srcPatch = (cleanPatch && typeof cleanPatch === 'object') ? cleanPatch : {};
+  var kb = Object.keys(srcBefore);
+  for (var i = 0; i < kb.length; i++) merged[kb[i]] = srcBefore[kb[i]];
+  var kp = Object.keys(srcPatch);
+  for (var j = 0; j < kp.length; j++) merged[kp[j]] = srcPatch[kp[j]];
+
+  var meta = _dc_getProjectMeta_();
+  var tz = _dc_resolveTimezone_(meta);
+  var schedCfg = _dc_getActiveSchedConfig_();
+  var dayMinutes = Math.max(60, Math.round((Number(schedCfg.workHours) || 8) * 60));
+
+  var shotId = _dc_firstEntityId_(merged[f.shotLink], 'sh');
+  var frames24 = 0;
+  if (shotId && f.shotFrames24) {
+    try {
+      var shotRecord = sv_getRecord('shot', shotId) || {};
+      frames24 = Number(shotRecord[f.shotFrames24] || 0);
+      if (!isFinite(frames24) || frames24 < 0) frames24 = 0;
+    } catch (_) {
+      frames24 = 0;
+    }
+  }
+
+  var fps = _dc_toNumber_(merged[f.shootFps], 24);
+  if (!isFinite(fps) || fps <= 0) fps = 24;
+  var shootingFrames = Math.max(0, Math.round(frames24 * (fps / 24)));
+  patchOut[f.shootFrames] = String(shootingFrames);
+
+  var travelCount = _dc_toNumber_(merged[f.travelChars], 0);
+  var noTravelCount = _dc_toNumber_(merged[f.noTravelChars], 0);
+  var stillCount = _dc_toNumber_(merged[f.stillShot], 0);
+  var cameraMove = _dc_toBool_(merged[f.cameraMove]);
+
+  var travelCoef = _dc_pickTierValue_(
+    travelCount,
+    _dc_metaNum_(meta, ['movie.travel.chars_1', 'movie_travel_chars_1'], 1),
+    _dc_metaNum_(meta, ['movie.travel.chars_2', 'movie_travel_chars_2'], 1.5),
+    _dc_metaNum_(meta, ['movie.travel.chars_3plus', 'movie_travel_chars_3plus'], 3)
+  );
+  var noTravelCoef = _dc_pickTierValue_(
+    noTravelCount,
+    _dc_metaNum_(meta, ['movie.no_travel.chars_1', 'movie_no_travel_chars_1'], 0.5),
+    _dc_metaNum_(meta, ['movie.no_travel.chars_2', 'movie_no_travel_chars_2'], 0.8),
+    _dc_metaNum_(meta, ['movie.no_travel.chars_3plus', 'movie_no_travel_chars_3plus'], 1)
+  );
+  var stillCoef = (Number(stillCount) >= 2)
+    ? _dc_metaNum_(meta, ['still.chars_2plus', 'still_chars_2plus'], 45)
+    : ((Number(stillCount) >= 1) ? _dc_metaNum_(meta, ['still.chars_1', 'still_chars_1'], 30) : 0);
+  var cameraBonus = cameraMove ? _dc_metaNum_(meta, ['movie.camera_movement_bonus', 'camera_movement_bonus'], 1) : 0;
+  var animationLevel = travelCoef + noTravelCoef + stillCoef + cameraBonus;
+  if (!isFinite(animationLevel) || animationLevel <= 0) animationLevel = 1;
+
+  var difficulty = _dc_toNumber_(merged[f.difficulty], 1);
+  if (!isFinite(difficulty) || difficulty <= 0) difficulty = 1;
+  var estMinutes = Math.max(1, Math.round(shootingFrames * animationLevel * difficulty));
+  patchOut[f.estLength] = String(estMinutes);
+
+  var statusBefore = String(srcBefore[f.status] || '').trim().toLowerCase();
+  var statusAfter = String(merged[f.status] || '').trim().toLowerCase();
+  var nowIsoTz = _dc_nowIsoInTimezone_(tz);
+  var spentCurrent = String(merged[f.spentLength] || '').trim();
+  var finishedCurrent = String(merged[f.finished] || '').trim();
+
+  if (statusAfter === 'completed') {
+    var shouldStamp = (statusBefore !== 'completed') || !spentCurrent || !finishedCurrent;
+    if (shouldStamp) {
+      var startDateText = _dc_normalizeDateOnly_(merged[f.startDate], tz);
+      var spentMinutes = NaN;
+      if (startDateText) {
+        spentMinutes = _dc_minutesBetweenDates_(startDateText + 'T00:00:00', nowIsoTz);
+      }
+      if (!isFinite(spentMinutes) || spentMinutes <= 0) spentMinutes = estMinutes;
+      var estDays = Math.max(1, Math.ceil(estMinutes / dayMinutes));
+      var spentDays = Math.max(1, Math.ceil(spentMinutes / dayMinutes));
+      var overrunPct = Math.round((spentDays / estDays) * 1000) / 10;
+      patchOut[f.finished] = _dc_safeJsonStringify_({
+        completedAt: nowIsoTz,
+        timezone: tz
+      });
+      patchOut[f.spentLength] = _dc_safeJsonStringify_({
+        completedAt: nowIsoTz,
+        spentMinutes: spentMinutes,
+        spentDays: spentDays,
+        dayMinutes: dayMinutes,
+        timezone: tz
+      });
+      patchOut[f.overrunRatio] = _dc_safeJsonStringify_({
+        ratioPercent: overrunPct,
+        estDays: estDays,
+        spentDays: spentDays
+      });
+    }
+  } else if (statusBefore === 'completed') {
+    patchOut[f.finished] = '';
+    patchOut[f.spentLength] = '';
+    patchOut[f.overrunRatio] = '';
+  }
+
+  return patchOut;
+}
+
+function _dc_syncShotStatusByShotId_(shotId) {
+  var sid = String(shotId || '').trim();
+  if (!sid) return;
+  var fidTaskShot = '';
+  var fidTaskStatus = '';
+  var fidShotStatus = '';
+  try { fidTaskShot = schemaGetFidByFieldName('task', 'Shot Link'); } catch (_) {}
+  try { fidTaskStatus = schemaGetFidByFieldName('task', 'Status'); } catch (_) {}
+  try { fidShotStatus = schemaGetFidByFieldName('shot', 'Status'); } catch (_) {}
+  if (!fidTaskShot || !fidTaskStatus || !fidShotStatus) return;
+
+  var tasksData = _readEntitySheet_('Tasks');
+  var headers = tasksData.header || [];
+  var rows = tasksData.rows || [];
+  if (!headers.length || !rows.length) return;
+  var map = _buildColumnIndexMap_(headers, []);
+  var idxTaskShot = _resolveColumnIndex_(map, fidTaskShot);
+  var idxTaskStatus = _resolveColumnIndex_(map, fidTaskStatus);
+  if (idxTaskShot < 0 || idxTaskStatus < 0) return;
+
+  var hasTask = false;
+  var hasIncomplete = false;
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i] || [];
+    var rowShotId = _dc_firstEntityId_(row[idxTaskShot], 'sh');
+    if (String(rowShotId) !== sid) continue;
+    hasTask = true;
+    var st = String(row[idxTaskStatus] || '').trim().toLowerCase();
+    if (st !== 'completed') {
+      hasIncomplete = true;
+      break;
+    }
+  }
+  if (!hasTask) return;
+
+  var targetStatus = hasIncomplete ? 'in_progress' : 'completed';
+  var shotRecord = sv_getRecord('shot', sid) || {};
+  var currentStatus = String(shotRecord[fidShotStatus] || '').trim().toLowerCase();
+  if (currentStatus === targetStatus) return;
+  try {
+    dp_updateEntityRecord('shot', sid, (function () {
+      var patch = {};
+      patch[fidShotStatus] = targetStatus;
+      return patch;
+    })(), { __skipUndoLog: true, __skipLock: true });
+  } catch (_) {}
+}
+
+function _dc_syncShotStatusFromTask_(taskId, recordAfter) {
+  var rec = (recordAfter && typeof recordAfter === 'object') ? recordAfter : {};
+  var fidTaskShot = '';
+  try { fidTaskShot = schemaGetFidByFieldName('task', 'Shot Link'); } catch (_) { fidTaskShot = ''; }
+  if (!fidTaskShot) return;
+  var shotId = _dc_firstEntityId_(rec[fidTaskShot], 'sh');
+  if (!shotId) {
+    try {
+      var fetched = sv_getRecord('task', taskId) || {};
+      shotId = _dc_firstEntityId_(fetched[fidTaskShot], 'sh');
+    } catch (_) {
+      shotId = '';
+    }
+  }
+  if (!shotId) return;
+  _dc_syncShotStatusByShotId_(shotId);
+}
+
 function sv_setRecord_v2(entity, id, patch, options) {
   if (!entity || !id || !patch) { return { ok: true, note: "sv_setRecord_v2 present", ts: new Date().toISOString() }; }
   var lock = null;
@@ -3827,6 +4196,19 @@ function sv_setRecord_v2(entity, id, patch, options) {
     var beforeRecord = null;
     var beforePatch = {};
     beforeRecord = sv_getRecord(entity, id);
+    var entNorm = _schemaNormalizeEntity_(entity);
+    if (entNorm === 'task') {
+      try {
+        var derivedPatch = _dc_calculateTaskDerivedPatch_(id, beforeRecord, cleanPatch);
+        var dk = Object.keys(derivedPatch || {});
+        for (var di = 0; di < dk.length; di++) {
+          cleanPatch[dk[di]] = derivedPatch[dk[di]];
+        }
+      } catch (calcErr) {
+        // Keep setRecord path resilient; calculation failures should not block manual edits.
+        console.warn('[sv_setRecord_v2] task derived calc skipped: ' + String(calcErr && (calcErr.message || calcErr) || 'unknown'));
+      }
+    }
     if (beforeRecord && typeof beforeRecord === 'object') {
       Object.keys(cleanPatch).forEach(function (k) {
         beforePatch[k] = beforeRecord.hasOwnProperty(k) ? beforeRecord[k] : '';
@@ -3896,6 +4278,14 @@ function sv_setRecord_v2(entity, id, patch, options) {
       } catch (undoErr) {
         undoLogDiag.logged = false;
         undoLogDiag.error = String(undoErr && (undoErr.message || undoErr) || 'undo_log_append_failed');
+      }
+    }
+    if (res && res.ok && entNorm === 'task') {
+      try {
+        var afterRecord = sv_getRecord(entity, id);
+        _dc_syncShotStatusFromTask_(id, afterRecord);
+      } catch (syncErr) {
+        console.warn('[sv_setRecord_v2] task->shot status sync skipped: ' + String(syncErr && (syncErr.message || syncErr) || 'unknown'));
       }
     }
     if (res && typeof res === 'object') res.undoLog = undoLogDiag;
@@ -4320,6 +4710,7 @@ function sv_schedule_listTasks_v1(opts) {
 function sv_schedule_publish_v1(req) {
   req = req || {};
   var cards = Array.isArray(req.cards) ? req.cards : [];
+  if (!cards.length) return { ok: true, updated: 0, skipped: 0, updatedTaskIds: [] };
   var baseSlotMin = 5;
   var baseSlotMs = baseSlotMin * 60 * 1000;
   var viewSlotMin = Number(req.viewSlotMin) || 15;
@@ -4340,6 +4731,20 @@ function sv_schedule_publish_v1(req) {
   var idxAssignee = _resolveColumnIndex_(map, schemaGetFidByFieldName('task', 'Assigned member'));
   var idxPlanStart = _resolveColumnIndex_(map, schemaGetFidByFieldName('task', 'Start Date'));
   var idxPlanEnd = _resolveColumnIndex_(map, schemaGetFidByFieldName('task', 'End Date'));
+  var fidTaskOrder = '';
+  try {
+    fidTaskOrder = schemaGetFidByFieldName('task', 'task Order');
+  } catch (eFid) {
+    return { ok: false, error: "Publish requires task Order field (fi_0095).", details: String(eFid && (eFid.message || eFid) || eFid) };
+  }
+  var idxTaskOrder = _resolveColumnIndex_(map, fidTaskOrder);
+  if (idxTaskOrder < 0) {
+    return {
+      ok: false,
+      error: "Publish aborted: task Order column is missing in Tasks sheet.",
+      requiredFid: fidTaskOrder
+    };
+  }
   if (idxId < 0) throw new Error('Scheduler: task id field not found');
 
   var dataStartRow = 3;
@@ -4351,21 +4756,78 @@ function sv_schedule_publish_v1(req) {
     if (rowId) rowIndexById[rowId] = i;
   }
 
+  var comparableCell_ = function (v) {
+    if (v == null || v === '') return '';
+    if (v instanceof Date && !isNaN(v.getTime())) {
+      return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    }
+    return String(v).trim();
+  };
+  var laneBuckets = {};
+  for (var iCard = 0; iCard < cards.length; iCard++) {
+    var raw = cards[iCard] || {};
+    var tId = String(raw.taskId || '').trim();
+    if (!tId) continue;
+    var lane = String(raw.laneVal || raw.lane || '').trim();
+    var s = Math.floor(Number(raw.startSlot != null ? raw.startSlot : raw.start));
+    var e = Math.floor(Number(raw.endSlot != null ? raw.endSlot : raw.end));
+    if (!isFinite(s) || !isFinite(e)) continue;
+    if (e < s) e = s;
+    if (!laneBuckets[lane]) laneBuckets[lane] = [];
+    laneBuckets[lane].push({
+      taskId: tId,
+      lane: lane,
+      startSlot: s,
+      endSlot: e,
+      cardId: String(raw.cardId || raw.id || '').trim()
+    });
+  }
+
+  var publishByTaskId = {};
+  var laneKeys = Object.keys(laneBuckets);
+  for (var lk = 0; lk < laneKeys.length; lk++) {
+    var laneKey = laneKeys[lk];
+    var items = laneBuckets[laneKey] || [];
+    items.sort(function (a, b) {
+      var da = Number(a.startSlot || 0);
+      var db = Number(b.startSlot || 0);
+      if (da !== db) return da - db;
+      var ea = Number(a.endSlot || 0);
+      var eb = Number(b.endSlot || 0);
+      if (ea !== eb) return ea - eb;
+      return String(a.cardId || '').localeCompare(String(b.cardId || ''));
+    });
+    for (var li = 0; li < items.length; li++) {
+      var item = items[li];
+      if (!publishByTaskId[item.taskId]) {
+        publishByTaskId[item.taskId] = {
+          taskId: item.taskId,
+          lane: item.lane,
+          startSlot: item.startSlot,
+          endSlot: item.endSlot,
+          order: li + 1
+        };
+      }
+    }
+  }
+
   var updated = 0;
   var skipped = 0;
-
-  for (var j = 0; j < cards.length; j++) {
-    var card = cards[j] || {};
-    var taskId = String(card.taskId || '').trim();
+  var changed = false;
+  var updatedTaskIds = [];
+  var publishTaskIds = Object.keys(publishByTaskId);
+  for (var j = 0; j < publishTaskIds.length; j++) {
+    var taskId = publishTaskIds[j];
+    var pub = publishByTaskId[taskId] || {};
     if (!taskId || !(taskId in rowIndexById)) { skipped++; continue; }
     var rowIdx = rowIndexById[taskId];
     var row = data[rowIdx];
     var status = idxStatus >= 0 ? String(row[idxStatus] || '').trim().toLowerCase() : '';
     if (status === 'completed') { skipped++; continue; }
 
-    var laneVal = String(card.laneVal || '').trim();
-    var startSlot = Number(card.startSlot);
-    var endSlot = Number(card.endSlot);
+    var laneVal = String(pub.lane || '').trim();
+    var startSlot = Number(pub.startSlot);
+    var endSlot = Number(pub.endSlot);
     if (!isFinite(startSlot) || !isFinite(endSlot)) { skipped++; continue; }
     startSlot = Math.floor(startSlot);
     endSlot = Math.floor(endSlot);
@@ -4374,14 +4836,38 @@ function sv_schedule_publish_v1(req) {
 
     var startDate = new Date(startSlot * baseSlotMs);
     var endDate = new Date(endSlot * baseSlotMs);
+    var orderVal = Number(pub.order || 0);
 
-    if (idxAssignee >= 0) sh.getRange(rowIdx + dataStartRow, idxAssignee + 1).setValue(laneVal);
-    if (idxPlanStart >= 0) sh.getRange(rowIdx + dataStartRow, idxPlanStart + 1).setValue(startDate);
-    if (idxPlanEnd >= 0) sh.getRange(rowIdx + dataStartRow, idxPlanEnd + 1).setValue(endDate);
-    updated++;
+    var rowChanged = false;
+    if (idxAssignee >= 0 && comparableCell_(row[idxAssignee]) !== comparableCell_(laneVal)) {
+      row[idxAssignee] = laneVal;
+      rowChanged = true;
+    }
+    if (idxPlanStart >= 0 && comparableCell_(row[idxPlanStart]) !== comparableCell_(startDate)) {
+      row[idxPlanStart] = startDate;
+      rowChanged = true;
+    }
+    if (idxPlanEnd >= 0 && comparableCell_(row[idxPlanEnd]) !== comparableCell_(endDate)) {
+      row[idxPlanEnd] = endDate;
+      rowChanged = true;
+    }
+    if (idxTaskOrder >= 0 && comparableCell_(row[idxTaskOrder]) !== comparableCell_(orderVal)) {
+      row[idxTaskOrder] = orderVal;
+      rowChanged = true;
+    }
+    if (rowChanged) {
+      changed = true;
+      updated++;
+      updatedTaskIds.push(taskId);
+    } else {
+      skipped++;
+    }
   }
 
-  return { ok: true, updated: updated, skipped: skipped };
+  if (changed) {
+    sh.getRange(dataStartRow, 1, dataCount, lastCol).setValues(data);
+  }
+  return { ok: true, updated: updated, skipped: skipped, updatedTaskIds: updatedTaskIds };
 }
 
 function _getColIdx_v2(headers, keys) {
@@ -4613,6 +5099,18 @@ function sv_scheduler_load_v2() {
         var shotIdKey = inferKeyByParts_(t, ['shot', 'id']) || inferKeyByParts_(t, ['shot', 'link']) || inferKeyByParts_(t, ['shot']);
         var shotCodeKey = inferKeyByParts_(t, ['shot', 'code']) || inferKeyByParts_(t, ['shotcode']);
         var assetLinkKey = inferKeyByParts_(t, ['asset', 'link']) || inferKeyByParts_(t, ['asset']) || inferKeyByParts_(t, ['resource']);
+        var stillShotKey = inferKeyByParts_(t, ['still', 'shot']) || inferKeyByParts_(t, ['still']);
+        var noTravelCharsKey = inferKeyByParts_(t, ['no', 'travel', 'characters']) || inferKeyByParts_(t, ['no', 'travel']);
+        var travelCharsKey = inferKeyByParts_(t, ['travel', 'characters']) || inferKeyByParts_(t, ['travel']);
+        var cameraMoveKey = inferKeyByParts_(t, ['camera', 'movement']) || inferKeyByParts_(t, ['camera']);
+        var shootFpsKey = inferKeyByParts_(t, ['shooting', 'fps']) || inferKeyByParts_(t, ['shoot', 'fps']);
+        var shootingFramesKey = inferKeyByParts_(t, ['shooting', 'frames']) || inferKeyByParts_(t, ['frames']);
+        var difficultyKey = inferKeyByParts_(t, ['difficulty']) || inferKeyByParts_(t, ['factor']);
+        var estLenKey = inferKeyByParts_(t, ['est', 'length']) || inferKeyByParts_(t, ['estimate']);
+        var finishedKey = inferKeyByParts_(t, ['finished']);
+        var spentLenKey = inferKeyByParts_(t, ['spent', 'length']) || inferKeyByParts_(t, ['spent']);
+        var overrunKey = inferKeyByParts_(t, ['overrun', 'ratio']) || inferKeyByParts_(t, ['overrun']);
+        var taskOrderKey = inferKeyByParts_(t, ['task', 'order']) || inferKeyByParts_(t, ['order']);
 
         var taskId = String(idKey ? t[idKey] : (t.taskId || t.id || '')).trim();
         if (!taskId) continue;
@@ -4645,7 +5143,20 @@ function sv_scheduler_load_v2() {
           planEnd: planEndIso,
           shotId: shotId,
           shotCode: shotCode,
-          assetIds: assetIds
+          assetIds: assetIds,
+          taskOrder: String(taskOrderKey ? t[taskOrderKey] : (t.taskOrder || t.order || '')).trim(),
+          stillShot: String(stillShotKey ? t[stillShotKey] : (t.stillShot || t.still_shot || '')).trim(),
+          travelChars: String(travelCharsKey ? t[travelCharsKey] : (t.travelChars || t.travel_characters || '')).trim(),
+          noTravelChars: String(noTravelCharsKey ? t[noTravelCharsKey] : (t.noTravelChars || t.no_travel_characters || '')).trim(),
+          cameraMovement: String(cameraMoveKey ? t[cameraMoveKey] : (t.cameraMovement || t.camera_movement || '')).trim(),
+          shootingFps: String(shootFpsKey ? t[shootFpsKey] : (t.shootingFps || t.shooting_fps || '')).trim(),
+          shootingFrames: String(shootingFramesKey ? t[shootingFramesKey] : (t.shootingFrames || t.shooting_frames || '')).trim(),
+          difficultyFactor: String(difficultyKey ? t[difficultyKey] : (t.difficultyFactor || t.difficulty_factor || '')).trim(),
+          estLength: String(estLenKey ? t[estLenKey] : (t.estLength || t.est_length || '')).trim(),
+          finished: String(finishedKey ? t[finishedKey] : (t.finished || '')).trim(),
+          spentLength: String(spentLenKey ? t[spentLenKey] : (t.spentLength || t.spent_length || '')).trim(),
+          overrunRatio: String(overrunKey ? t[overrunKey] : (t.overrunRatio || t.overrun_ratio || '')).trim(),
+          raw: t
         });
       }
       return out;
