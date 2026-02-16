@@ -5333,7 +5333,8 @@ function sv_scheduler_load_v2() {
       if (cData && cData.length >= 2) {
         var cIds = cData[0] || [];
         var cHeaders = cData[1] || [];
-        var cardMetaFid = schemaGetFidByFieldName('card', 'card_view_meta');
+        var cardMetaFid = '';
+        try { cardMetaFid = schemaGetFidByFieldName('card', 'card_view_meta'); } catch (_) { cardMetaFid = ''; }
         var cCardMeta = schemaGetColIndexByFid(cIds, cardMetaFid);
         if (cCardMeta < 0) cCardMeta = cHeaders.indexOf('card_view_meta');
 
