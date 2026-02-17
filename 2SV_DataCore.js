@@ -4006,7 +4006,7 @@ function _dc_pickTierValue_(count, oneVal, twoVal, threeVal) {
 function _dc_calculateTaskDerivedPatch_(taskId, beforeRecord, cleanPatch) {
   var patchOut = {};
   var f = _dc_taskCalcFids_();
-  if (!f.shootFrames || !f.estLength || !f.difficulty) return patchOut;
+  if (!f.shootFrames || !f.estLength) return patchOut;
 
   var merged = {};
   var srcBefore = (beforeRecord && typeof beforeRecord === 'object') ? beforeRecord : {};
@@ -4062,7 +4062,8 @@ function _dc_calculateTaskDerivedPatch_(taskId, beforeRecord, cleanPatch) {
   var animationLevel = travelCoef + noTravelCoef + stillCoef + cameraBonus;
   if (!isFinite(animationLevel) || animationLevel <= 0) animationLevel = 1;
 
-  var difficulty = _dc_toNumber_(merged[f.difficulty], 1);
+  var difficultyRaw = f.difficulty ? merged[f.difficulty] : '';
+  var difficulty = _dc_toNumber_(difficultyRaw, 1);
   if (!isFinite(difficulty) || difficulty <= 0) difficulty = 1;
   var estMinutes = Math.max(1, Math.round(shootingFrames * animationLevel * difficulty));
   patchOut[f.estLength] = String(estMinutes);
