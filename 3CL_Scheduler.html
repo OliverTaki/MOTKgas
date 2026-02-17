@@ -1970,7 +1970,15 @@ window.app = (function() {
 
   function taskNumberValue_(task, fid, fallbackKeys, fallback) {
     const v = taskRawValue_(task, fid, fallbackKeys);
-    const n = Number(v);
+    if (v == null || v === '') return fallback;
+    if (typeof v === 'number' && isFinite(v)) return v;
+    const s = String(v).trim();
+    if (!s) return fallback;
+    const direct = Number(s.replace(/,/g, ''));
+    if (isFinite(direct)) return direct;
+    const m = s.match(/-?\d+(?:\.\d+)?/);
+    if (!m) return fallback;
+    const n = Number(m[0]);
     return isFinite(n) ? n : fallback;
   }
 
@@ -3950,7 +3958,7 @@ window.app = (function() {
       if (btn) btn.disabled = true;
       utils.saveStatus('saving', 'Publishing...');
       waitForCommitQueueIdle_({
-        timeoutMs: 60000,
+        timeoutMs: 120000,
         message: 'Waiting save queue...',
         onReady: () => {
           state.publishPhase = 'rpc';
@@ -3964,38 +3972,59 @@ window.app = (function() {
             start: Number(c && c.start || 0),
             end: Number(c && c.end || 0),
             startSlot: Number(c && c.start || 0),
-            endSlot: Number(c && c.end || 0)
+            endSlot: Number(c && c.end || 0),
+            startDate: (utils.slotToDateVal(Number(c && c.start || 1), 'start') || {}).dateVal || '',
+            endDate: (utils.slotToDateVal(Number(c && c.end || 1), 'end') || {}).dateVal || ''
           }));
-          google.script.run
-            .withSuccessHandler((resRaw) => {
-              let res = resRaw;
-              if (typeof resRaw === 'string') {
-                try { res = JSON.parse(resRaw); } catch (_) { res = { ok: false, error: 'Invalid publish response' }; }
-              }
-              if (res && res.ok) {
-                const msg = `Publish done: updated ${Number(res.updated || 0)} / skipped ${Number(res.skipped || 0)}`;
-                utils.saveStatus('saved', msg);
-                actions.load({ forceNetwork: true });
-              } else {
-                utils.saveStatus('error', String((res && (res.error || res.details)) || 'Publish failed'));
-              }
-              state.publishBusy = false;
-              state.publishPhase = '';
-              if (btn) btn.disabled = false;
-              setBlockingOverlay_(false);
-            })
-            .withFailureHandler((err) => {
-              utils.saveStatus('error', String(err && (err.message || err) || 'Publish failed'));
-              state.publishBusy = false;
-              state.publishPhase = '';
-              if (btn) btn.disabled = false;
-              setBlockingOverlay_(false);
-            })
-            .sv_schedule_publish_v1({
-              schedId: String(state.schedId || ''),
-              viewSlotMin: Number(config.slotMin || 30),
-              cards: cards
-            });
+          const finish_ = (statusType, msg) => {
+            utils.saveStatus(statusType, msg);
+            state.publishBusy = false;
+            state.publishPhase = '';
+            if (btn) btn.disabled = false;
+            setBlockingOverlay_(false);
+          };
+          const runPublishRpc_ = (attempt) => {
+            google.script.run
+              .withSuccessHandler((resRaw) => {
+                let res = resRaw;
+                if (typeof resRaw === 'string') {
+                  try { res = JSON.parse(resRaw); } catch (_) { res = { ok: false, error: 'Invalid publish response' }; }
+                }
+                if (res && res.ok) {
+                  const updated = Number(res.updated || 0);
+                  const skipped = Number(res.skipped || 0);
+                  const completed = Number(res.skippedCompleted || 0);
+                  const missing = Number(res.skippedMissing || 0);
+                  const invalid = Number(res.skippedInvalid || 0);
+                  const unchanged = Number(res.skippedNoChange || 0);
+                  const msg = `Publish done: updated ${updated} / skipped ${skipped} (completed ${completed}, missing ${missing}, invalid ${invalid}, unchanged ${unchanged})`;
+                  finish_('saved', msg);
+                  actions.load({ forceNetwork: true });
+                  return;
+                }
+                const errMsg = String((res && (res.error || res.details)) || 'Publish failed');
+                if (attempt < 2) {
+                  utils.saveStatus('saving', `Publishing retry ${attempt + 2}/3...`);
+                  setTimeout(() => runPublishRpc_(attempt + 1), 400 * (attempt + 1));
+                  return;
+                }
+                finish_('error', errMsg);
+              })
+              .withFailureHandler((err) => {
+                if (attempt < 2) {
+                  utils.saveStatus('saving', `Publishing retry ${attempt + 2}/3...`);
+                  setTimeout(() => runPublishRpc_(attempt + 1), 400 * (attempt + 1));
+                  return;
+                }
+                finish_('error', String(err && (err.message || err) || 'Publish failed'));
+              })
+              .sv_schedule_publish_v1({
+                schedId: String(state.schedId || ''),
+                viewSlotMin: Number(config.slotMin || 30),
+                cards: cards
+              });
+          };
+          runPublishRpc_(0);
         },
         onTimeout: () => {
           utils.saveStatus('error', 'Publish timeout (save queue busy)');
@@ -4524,27 +4553,68 @@ window.app = (function() {
       const orphans = state.tasks
         .filter(t => t.id && !used.has(t.id))
         .slice()
-        .sort((a, b) => getTaskOrderValue_(a) - getTaskOrderValue_(b));
+        .sort((a, b) => {
+          const oa = getTaskOrderValue_(a);
+          const ob = getTaskOrderValue_(b);
+          if (oa !== ob) return oa - ob;
+          return String(a.id || '').localeCompare(String(b.id || ''));
+        });
       if (!orphans.length) { alert('No orphans.'); return; }
       if (!confirm(`Create ${orphans.length} cards?`)) return;
-      orphans.forEach((t, i) => {
-        const id = 'c_auto_' + Date.now() + '_' + i;
-        const estMin = getTaskEstLengthMin_(t);
-        const durSlots = Math.max(1, Math.ceil(estMin / Math.max(1, Number(config.slotMin) || 1)));
-        state.cards[id] = {
-          id,
-          taskId: t.id,
-          title: t.name,
-          laneId: 'unassigned',
-          start: 1,
-          end: 1 + durSlots - 1,
-          memo: '',
-          status: t.status
-        };
-        actions.commit(id, 'create');
+      waitForCommitQueueIdle_({
+        timeoutMs: 120000,
+        message: 'Waiting save queue...',
+        onReady: () => {
+          setBlockingOverlay_(true, 'Creating cards...');
+          utils.saveStatus('saving', 'Preparing task estimates...');
+          google.script.run
+            .withSuccessHandler((resRaw) => {
+              let res = resRaw;
+              if (typeof resRaw === 'string') {
+                try { res = JSON.parse(resRaw); } catch (_) { res = { ok: false, error: 'Invalid auto-create response' }; }
+              }
+              if (!(res && res.ok)) {
+                setBlockingOverlay_(false);
+                utils.saveStatus('error', String((res && (res.error && (res.error.message || res.error))) || 'Auto create failed'));
+                return;
+              }
+              const createdCards = Array.isArray(res.createdCards) ? res.createdCards : [];
+              createdCards.forEach((card) => {
+                const id = String(card && card.id || '').trim();
+                if (!id) return;
+                const taskId = String(card && card.taskId || '').trim();
+                const task = taskId ? getTaskByIdSafe_(taskId) : null;
+                state.cards[id] = {
+                  id: id,
+                  taskId: taskId,
+                  title: task ? String(task.name || '') : '',
+                  laneId: String(card && card.lane || 'unassigned') || 'unassigned',
+                  start: Math.max(1, Math.round(Number(card && card.start || 1))),
+                  end: Math.max(1, Math.round(Number(card && card.end || 1))),
+                  memo: String(card && card.memo || ''),
+                  status: task ? String(task.status || '') : ''
+                };
+              });
+              render.grid();
+              ui.renderCardList();
+              const msg = `Created ${Number(res.created || createdCards.length || 0)} cards (recalc ${Number(res.recalcCount || 0)}, failed ${Number(res.recalcFailed || 0)})`;
+              utils.saveStatus('saved', msg);
+              setBlockingOverlay_(false);
+              actions.load({ forceNetwork: true });
+            })
+            .withFailureHandler((err) => {
+              setBlockingOverlay_(false);
+              utils.saveStatus('error', String(err && (err.message || err) || 'Auto create failed'));
+            })
+            .sv_scheduler_prepare_autocreate_v1(JSON.stringify({
+              schedId: String(state.schedId || ''),
+              taskIds: orphans.map((t) => String(t.id || '')).filter((v) => !!v)
+            }));
+        },
+        onTimeout: () => {
+          utils.saveStatus('error', 'Auto create timeout (save queue busy)');
+        }
       });
-      ui.renderCardList();
-      actions.load();
     },
 
     newCard: () => {

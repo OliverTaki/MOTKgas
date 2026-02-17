@@ -3818,7 +3818,15 @@ function _dc_normMetaKey_(k) {
 }
 
 function _dc_toNumber_(v, fallback) {
-  var n = Number(v);
+  if (v == null || v === '') return fallback;
+  if (typeof v === 'number' && isFinite(v)) return v;
+  var s = String(v).trim();
+  if (!s) return fallback;
+  var direct = Number(s.replace(/,/g, ''));
+  if (isFinite(direct)) return direct;
+  var m = s.match(/-?\d+(?:\.\d+)?/);
+  if (!m) return fallback;
+  var n = Number(m[0]);
   if (!isFinite(n)) return fallback;
   return n;
 }
@@ -4182,9 +4190,12 @@ function sv_setRecord_v2(entity, id, patch, options) {
   if (!entity || !id || !patch) { return { ok: true, note: "sv_setRecord_v2 present", ts: new Date().toISOString() }; }
   var lock = null;
   try {
-    lock = LockService.getScriptLock();
-    lock.waitLock(10000);
     var opts = (options && typeof options === 'object') ? options : {};
+    var skipLock = !!opts.__skipLock;
+    if (!skipLock) {
+      lock = LockService.getScriptLock();
+      lock.waitLock(10000);
+    }
     try { delete opts.__allowNonEditableFieldIds; } catch (_) {}
     var skipUndoLog = !!opts.__skipUndoLog;
     var actorHint = opts.actor;
@@ -4916,6 +4927,8 @@ function sv_schedule_publish_v1(req) {
       lane: lane,
       startSlot: s,
       endSlot: e,
+      startDate: String(raw.startDate || '').trim(),
+      endDate: String(raw.endDate || '').trim(),
       cardId: String(raw.cardId || raw.id || '').trim()
     });
   }
@@ -4942,6 +4955,8 @@ function sv_schedule_publish_v1(req) {
           lane: item.lane,
           startSlot: item.startSlot,
           endSlot: item.endSlot,
+          startDate: item.startDate,
+          endDate: item.endDate,
           order: li + 1
         };
       }
@@ -4950,28 +4965,43 @@ function sv_schedule_publish_v1(req) {
 
   var updated = 0;
   var skipped = 0;
+  var skippedCompleted = 0;
+  var skippedMissing = 0;
+  var skippedInvalid = 0;
+  var skippedNoChange = 0;
   var changed = false;
   var updatedTaskIds = [];
+  var parseYmdDate_ = function (s, kind) {
+    var raw = String(s || '').trim();
+    if (!raw) return null;
+    var m = raw.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+    if (!m) return null;
+    var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (isNaN(d.getTime())) return null;
+    d = adjustWeekend_(d, kind || 'neutral');
+    d.setHours(12, 0, 0, 0);
+    return d;
+  };
   var publishTaskIds = Object.keys(publishByTaskId);
   for (var j = 0; j < publishTaskIds.length; j++) {
     var taskId = publishTaskIds[j];
     var pub = publishByTaskId[taskId] || {};
-    if (!taskId || !(taskId in rowIndexById)) { skipped++; continue; }
+    if (!taskId || !(taskId in rowIndexById)) { skipped++; skippedMissing++; continue; }
     var rowIdx = rowIndexById[taskId];
     var row = data[rowIdx];
     var status = idxStatus >= 0 ? String(row[idxStatus] || '').trim().toLowerCase() : '';
-    if (status === 'completed') { skipped++; continue; }
+    if (status === 'completed') { skipped++; skippedCompleted++; continue; }
 
     var laneVal = String(pub.lane || '').trim();
     var startSlot = Number(pub.startSlot);
     var endSlot = Number(pub.endSlot);
-    if (!isFinite(startSlot) || !isFinite(endSlot)) { skipped++; continue; }
+    if (!isFinite(startSlot) || !isFinite(endSlot)) { skipped++; skippedInvalid++; continue; }
     startSlot = Math.floor(startSlot);
     endSlot = Math.floor(endSlot);
     if (endSlot < startSlot) endSlot = startSlot;
-    var startDate = slotToPublishDate_(startSlot, 'start');
-    var endDate = slotToPublishDate_(endSlot, 'end');
-    if (!startDate || !endDate) { skipped++; continue; }
+    var startDate = parseYmdDate_(pub.startDate, 'start') || slotToPublishDate_(startSlot, 'start');
+    var endDate = parseYmdDate_(pub.endDate, 'end') || slotToPublishDate_(endSlot, 'end');
+    if (!startDate || !endDate) { skipped++; skippedInvalid++; continue; }
     var orderVal = Number(pub.order || 0);
 
     var rowChanged = false;
@@ -4997,13 +5027,23 @@ function sv_schedule_publish_v1(req) {
       updatedTaskIds.push(taskId);
     } else {
       skipped++;
+      skippedNoChange++;
     }
   }
 
   if (changed) {
     sh.getRange(dataStartRow, 1, dataCount, lastCol).setValues(data);
   }
-  return { ok: true, updated: updated, skipped: skipped, updatedTaskIds: updatedTaskIds };
+  return {
+    ok: true,
+    updated: updated,
+    skipped: skipped,
+    skippedCompleted: skippedCompleted,
+    skippedMissing: skippedMissing,
+    skippedInvalid: skippedInvalid,
+    skippedNoChange: skippedNoChange,
+    updatedTaskIds: updatedTaskIds
+  };
 }
 
 function _getColIdx_v2(headers, keys) {
@@ -6615,5 +6655,271 @@ function sv_scheduler_commit_v2(payloadJson) {
  * Placeholder endpoint for future server-side batch logic if needed.
  */
 function sv_scheduler_auto_populate_v2() {
-  return JSON.stringify({ ok: true, message: 'Use client-side logic to iterate commits.' });
+  return sv_scheduler_prepare_autocreate_v1();
+}
+
+function sv_scheduler_prepare_autocreate_v1(reqPayload) {
+  var lock = null;
+  try {
+    var req = reqPayload;
+    if (typeof reqPayload === 'string') req = _undo_parseJson_(reqPayload, {});
+    req = req || {};
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(20000)) return JSON.stringify({ ok: false, error: { message: 'Server busy, try again.' } });
+
+    var ss = SpreadsheetApp.getActive();
+    if (!ss) return JSON.stringify({ ok: false, error: { message: 'No active spreadsheet' } });
+
+    var targetSchedId = String(req.schedId || '').trim();
+    var slotMin = 30;
+    var schedsSheet = ss.getSheetByName('Scheds');
+    if (schedsSheet) {
+      var sData = schedsSheet.getDataRange().getValues();
+      var sHeaders = sData[1] || [];
+      var sSysHeaders = sData[0] || [];
+      var getSchedCol = function(keys) {
+        for (var ki = 0; ki < keys.length; ki++) {
+          var idx = sHeaders.indexOf(keys[ki]);
+          if (idx > -1) return idx;
+          idx = sSysHeaders.indexOf(keys[ki]);
+          if (idx > -1) return idx;
+        }
+        return -1;
+      };
+      var fidSchedId = '';
+      var fidActive = '';
+      var fidSlot = '';
+      try { fidSchedId = schemaGetFidByFieldName('sched', 'schedId'); } catch (_) {}
+      try { fidActive = schemaGetFidByFieldName('sched', 'active'); } catch (_) {}
+      try { fidSlot = schemaGetFidByFieldName('sched', 'slotMin'); } catch (_) {}
+      var cId = getSchedCol(['schedId', 'ID', fidSchedId]);
+      var cAct = getSchedCol(['active', fidActive]);
+      var cSlot = getSchedCol(['slotMin', fidSlot]);
+      for (var si = 2; si < sData.length; si++) {
+        var sid = cId > -1 ? String(sData[si][cId] || '').trim() : '';
+        var active = cAct > -1 ? String(sData[si][cAct] || '').trim().toLowerCase() : '';
+        if (targetSchedId && sid === targetSchedId) {
+          if (cSlot > -1) {
+            var reqSlot = Number(sData[si][cSlot]);
+            if (isFinite(reqSlot) && reqSlot > 0) slotMin = Math.round(reqSlot);
+          }
+          break;
+        }
+        if (!targetSchedId && (active === 'true' || active === '1' || active === 'yes')) {
+          targetSchedId = sid || targetSchedId;
+          if (cSlot > -1) {
+            var actSlot = Number(sData[si][cSlot]);
+            if (isFinite(actSlot) && actSlot > 0) slotMin = Math.round(actSlot);
+          }
+          break;
+        }
+      }
+      if (!targetSchedId && sData.length > 2 && cId > -1) {
+        targetSchedId = String(sData[2][cId] || '').trim();
+      }
+    }
+    if (!targetSchedId) targetSchedId = 'sched_0001';
+
+    var schedSheet = ss.getSheetByName(targetSchedId);
+    if (!schedSheet) return JSON.stringify({ ok: false, error: { message: 'Schedule sheet not found: ' + targetSchedId } });
+    var lastCol = schedSheet.getLastColumn();
+    var schedHeaders = schedSheet.getRange(2, 1, 1, lastCol).getValues()[0] || [];
+    var schedSysHeaders = schedSheet.getRange(1, 1, 1, lastCol).getValues()[0] || [];
+    var colMap = {};
+    schedHeaders.forEach(function(h, i) { if (h) colMap[String(h).trim().toLowerCase()] = i + 1; });
+    schedSysHeaders.forEach(function(h, i) { if (h) colMap[String(h).trim().toLowerCase()] = i + 1; });
+    var findColByParts_ = function(partsList) {
+      for (var i = 0; i < partsList.length; i++) {
+        var parts = partsList[i];
+        for (var key in colMap) {
+          if (!colMap.hasOwnProperty(key)) continue;
+          var ok = true;
+          for (var p = 0; p < parts.length; p++) {
+            if (key.indexOf(parts[p]) === -1) { ok = false; break; }
+          }
+          if (ok) return colMap[key];
+        }
+      }
+      return -1;
+    };
+    var C_ID = findColByParts_([['card', 'number'], ['card', 'no'], ['card']]);
+    var C_TASK = findColByParts_([['task', 'id'], ['task', 'link']]);
+    var C_LANE = findColByParts_([['lane'], ['assignee'], ['laneval']]);
+    var C_START = findColByParts_([['start', 'slot'], ['start']]);
+    var C_LEN = findColByParts_([['length'], ['lengthmin'], ['duration']]);
+    var C_END = findColByParts_([['end', 'slot'], ['end']]);
+    var C_MEMO = findColByParts_([['memo'], ['cardmemo']]);
+    if (C_ID < 0 || C_TASK < 0 || C_LANE < 0 || C_START < 0 || C_END < 0 || C_LEN < 0) {
+      return JSON.stringify({ ok: false, error: { message: 'Invalid schedule sheet structure' } });
+    }
+
+    var cardLastRow = schedSheet.getLastRow();
+    var existingRows = [];
+    if (cardLastRow > 2) {
+      existingRows = schedSheet.getRange(3, 1, cardLastRow - 2, lastCol).getValues();
+    }
+    var existingTaskIds = {};
+    var laneNextStart = {};
+    var maxCardNum = 0;
+    for (var cr = 0; cr < existingRows.length; cr++) {
+      var row = existingRows[cr] || [];
+      var taskId = String(row[C_TASK - 1] || '').trim();
+      if (taskId) existingTaskIds[taskId] = true;
+      var lane = String(row[C_LANE - 1] || '').trim();
+      if (!lane) lane = 'unassigned';
+      var s = Math.round(Number(row[C_START - 1]));
+      var e = Math.round(Number(row[C_END - 1]));
+      if (!isFinite(s) || s < 1) s = 1;
+      if (!isFinite(e) || e < s) e = s;
+      var nextStart = e + 1;
+      if (!laneNextStart[lane] || nextStart > laneNextStart[lane]) laneNextStart[lane] = nextStart;
+      var rawId = String(row[C_ID - 1] || '').trim();
+      var n = Number(rawId);
+      if (isFinite(n) && n > maxCardNum) maxCardNum = Math.floor(n);
+    }
+
+    var reqTaskIds = {};
+    if (Array.isArray(req.taskIds)) {
+      for (var ti = 0; ti < req.taskIds.length; ti++) {
+        var one = String(req.taskIds[ti] || '').trim();
+        if (one) reqTaskIds[one] = true;
+      }
+    }
+
+    var recalcCount = 0;
+    var recalcFailed = 0;
+    var tasksData = _readEntitySheet_('Tasks');
+    var taskIdsHeader = tasksData.ids || [];
+    var taskLabels = tasksData.header || [];
+    var taskRows = tasksData.rows || [];
+    var taskMap = _buildColumnIndexMap_(taskIdsHeader, taskLabels);
+    var fidTaskId = '';
+    var fidTaskAssignee = '';
+    var fidTaskEst = '';
+    var fidTaskOrder = '';
+    try { fidTaskId = schemaGetIdFid('task'); } catch (_) {}
+    try { fidTaskAssignee = schemaGetFidByFieldName('task', 'Assigned member'); } catch (_) {}
+    try { fidTaskEst = schemaGetFidByFieldName('task', 'Est length'); } catch (_) {}
+    try { fidTaskOrder = schemaGetFidByFieldName('task', 'task Order'); } catch (_) {}
+    var idxTaskId = _resolveColumnIndex_(taskMap, fidTaskId);
+    var idxTaskAssignee = _resolveColumnIndex_(taskMap, fidTaskAssignee);
+    var idxTaskEst = _resolveColumnIndex_(taskMap, fidTaskEst);
+    var idxTaskOrder = _resolveColumnIndex_(taskMap, fidTaskOrder);
+    if (idxTaskAssignee < 0) idxTaskAssignee = _resolveColumnIndex_(taskMap, 'assigned member');
+    if (idxTaskEst < 0) idxTaskEst = _resolveColumnIndex_(taskMap, 'est length');
+    if (idxTaskOrder < 0) idxTaskOrder = _resolveColumnIndex_(taskMap, 'task order');
+    if (idxTaskId < 0) return JSON.stringify({ ok: false, error: { message: 'Tasks sheet missing task id column' } });
+
+    for (var tr = 0; tr < taskRows.length; tr++) {
+      var trow = taskRows[tr] || [];
+      var tid = String(trow[idxTaskId] || '').trim();
+      if (!tid) continue;
+      if (Object.keys(reqTaskIds).length && !reqTaskIds[tid]) continue;
+      try {
+        sv_setRecord_v2('task', tid, {}, { __skipUndoLog: true, __skipLock: true, actor: 'scheduler_auto_create' });
+        recalcCount++;
+      } catch (_) {
+        recalcFailed++;
+      }
+    }
+
+    tasksData = _readEntitySheet_('Tasks');
+    taskIdsHeader = tasksData.ids || [];
+    taskLabels = tasksData.header || [];
+    taskRows = tasksData.rows || [];
+    taskMap = _buildColumnIndexMap_(taskIdsHeader, taskLabels);
+    idxTaskId = _resolveColumnIndex_(taskMap, fidTaskId);
+    idxTaskAssignee = _resolveColumnIndex_(taskMap, fidTaskAssignee);
+    idxTaskEst = _resolveColumnIndex_(taskMap, fidTaskEst);
+    idxTaskOrder = _resolveColumnIndex_(taskMap, fidTaskOrder);
+    if (idxTaskAssignee < 0) idxTaskAssignee = _resolveColumnIndex_(taskMap, 'assigned member');
+    if (idxTaskEst < 0) idxTaskEst = _resolveColumnIndex_(taskMap, 'est length');
+    if (idxTaskOrder < 0) idxTaskOrder = _resolveColumnIndex_(taskMap, 'task order');
+
+    var candidates = [];
+    for (var tx = 0; tx < taskRows.length; tx++) {
+      var rowT = taskRows[tx] || [];
+      var tidx = String(rowT[idxTaskId] || '').trim();
+      if (!tidx) continue;
+      if (Object.keys(reqTaskIds).length && !reqTaskIds[tidx]) continue;
+      if (existingTaskIds[tidx]) continue;
+      var orderVal = (idxTaskOrder >= 0) ? Number(rowT[idxTaskOrder]) : Number.MAX_SAFE_INTEGER;
+      if (!isFinite(orderVal)) orderVal = Number.MAX_SAFE_INTEGER;
+      var laneVal = (idxTaskAssignee >= 0) ? String(rowT[idxTaskAssignee] || '').trim() : '';
+      if (!laneVal) laneVal = 'unassigned';
+      var estMin = (idxTaskEst >= 0) ? _dc_toNumber_(rowT[idxTaskEst], 60) : 60;
+      if (!isFinite(estMin) || estMin <= 0) estMin = 60;
+      candidates.push({
+        taskId: tidx,
+        order: orderVal,
+        lane: laneVal,
+        estMin: Math.max(1, Math.round(estMin))
+      });
+    }
+    candidates.sort(function (a, b) {
+      if (a.order !== b.order) return a.order - b.order;
+      return String(a.taskId || '').localeCompare(String(b.taskId || ''));
+    });
+
+    if (!candidates.length) {
+      return JSON.stringify({
+        ok: true,
+        schedId: targetSchedId,
+        created: 0,
+        createdCards: [],
+        recalcCount: recalcCount,
+        recalcFailed: recalcFailed
+      });
+    }
+
+    var rowsToAppend = [];
+    var createdCards = [];
+    for (var ci = 0; ci < candidates.length; ci++) {
+      var c = candidates[ci];
+      maxCardNum++;
+      var cardId = String(maxCardNum).padStart(3, '0');
+      var lane = String(c.lane || '').trim() || 'unassigned';
+      var start = Math.max(1, Math.round(Number(laneNextStart[lane] || 1)));
+      var durSlots = Math.max(1, Math.ceil(Number(c.estMin) / Math.max(1, Number(slotMin) || 1)));
+      var end = start + durSlots - 1;
+      laneNextStart[lane] = end + 1;
+
+      var newRow = new Array(lastCol);
+      for (var nc = 0; nc < lastCol; nc++) newRow[nc] = '';
+      newRow[C_ID - 1] = cardId;
+      newRow[C_TASK - 1] = c.taskId;
+      newRow[C_LANE - 1] = lane;
+      newRow[C_START - 1] = start;
+      newRow[C_END - 1] = end;
+      newRow[C_LEN - 1] = Math.max(1, durSlots * Math.max(1, Number(slotMin) || 1));
+      if (C_MEMO > 0) newRow[C_MEMO - 1] = '';
+      rowsToAppend.push(newRow);
+      createdCards.push({
+        id: cardId,
+        taskId: c.taskId,
+        lane: lane,
+        start: start,
+        end: end,
+        len: newRow[C_LEN - 1],
+        memo: ''
+      });
+    }
+
+    var insertRow = Math.max(3, schedSheet.getLastRow() + 1);
+    schedSheet.getRange(insertRow, 1, rowsToAppend.length, lastCol).setValues(rowsToAppend);
+    return JSON.stringify({
+      ok: true,
+      schedId: targetSchedId,
+      created: createdCards.length,
+      createdCards: createdCards,
+      recalcCount: recalcCount,
+      recalcFailed: recalcFailed
+    });
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: { message: String(e && (e.message || e) || e) } });
+  } finally {
+    if (lock) {
+      try { lock.releaseLock(); } catch (_) {}
+    }
+  }
 }
