@@ -4733,13 +4733,128 @@ function sv_schedule_publish_v1(req) {
   req = req || {};
   var cards = Array.isArray(req.cards) ? req.cards : [];
   if (!cards.length) return { ok: true, updated: 0, skipped: 0, updatedTaskIds: [] };
-  var baseSlotMin = 5;
-  var baseSlotMs = baseSlotMin * 60 * 1000;
-  var viewSlotMin = Number(req.viewSlotMin) || 15;
-  var viewSlotBase = Math.max(1, Math.round(viewSlotMin / baseSlotMin));
+  var scheduleId = String(req.schedId || '').trim();
+  var publishCfg = {
+    originDate: null,
+    slotMin: Number(req.viewSlotMin) || 30,
+    workHours: 8
+  };
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) throw new Error('Scheduler: active spreadsheet not found');
+
+  var schedSheet = _findSheetByCandidates_(['scheds', 'Scheds', 'SCHEDS']);
+  if (schedSheet) {
+    var sVals = schedSheet.getDataRange().getValues();
+    if (sVals && sVals.length >= 3) {
+      var sSysHeaders = sVals[0] || [];
+      var sHeaders = sVals[1] || [];
+      var resolveSchedCol_ = function (fieldName, fallbackKeys) {
+        var idx = -1;
+        try {
+          idx = schemaGetColIndexByFid(sSysHeaders, schemaGetFidByFieldName('sched', fieldName));
+        } catch (_) {}
+        if (idx < 0) idx = _getColIdx_v2(sHeaders, fallbackKeys || []);
+        return idx;
+      };
+      var idxSchedId = resolveSchedCol_('schedId', ['schedId', 'id']);
+      var idxSchedActive = resolveSchedCol_('active', ['active']);
+      var idxSchedOrigin = resolveSchedCol_('originDate', ['originDate']);
+      var idxSchedSlot = resolveSchedCol_('slotMin', ['slotMin']);
+      var idxSchedWork = resolveSchedCol_('workHours', ['workHours']);
+
+      var targetSchedRow = null;
+      if (idxSchedId >= 0 && scheduleId) {
+        for (var sr = 2; sr < sVals.length; sr++) {
+          var sid = String(sVals[sr][idxSchedId] || '').trim();
+          if (sid && sid === scheduleId) {
+            targetSchedRow = sVals[sr];
+            break;
+          }
+        }
+      }
+      if (!targetSchedRow && idxSchedActive >= 0) {
+        for (var sa = 2; sa < sVals.length; sa++) {
+          var activeRaw = String(sVals[sa][idxSchedActive] || '').trim().toLowerCase();
+          if (activeRaw === 'true' || activeRaw === '1' || activeRaw === 'yes') {
+            targetSchedRow = sVals[sa];
+            break;
+          }
+        }
+      }
+      if (!targetSchedRow && sVals.length > 2) targetSchedRow = sVals[2];
+
+      var toSheetDate_ = function (value) {
+        if (value === null || value === undefined || value === '') return null;
+        if (value instanceof Date && !isNaN(value.getTime())) {
+          return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+        }
+        if (typeof value === 'number' && isFinite(value)) {
+          var fromNum = Math.abs(value) > 10000000000 ? new Date(value) : _serialToDate_(value);
+          if (fromNum && !isNaN(fromNum.getTime())) {
+            return new Date(fromNum.getFullYear(), fromNum.getMonth(), fromNum.getDate());
+          }
+        }
+        var s = String(value || '').trim();
+        if (!s) return null;
+        var m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+        if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        var dAny = new Date(s);
+        if (!isNaN(dAny.getTime())) return new Date(dAny.getFullYear(), dAny.getMonth(), dAny.getDate());
+        return null;
+      };
+
+      if (targetSchedRow) {
+        if (idxSchedOrigin >= 0) {
+          publishCfg.originDate = toSheetDate_(targetSchedRow[idxSchedOrigin]);
+        }
+        if (idxSchedSlot >= 0) {
+          var cfgSlotMin = Number(targetSchedRow[idxSchedSlot]);
+          if (isFinite(cfgSlotMin) && cfgSlotMin > 0) publishCfg.slotMin = cfgSlotMin;
+        }
+        if (idxSchedWork >= 0) {
+          var cfgWorkHours = Number(targetSchedRow[idxSchedWork]);
+          if (isFinite(cfgWorkHours) && cfgWorkHours > 0) publishCfg.workHours = cfgWorkHours;
+        }
+      }
+    }
+  }
+  if (!(publishCfg.originDate instanceof Date) || isNaN(publishCfg.originDate.getTime())) {
+    return { ok: false, error: 'Publish aborted: schedule originDate is missing/invalid.' };
+  }
+  var slotsPerDay = Math.max(1, Math.round((Number(publishCfg.workHours) * 60) / Math.max(1, Number(publishCfg.slotMin) || 1)));
+  var originBaseDate = new Date(publishCfg.originDate.getFullYear(), publishCfg.originDate.getMonth(), publishCfg.originDate.getDate());
+  var shiftWorkdays_ = function (baseDate, dayIdx) {
+    var d = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
+    if (!dayIdx) return d;
+    var step = dayIdx > 0 ? 1 : -1;
+    var remain = Math.abs(dayIdx);
+    while (remain > 0) {
+      d.setDate(d.getDate() + step);
+      var dow = d.getDay();
+      if (dow !== 0 && dow !== 6) remain -= 1;
+    }
+    return d;
+  };
+  var adjustWeekend_ = function (d, kind) {
+    var out = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    var step = (kind === 'end') ? -1 : 1;
+    while (out.getDay() === 0 || out.getDay() === 6) {
+      out.setDate(out.getDate() + step);
+    }
+    return out;
+  };
+  var slotToPublishDate_ = function (slot, kind) {
+    var raw = Number(slot);
+    if (!isFinite(raw)) return null;
+    raw = Math.max(1, Math.round(raw));
+    var dayIdx = Math.floor((raw - 1) / slotsPerDay);
+    var d = shiftWorkdays_(originBaseDate, dayIdx);
+    d = adjustWeekend_(d, kind || 'neutral');
+    d.setHours(12, 0, 0, 0);
+    return d;
+  };
+
   var sh = _findSheetByCandidates_(['task', 'Tasks', 'TASK']);
   if (!sh) throw new Error('Scheduler: task sheet not found');
 
@@ -4854,10 +4969,9 @@ function sv_schedule_publish_v1(req) {
     startSlot = Math.floor(startSlot);
     endSlot = Math.floor(endSlot);
     if (endSlot < startSlot) endSlot = startSlot;
-    endSlot = Math.ceil(endSlot / viewSlotBase) * viewSlotBase;
-
-    var startDate = new Date(startSlot * baseSlotMs);
-    var endDate = new Date(endSlot * baseSlotMs);
+    var startDate = slotToPublishDate_(startSlot, 'start');
+    var endDate = slotToPublishDate_(endSlot, 'end');
+    if (!startDate || !endDate) { skipped++; continue; }
     var orderVal = Number(pub.order || 0);
 
     var rowChanged = false;
