@@ -4044,6 +4044,9 @@ function _dc_calculateTaskDerivedPatch_(taskId, beforeRecord, cleanPatch) {
   var fps = _dc_toNumber_(merged[f.shootFps], 24);
   if (!isFinite(fps) || fps <= 0) fps = 24;
   var shootingFrames = Math.max(0, Math.round(frames24 * (fps / 24)));
+  if (!(shootingFrames > 0)) {
+    shootingFrames = Math.max(0, Math.round(_dc_toNumber_(merged[f.shootFrames], 0)));
+  }
   patchOut[f.shootFrames] = String(shootingFrames);
 
   var travelCount = _dc_toNumber_(merged[f.travelChars], 0);
@@ -6872,34 +6875,62 @@ function sv_scheduler_prepare_autocreate_v1(reqPayload) {
       });
     }
 
-    var rowsToAppend = [];
-    var createdCards = [];
+    var prepared = [];
     for (var ci = 0; ci < candidates.length; ci++) {
       var c = candidates[ci];
-      maxCardNum++;
-      var cardId = String(maxCardNum).padStart(3, '0');
       var lane = String(c.lane || '').trim() || 'unassigned';
       var start = Math.max(1, Math.round(Number(laneNextStart[lane] || 1)));
       var durSlots = Math.max(1, Math.ceil(Number(c.estMin) / Math.max(1, Number(slotMin) || 1)));
       var end = start + durSlots - 1;
       laneNextStart[lane] = end + 1;
-
-      var newRow = new Array(lastCol);
-      for (var nc = 0; nc < lastCol; nc++) newRow[nc] = '';
-      newRow[C_ID - 1] = cardId;
-      newRow[C_TASK - 1] = c.taskId;
-      newRow[C_LANE - 1] = lane;
-      newRow[C_START - 1] = start;
-      newRow[C_END - 1] = end;
-      newRow[C_LEN - 1] = Math.max(1, durSlots * Math.max(1, Number(slotMin) || 1));
-      if (C_MEMO > 0) newRow[C_MEMO - 1] = '';
-      rowsToAppend.push(newRow);
-      createdCards.push({
-        id: cardId,
+      prepared.push({
         taskId: c.taskId,
         lane: lane,
         start: start,
         end: end,
+        estMin: Math.max(1, Math.round(Number(c.estMin) || 1)),
+        order: Number(c.order) || Number.MAX_SAFE_INTEGER
+      });
+    }
+
+    prepared.sort(function (a, b) {
+      var sa = Number(a.start || 0);
+      var sb = Number(b.start || 0);
+      if (sa !== sb) return sa - sb;
+      var ea = Number(a.end || 0);
+      var eb = Number(b.end || 0);
+      if (ea !== eb) return ea - eb;
+      var la = String(a.lane || '');
+      var lb = String(b.lane || '');
+      if (la !== lb) return la.localeCompare(lb);
+      var oa = Number(a.order || Number.MAX_SAFE_INTEGER);
+      var ob = Number(b.order || Number.MAX_SAFE_INTEGER);
+      if (oa !== ob) return oa - ob;
+      return String(a.taskId || '').localeCompare(String(b.taskId || ''));
+    });
+
+    var rowsToAppend = [];
+    var createdCards = [];
+    for (var pi = 0; pi < prepared.length; pi++) {
+      var p = prepared[pi];
+      maxCardNum++;
+      var cardId = String(maxCardNum).padStart(3, '0');
+      var newRow = new Array(lastCol);
+      for (var nc = 0; nc < lastCol; nc++) newRow[nc] = '';
+      newRow[C_ID - 1] = cardId;
+      newRow[C_TASK - 1] = p.taskId;
+      newRow[C_LANE - 1] = p.lane;
+      newRow[C_START - 1] = p.start;
+      newRow[C_END - 1] = p.end;
+      newRow[C_LEN - 1] = Math.max(1, Math.round(Number(p.estMin) || 1));
+      if (C_MEMO > 0) newRow[C_MEMO - 1] = '';
+      rowsToAppend.push(newRow);
+      createdCards.push({
+        id: cardId,
+        taskId: p.taskId,
+        lane: p.lane,
+        start: p.start,
+        end: p.end,
         len: newRow[C_LEN - 1],
         memo: ''
       });
@@ -6914,6 +6945,79 @@ function sv_scheduler_prepare_autocreate_v1(reqPayload) {
       createdCards: createdCards,
       recalcCount: recalcCount,
       recalcFailed: recalcFailed
+    });
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: { message: String(e && (e.message || e) || e) } });
+  } finally {
+    if (lock) {
+      try { lock.releaseLock(); } catch (_) {}
+    }
+  }
+}
+
+function sv_task_recalculate_v1(reqPayload) {
+  var lock = null;
+  try {
+    var req = reqPayload;
+    if (typeof reqPayload === 'string') req = _undo_parseJson_(reqPayload, {});
+    req = req || {};
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(20000)) return JSON.stringify({ ok: false, error: { message: 'Server busy, try again.' } });
+
+    var onlyTaskIds = {};
+    if (Array.isArray(req.taskIds)) {
+      for (var i = 0; i < req.taskIds.length; i++) {
+        var one = String(req.taskIds[i] || '').trim();
+        if (one) onlyTaskIds[one] = true;
+      }
+    }
+    var includeCompleted = !!req.includeCompleted;
+
+    var tasksData = _readEntitySheet_('Tasks');
+    var ids = tasksData.ids || [];
+    var labels = tasksData.header || [];
+    var rows = tasksData.rows || [];
+    var map = _buildColumnIndexMap_(ids, labels);
+    var idxId = -1;
+    var idxStatus = -1;
+    try { idxId = _resolveColumnIndex_(map, schemaGetIdFid('task')); } catch (_) {}
+    try { idxStatus = _resolveColumnIndex_(map, schemaGetFidByFieldName('task', 'Status')); } catch (_) {}
+    if (idxId < 0) idxId = _resolveColumnIndex_(map, 'task id');
+    if (idxStatus < 0) idxStatus = _resolveColumnIndex_(map, 'status');
+    if (idxId < 0) return JSON.stringify({ ok: false, error: { message: 'Tasks sheet missing task id column' } });
+
+    var processed = 0;
+    var updated = 0;
+    var skipped = 0;
+    var failed = 0;
+    var failedTaskIds = [];
+    for (var r = 0; r < rows.length; r++) {
+      var row = rows[r] || [];
+      var taskId = String(row[idxId] || '').trim();
+      if (!taskId) continue;
+      if (Object.keys(onlyTaskIds).length && !onlyTaskIds[taskId]) continue;
+      var status = idxStatus >= 0 ? String(row[idxStatus] || '').trim().toLowerCase() : '';
+      if (!includeCompleted && status === 'completed') {
+        skipped++;
+        continue;
+      }
+      processed++;
+      try {
+        var res = sv_setRecord_v2('task', taskId, {}, { __skipUndoLog: true, __skipLock: true, actor: 'task_recalculate_v1' }) || {};
+        if (res && res.ok && !res.noop) updated++;
+        else skipped++;
+      } catch (e) {
+        failed++;
+        failedTaskIds.push(taskId);
+      }
+    }
+    return JSON.stringify({
+      ok: true,
+      processed: processed,
+      updated: updated,
+      skipped: skipped,
+      failed: failed,
+      failedTaskIds: failedTaskIds.slice(0, 100)
     });
   } catch (e) {
     return JSON.stringify({ ok: false, error: { message: String(e && (e.message || e) || e) } });
