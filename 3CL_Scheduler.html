@@ -14,6 +14,12 @@
       --header-h: 36px; --axis-w: 60px; --lane-w: 65px;
       --asset-col-w: 65px;
       --sched-inspector-w: 320px;
+      --card-status-not-started: #1d4ed8;
+      --card-status-in-progress: #7c3aed;
+      --card-status-review: #d97706;
+      --card-status-approved: #0f766e;
+      --card-status-completed: #166534;
+      --card-camera-accent: #7dd3fc;
     }
     body { background: var(--bg-app); color: var(--text-main); font-family: sans-serif; height: 100vh; overflow: hidden; margin:0; user-select:none; }
     #app-root { display: flex; flex-direction: column; height: 100%; }
@@ -112,12 +118,27 @@
     .card.multi-selected { box-shadow: 0 0 0 1px rgba(110, 231, 255, 0.85), 0 1px 3px rgba(0,0,0,0.5); }
     .card.unsaved { border: 1px dashed #f59e0b; }
     .card:hover { z-index: 15; background: #3b82f6; }
-    .card.status-not_started { background: #1d4ed8; }
-    .card.status-in_progress { background: #7c3aed; }
-    .card.status-review { background: #d97706; }
-    .card.status-approved { background: #0f766e; }
-    .card.status-completed { background: #166534; }
-    .card.camera-move { box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.95), 0 1px 3px rgba(0,0,0,0.5); }
+    .card.status-not_started { background: var(--card-status-not-started); }
+    .card.status-in_progress { background: var(--card-status-in-progress); }
+    .card.status-review { background: var(--card-status-review); }
+    .card.status-approved { background: var(--card-status-approved); }
+    .card.status-completed { background: var(--card-status-completed); }
+    .card.camera-move { box-shadow: inset 0 0 0 1px var(--card-camera-accent), 0 1px 3px rgba(0,0,0,0.5); }
+    .card-camera-badge {
+      position: absolute;
+      top: 1px;
+      right: 18px;
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 1;
+      padding: 2px 3px;
+      border-radius: 3px;
+      background: rgba(2, 132, 199, 0.35);
+      color: #e0f2fe;
+      border: 1px solid var(--card-camera-accent);
+      z-index: 8;
+      pointer-events: none;
+    }
     .card-multi-toggle {
       position:absolute;
       top:1px;
@@ -230,6 +251,9 @@
     .settings-section h4 { margin: 0; font-size: 12px; color: #ddd; letter-spacing: 0.03em; }
     .settings-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .settings-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .settings-inline { display: flex; gap: 6px; align-items: flex-end; }
+    .settings-inline .inp-group { flex: 1 1 auto; }
+    .settings-inline .btn { height: 26px; }
     .settings-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 12px 12px; }
     .undo-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 130; display: flex; align-items: center; justify-content: center; padding: 16px; }
     .undo-modal.hidden { display: none; }
@@ -538,6 +562,50 @@
             </select>
           </div>
         </div>
+        <div class="settings-inline">
+          <div class="inp-group">
+            <label for="inp-card-add-field">Add field (`task:xxx` / `card:xxx`)</label>
+            <input id="inp-card-add-field" class="inp-dark" type="text" placeholder="task:estLength">
+          </div>
+          <div class="inp-group" style="max-width:130px;">
+            <label for="sel-card-add-target">Target</label>
+            <select id="sel-card-add-target" class="inp-dark">
+              <option value="main">Main</option>
+              <option value="sub">Sub</option>
+            </select>
+          </div>
+          <button id="btn-card-add-field" class="btn" type="button">+ Add</button>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <h4>Card Colors</h4>
+        <div class="settings-grid-3">
+          <div class="inp-group">
+            <label for="inp-color-not-started">not_started</label>
+            <input id="inp-color-not-started" class="inp-dark" type="color" value="#1d4ed8">
+          </div>
+          <div class="inp-group">
+            <label for="inp-color-in-progress">in_progress</label>
+            <input id="inp-color-in-progress" class="inp-dark" type="color" value="#7c3aed">
+          </div>
+          <div class="inp-group">
+            <label for="inp-color-review">review</label>
+            <input id="inp-color-review" class="inp-dark" type="color" value="#d97706">
+          </div>
+          <div class="inp-group">
+            <label for="inp-color-approved">approved</label>
+            <input id="inp-color-approved" class="inp-dark" type="color" value="#0f766e">
+          </div>
+          <div class="inp-group">
+            <label for="inp-color-completed">completed</label>
+            <input id="inp-color-completed" class="inp-dark" type="color" value="#166534">
+          </div>
+          <div class="inp-group">
+            <label for="inp-color-camera">camera movement</label>
+            <input id="inp-color-camera" class="inp-dark" type="color" value="#7dd3fc">
+          </div>
+        </div>
       </section>
 
     </div>
@@ -605,6 +673,15 @@ window.app = (function() {
     laneDirty: false,
     cardDisplayMain: 'shot_code',
     cardDisplaySub: 'task_name',
+    customCardDisplayFields: [],
+    cardColors: {
+      notStarted: '#1d4ed8',
+      inProgress: '#7c3aed',
+      review: '#d97706',
+      approved: '#0f766e',
+      completed: '#166534',
+      camera: '#7dd3fc'
+    },
     assetCapacityById: {},
     assetNameById: {},
     assetCapacityDefault: 1,
@@ -1714,7 +1791,8 @@ window.app = (function() {
     { value: 'card_memo', label: 'Card Memo' },
     { value: 'card_lane', label: 'Card Lane' },
     { value: 'card_start_slot', label: 'Card Start Slot' },
-    { value: 'card_end_slot', label: 'Card End Slot' }
+    { value: 'card_end_slot', label: 'Card End Slot' },
+    { value: 'card_length', label: 'Card Length' }
   ];
   var CARD_DISPLAY_BASE_FIELDS = CARD_DISPLAY_BASE_OPTIONS.map(function (o) { return o.value; });
 
@@ -1784,6 +1862,35 @@ window.app = (function() {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  const CARD_COLOR_DEFAULTS = {
+    notStarted: '#1d4ed8',
+    inProgress: '#7c3aed',
+    review: '#d97706',
+    approved: '#0f766e',
+    completed: '#166534',
+    camera: '#7dd3fc'
+  };
+
+  function normalizeHexColor_(value, fallback) {
+    const fb = String(fallback || '#2563eb');
+    const raw = String(value || '').trim();
+    if (!raw) return fb;
+    const m = raw.match(/^#([0-9a-fA-F]{6})$/);
+    return m ? ('#' + m[1].toLowerCase()) : fb;
+  }
+
+  function applyCardColorTheme_() {
+    const c = state.cardColors || {};
+    const root = document.documentElement;
+    if (!root || !root.style || typeof root.style.setProperty !== 'function') return;
+    root.style.setProperty('--card-status-not-started', normalizeHexColor_(c.notStarted, CARD_COLOR_DEFAULTS.notStarted));
+    root.style.setProperty('--card-status-in-progress', normalizeHexColor_(c.inProgress, CARD_COLOR_DEFAULTS.inProgress));
+    root.style.setProperty('--card-status-review', normalizeHexColor_(c.review, CARD_COLOR_DEFAULTS.review));
+    root.style.setProperty('--card-status-approved', normalizeHexColor_(c.approved, CARD_COLOR_DEFAULTS.approved));
+    root.style.setProperty('--card-status-completed', normalizeHexColor_(c.completed, CARD_COLOR_DEFAULTS.completed));
+    root.style.setProperty('--card-camera-accent', normalizeHexColor_(c.camera, CARD_COLOR_DEFAULTS.camera));
   }
 
   const TASK_FIDS = {
@@ -1967,6 +2074,12 @@ window.app = (function() {
     if (fieldKey === 'card_lane') return String(card && card.laneId || '').trim();
     if (fieldKey === 'card_start_slot') return String(card && card.start || '').trim();
     if (fieldKey === 'card_end_slot') return String(card && card.end || '').trim();
+    if (fieldKey === 'card_length') {
+      var st = Number(card && card.start);
+      var ed = Number(card && card.end);
+      if (!isFinite(st) || !isFinite(ed)) return '';
+      return String(Math.max(1, Math.round(ed - st + 1)) * Math.max(1, Math.round(Number(config.slotMin) || 1)));
+    }
     return '';
   }
 
@@ -2382,6 +2495,13 @@ window.app = (function() {
     var options = CARD_DISPLAY_BASE_OPTIONS.slice();
     var seen = {};
     options.forEach(function (opt) { seen[opt.value] = true; });
+    var custom = Array.isArray(state.customCardDisplayFields) ? state.customCardDisplayFields : [];
+    custom.forEach(function (raw) {
+      var norm = normalizeCardDisplayField_(raw, '');
+      if (!norm || seen[norm]) return;
+      seen[norm] = true;
+      options.push({ value: norm, label: norm.indexOf(':') > 0 ? norm.replace(':', ': ') : norm });
+    });
     var taskSamples = Array.isArray(state.tasks) ? state.tasks : [];
     taskSamples.slice(0, 200).forEach(function (t) {
       if (!t || typeof t !== 'object') return;
@@ -2467,6 +2587,18 @@ window.app = (function() {
         state.viewDriver = String(state.viewMeta.viewDriver || '').trim().toLowerCase() === 'end' ? 'end' : 'range';
         state.cardDisplayMain = normalizeCardDisplayField_(state.viewMeta.cardDisplayMain, 'shot_code');
         state.cardDisplaySub = normalizeCardDisplayField_(state.viewMeta.cardDisplaySub, 'task_name');
+        state.customCardDisplayFields = Array.isArray(state.viewMeta.customCardDisplayFields)
+          ? state.viewMeta.customCardDisplayFields.map(function (v) { return normalizeCardDisplayField_(v, ''); }).filter(function (v) { return /^task:|^card:/i.test(String(v || '')); })
+          : [];
+        var vmColors = (state.viewMeta.cardColors && typeof state.viewMeta.cardColors === 'object') ? state.viewMeta.cardColors : {};
+        state.cardColors = {
+          notStarted: normalizeHexColor_(vmColors.notStarted, CARD_COLOR_DEFAULTS.notStarted),
+          inProgress: normalizeHexColor_(vmColors.inProgress, CARD_COLOR_DEFAULTS.inProgress),
+          review: normalizeHexColor_(vmColors.review, CARD_COLOR_DEFAULTS.review),
+          approved: normalizeHexColor_(vmColors.approved, CARD_COLOR_DEFAULTS.approved),
+          completed: normalizeHexColor_(vmColors.completed, CARD_COLOR_DEFAULTS.completed),
+          camera: normalizeHexColor_(vmColors.camera, CARD_COLOR_DEFAULTS.camera)
+        };
         var vmLaneWidth = Number(state.viewMeta.laneWidth);
         if (isFinite(vmLaneWidth) && vmLaneWidth > 0) state.laneWidth = Math.round(vmLaneWidth);
         var vmAssetWidth = Number(state.viewMeta.assetColWidth);
@@ -2507,6 +2639,7 @@ window.app = (function() {
       if (state.scriptUrlServer) state.scriptUrl = state.scriptUrlServer;
       document.documentElement.style.setProperty('--lane-w', `${Math.round(state.laneWidth)}px`);
       document.documentElement.style.setProperty('--asset-col-w', `${Math.round(state.assetColWidth)}px`);
+      applyCardColorTheme_();
       var brandLink = document.getElementById('brand-link');
       if (brandLink) brandLink.href = state.scriptUrl;
       var schedSel = document.getElementById('sched-switch');
@@ -2699,6 +2832,18 @@ window.app = (function() {
       var cardMainSel = document.getElementById('sel-card-main');
       var cardSubSel = document.getElementById('sel-card-sub');
       ui.syncCardDisplayFieldSelectors(cardMainSel, cardSubSel);
+      var colorNotStarted = document.getElementById('inp-color-not-started');
+      if (colorNotStarted) colorNotStarted.value = normalizeHexColor_(state.cardColors.notStarted, CARD_COLOR_DEFAULTS.notStarted);
+      var colorInProgress = document.getElementById('inp-color-in-progress');
+      if (colorInProgress) colorInProgress.value = normalizeHexColor_(state.cardColors.inProgress, CARD_COLOR_DEFAULTS.inProgress);
+      var colorReview = document.getElementById('inp-color-review');
+      if (colorReview) colorReview.value = normalizeHexColor_(state.cardColors.review, CARD_COLOR_DEFAULTS.review);
+      var colorApproved = document.getElementById('inp-color-approved');
+      if (colorApproved) colorApproved.value = normalizeHexColor_(state.cardColors.approved, CARD_COLOR_DEFAULTS.approved);
+      var colorCompleted = document.getElementById('inp-color-completed');
+      if (colorCompleted) colorCompleted.value = normalizeHexColor_(state.cardColors.completed, CARD_COLOR_DEFAULTS.completed);
+      var colorCamera = document.getElementById('inp-color-camera');
+      if (colorCamera) colorCamera.value = normalizeHexColor_(state.cardColors.camera, CARD_COLOR_DEFAULTS.camera);
       var renameInput = document.getElementById('sched-rename-input');
       if (renameInput) renameInput.value = state.schedName;
       var laneWInput = document.getElementById('inp-lane-w');
@@ -2806,7 +2951,18 @@ window.app = (function() {
         assetColWidth: Math.round(getAssetsColWidth_()),
         assetColumnVisible: !!state.assetColumnVisible,
         cardDisplayMain: normalizeCardDisplayField_(state.cardDisplayMain, 'shot_code'),
-        cardDisplaySub: normalizeCardDisplayField_(state.cardDisplaySub, 'task_name')
+        cardDisplaySub: normalizeCardDisplayField_(state.cardDisplaySub, 'task_name'),
+        customCardDisplayFields: (Array.isArray(state.customCardDisplayFields) ? state.customCardDisplayFields : [])
+          .map(function (v) { return normalizeCardDisplayField_(v, ''); })
+          .filter(function (v) { return /^task:|^card:/i.test(String(v || '')); }),
+        cardColors: {
+          notStarted: normalizeHexColor_(state.cardColors && state.cardColors.notStarted, CARD_COLOR_DEFAULTS.notStarted),
+          inProgress: normalizeHexColor_(state.cardColors && state.cardColors.inProgress, CARD_COLOR_DEFAULTS.inProgress),
+          review: normalizeHexColor_(state.cardColors && state.cardColors.review, CARD_COLOR_DEFAULTS.review),
+          approved: normalizeHexColor_(state.cardColors && state.cardColors.approved, CARD_COLOR_DEFAULTS.approved),
+          completed: normalizeHexColor_(state.cardColors && state.cardColors.completed, CARD_COLOR_DEFAULTS.completed),
+          camera: normalizeHexColor_(state.cardColors && state.cardColors.camera, CARD_COLOR_DEFAULTS.camera)
+        }
       };
       var payload = JSON.stringify({ schedId: state.schedId, type: 'view_meta', value: meta });
       google.script.run
@@ -4077,6 +4233,42 @@ window.app = (function() {
       markViewDirty_();
     },
 
+    addCardDisplayFieldFromSettings: () => {
+      const inp = document.getElementById('inp-card-add-field');
+      const targetSel = document.getElementById('sel-card-add-target');
+      if (!inp) return;
+      let raw = String(inp.value || '').trim();
+      if (!raw) return;
+      if (!/^task:|^card:/i.test(raw)) raw = 'task:' + raw;
+      const normalized = normalizeCardDisplayField_(raw, '');
+      if (!normalized || (!/^task:|^card:/i.test(normalized))) {
+        utils.saveStatus('error', 'Use task:field or card:field');
+        return;
+      }
+      if (!Array.isArray(state.customCardDisplayFields)) state.customCardDisplayFields = [];
+      if (state.customCardDisplayFields.indexOf(normalized) < 0) state.customCardDisplayFields.push(normalized);
+      const target = String(targetSel && targetSel.value || 'main').toLowerCase() === 'sub' ? 'sub' : 'main';
+      if (target === 'main') state.cardDisplayMain = normalized;
+      else state.cardDisplaySub = normalized;
+      ui.syncCardDisplayFieldSelectors();
+      render.grid();
+      ui.renderCardList();
+      markViewDirty_();
+      inp.value = '';
+      utils.saveStatus('saved', 'Field added');
+    },
+
+    setCardColorFromSettings: (key, value) => {
+      if (!state.cardColors || typeof state.cardColors !== 'object') state.cardColors = Object.assign({}, CARD_COLOR_DEFAULTS);
+      const mapKey = String(key || '');
+      if (!mapKey) return;
+      const fallback = CARD_COLOR_DEFAULTS.hasOwnProperty(mapKey) ? CARD_COLOR_DEFAULTS[mapKey] : '#2563eb';
+      state.cardColors[mapKey] = normalizeHexColor_(value, fallback);
+      applyCardColorTheme_();
+      render.grid();
+      markViewDirty_();
+    },
+
     saveViewSettings: () => {
       store.saveViewMeta('view');
     },
@@ -4529,6 +4721,12 @@ window.app = (function() {
           actions.toggleMultiSelection(c.id, { checked: !!chkMulti.checked, contiguous: false });
         });
         div.appendChild(chkMulti);
+        if (cameraMove) {
+          const camBadge = document.createElement('div');
+          camBadge.className = 'card-camera-badge';
+          camBadge.textContent = 'CAM';
+          div.appendChild(camBadge);
+        }
 
         const xBtn = document.createElement('div'); xBtn.className='card-close'; xBtn.textContent='×';
         xBtn.addEventListener('click', (e) => {
@@ -5126,6 +5324,7 @@ window.app = (function() {
         cameraWrap.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:11px; color:#d1d5db;';
         const cameraChk = document.createElement('input');
         cameraChk.type = 'checkbox';
+        cameraChk.title = 'Camera movement';
         cameraChk.checked = taskBoolValue_(t, TASK_FIDS.cameraMovement, ['cameraMovement', 'camera_movement']);
         cameraChk.addEventListener('change', () => {
           if (!taskId) return;
@@ -5134,7 +5333,6 @@ window.app = (function() {
           commitTaskPatchFromInspector_(taskId, patch, () => ui.renderInspector());
         });
         cameraWrap.appendChild(cameraChk);
-        cameraWrap.appendChild(document.createTextNode('Camera movement'));
         addField('Camera movement', cameraWrap);
 
         edit.refs.taskStillShot = makeTaskTextInput_(TASK_FIDS.stillShot, 'Still Shot', ['stillShot', 'still_shot'], false, 'number');
@@ -5888,6 +6086,19 @@ window.app = (function() {
     });
     safeAdd('sel-card-main', 'change', (e) => actions.setCardDisplayField('main', e.target.value));
     safeAdd('sel-card-sub', 'change', (e) => actions.setCardDisplayField('sub', e.target.value));
+    safeAdd('btn-card-add-field', 'click', () => actions.addCardDisplayFieldFromSettings());
+    safeAdd('inp-card-add-field', 'keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        actions.addCardDisplayFieldFromSettings();
+      }
+    });
+    safeAdd('inp-color-not-started', 'change', (e) => actions.setCardColorFromSettings('notStarted', e.target.value));
+    safeAdd('inp-color-in-progress', 'change', (e) => actions.setCardColorFromSettings('inProgress', e.target.value));
+    safeAdd('inp-color-review', 'change', (e) => actions.setCardColorFromSettings('review', e.target.value));
+    safeAdd('inp-color-approved', 'change', (e) => actions.setCardColorFromSettings('approved', e.target.value));
+    safeAdd('inp-color-completed', 'change', (e) => actions.setCardColorFromSettings('completed', e.target.value));
+    safeAdd('inp-color-camera', 'change', (e) => actions.setCardColorFromSettings('camera', e.target.value));
     safeAdd('inp-zoom', 'input', (e) => actions.setZoomFromSlider(e.target.value));
     safeAdd('inp-zoom-val', 'change', (e) => actions.setZoomFromInput(e.target.value));
     safeAdd('btn-view-fit', 'click', () => actions.fitZoomToView());

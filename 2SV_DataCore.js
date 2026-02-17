@@ -1538,6 +1538,14 @@ function dp_updateEntityRecord(entity, id, patch, options) {
         if (!typeByFieldId[tfid2]) { typeByFieldId[tfid2] = String(typeMap[tfid2].type || "").trim().toLowerCase(); }
       }
     }
+    var allowNonEditable = {};
+    try {
+      var allowArr = (options && Array.isArray(options.__allowNonEditableFieldIds)) ? options.__allowNonEditableFieldIds : [];
+      for (var ai = 0; ai < allowArr.length; ai++) {
+        var afid = String(allowArr[ai] || '').trim();
+        if (afid) allowNonEditable[afid] = true;
+      }
+    } catch (_) { allowNonEditable = {}; }
     for (var k in patch) {
       if (!patch.hasOwnProperty(k)) continue;
       var fid = String(k || '').trim();
@@ -1545,7 +1553,9 @@ function dp_updateEntityRecord(entity, id, patch, options) {
       if (!_isFid_(fid)) return { ok: false, error: "Invalid field id: " + fid, entity: entityKey, id: id };
       var colIdx = _hdrIndex_(hdr, fid);
       if (colIdx < 0) return { ok: false, error: "Unknown field: " + fid, entity: entityKey, id: id };
-      if (!_isEditable_(entityKey, fid)) return { ok: false, error: "Field not editable: " + fid, entity: entityKey, id: id };
+      if (!_isEditable_(entityKey, fid) && !allowNonEditable[fid]) {
+        return { ok: false, error: "Field not editable: " + fid, entity: entityKey, id: id };
+      }
       var v = patch[k];
       var ftype = "";
       try { ftype = String(fieldDefs && fieldDefs[fid] && fieldDefs[fid].type || "").trim().toLowerCase(); } catch (_) { ftype = ""; }
@@ -4174,6 +4184,7 @@ function sv_setRecord_v2(entity, id, patch, options) {
     lock = LockService.getScriptLock();
     lock.waitLock(10000);
     var opts = (options && typeof options === 'object') ? options : {};
+    try { delete opts.__allowNonEditableFieldIds; } catch (_) {}
     var skipUndoLog = !!opts.__skipUndoLog;
     var actorHint = opts.actor;
     var undoLogDiag = {
@@ -4197,12 +4208,16 @@ function sv_setRecord_v2(entity, id, patch, options) {
     var beforePatch = {};
     beforeRecord = sv_getRecord(entity, id);
     var entNorm = _schemaNormalizeEntity_(entity);
+    var allowNonEditableFromDerived = {};
     if (entNorm === 'task') {
       try {
         var derivedPatch = _dc_calculateTaskDerivedPatch_(id, beforeRecord, cleanPatch);
         var dk = Object.keys(derivedPatch || {});
         for (var di = 0; di < dk.length; di++) {
-          cleanPatch[dk[di]] = derivedPatch[dk[di]];
+          var fid = String(dk[di] || '').trim();
+          if (!fid) continue;
+          cleanPatch[fid] = derivedPatch[fid];
+          if (!_isEditable_(entNorm, fid)) allowNonEditableFromDerived[fid] = true;
         }
       } catch (calcErr) {
         // Keep setRecord path resilient; calculation failures should not block manual edits.
@@ -4245,7 +4260,13 @@ function sv_setRecord_v2(entity, id, patch, options) {
       };
     }
 
-    var res = dp_updateEntityRecord(entity, id, changedPatch, opts);
+    var optsForWrite = {};
+    Object.keys(opts).forEach(function (k) { optsForWrite[k] = opts[k]; });
+    var allowList = Object.keys(allowNonEditableFromDerived || {}).filter(function (fid) {
+      return Object.prototype.hasOwnProperty.call(changedPatch, fid);
+    });
+    if (allowList.length) optsForWrite.__allowNonEditableFieldIds = allowList;
+    var res = dp_updateEntityRecord(entity, id, changedPatch, optsForWrite);
     if (res && typeof res === "object") {
       res.ok = (res.ok === true);
       if (!res.errorCode && res.ok === false && res.error) res.errorCode = "INLINE_EDIT_FAILED";
