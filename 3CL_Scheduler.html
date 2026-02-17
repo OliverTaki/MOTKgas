@@ -164,6 +164,7 @@
     .card:hover .card-close { display:block; }
     .card-resizer { position:absolute; bottom:0; left:0; right:0; height:6px; cursor:ns-resize; }
     .card .c-id { position: absolute; top: 2px; left: 24px; font-size: 10px; opacity: 0.85; }
+    .card.camera-move .c-id { top: 15px; }
     .card .c-main { text-align: center; font-weight: 700; font-size: 12px; }
     .card .c-sub { text-align: center; font-size: 9px; opacity: 0.8; margin-top: 2px; }
     .card.asset-conflict {
@@ -639,8 +640,7 @@
 
     </div>
     <div class="settings-actions">
-      <button id="btn-settings-save-view" class="btn" type="button">Save View</button>
-      <button id="btn-settings-save-lane" class="btn" type="button">Save Lane</button>
+      <button id="btn-settings-save" class="btn" type="button">Save Settings</button>
     </div>
   </div>
 </div>
@@ -6196,8 +6196,7 @@ window.app = (function() {
     safeAdd('sel-card-main', 'change', (e) => actions.setCardDisplayField('main', e.target.value));
     safeAdd('sel-card-sub', 'change', (e) => actions.setCardDisplayField('sub', e.target.value));
     safeAdd('btn-card-add-field', 'click', () => actions.addCardDisplayFieldFromSettings());
-    safeAdd('btn-settings-save-view', 'click', actions.saveViewSettings);
-    safeAdd('btn-settings-save-lane', 'click', actions.saveLaneSettings);
+    safeAdd('btn-settings-save', 'click', actions.saveViewSettings);
     safeAdd('inp-color-not-started', 'change', (e) => actions.setCardColorFromSettings('notStarted', e.target.value));
     safeAdd('inp-color-in-progress', 'change', (e) => actions.setCardColorFromSettings('inProgress', e.target.value));
     safeAdd('inp-color-review', 'change', (e) => actions.setCardColorFromSettings('review', e.target.value));
