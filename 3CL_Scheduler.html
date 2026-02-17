@@ -123,17 +123,21 @@
     .card.status-review { background: var(--card-status-review); }
     .card.status-approved { background: var(--card-status-approved); }
     .card.status-completed { background: var(--card-status-completed); }
-    .card.camera-move { box-shadow: inset 0 0 0 1px var(--card-camera-accent), 0 1px 3px rgba(0,0,0,0.5); }
-    .card-camera-badge {
+    .card.camera-move { box-shadow: inset 0 0 0 2px var(--card-camera-accent), 0 1px 3px rgba(0,0,0,0.5); }
+    .card-move-band {
       position: absolute;
       top: 1px;
+      left: 24px;
       right: 18px;
+      height: 12px;
       font-size: 9px;
       font-weight: 700;
-      line-height: 1;
-      padding: 2px 3px;
+      line-height: 12px;
+      text-align: center;
+      letter-spacing: 0.04em;
+      padding: 0 3px;
       border-radius: 3px;
-      background: rgba(2, 132, 199, 0.35);
+      background: rgba(2, 132, 199, 0.48);
       color: #e0f2fe;
       border: 1px solid var(--card-camera-accent);
       z-index: 8;
@@ -162,8 +166,33 @@
     .card .c-id { position: absolute; top: 2px; left: 24px; font-size: 10px; opacity: 0.85; }
     .card .c-main { text-align: center; font-weight: 700; font-size: 12px; }
     .card .c-sub { text-align: center; font-size: 9px; opacity: 0.8; margin-top: 2px; }
-    .card.asset-conflict { background: #b91c1c; border: 1px solid #fca5a5; }
-    .card.asset-conflict:hover { background: #dc2626; }
+    .card.asset-conflict {
+      background: repeating-linear-gradient(
+        -45deg,
+        #991b1b 0,
+        #991b1b 8px,
+        #7f1d1d 8px,
+        #7f1d1d 16px
+      );
+      border: 2px solid #fecaca;
+      box-shadow: 0 0 0 1px #450a0a, 0 0 0 3px rgba(239, 68, 68, 0.35), 0 1px 3px rgba(0,0,0,0.6);
+    }
+    .card.asset-conflict:hover { background: repeating-linear-gradient(-45deg, #b91c1c 0, #b91c1c 8px, #991b1b 8px, #991b1b 16px); }
+    .card-conflict-badge {
+      position: absolute;
+      bottom: 1px;
+      right: 2px;
+      font-size: 8px;
+      font-weight: 700;
+      line-height: 1;
+      padding: 1px 3px;
+      border-radius: 2px;
+      background: #111827;
+      color: #fee2e2;
+      border: 1px solid #fca5a5;
+      z-index: 8;
+      pointer-events: none;
+    }
     .gap-marker {
       position: absolute;
       width: calc(var(--lane-w) - 10px);
@@ -564,8 +593,8 @@
         </div>
         <div class="settings-inline">
           <div class="inp-group">
-            <label for="inp-card-add-field">Add field (`task:xxx` / `card:xxx`)</label>
-            <input id="inp-card-add-field" class="inp-dark" type="text" placeholder="task:estLength">
+            <label for="sel-card-add-field">Add field</label>
+            <select id="sel-card-add-field" class="inp-dark"></select>
           </div>
           <div class="inp-group" style="max-width:130px;">
             <label for="sel-card-add-target">Target</label>
@@ -608,6 +637,10 @@
         </div>
       </section>
 
+    </div>
+    <div class="settings-actions">
+      <button id="btn-settings-save-view" class="btn" type="button">Save View</button>
+      <button id="btn-settings-save-lane" class="btn" type="button">Save Lane</button>
     </div>
   </div>
 </div>
@@ -1786,6 +1819,7 @@ window.app = (function() {
     { value: 'task_name', label: 'Task Name' },
     { value: 'task_status', label: 'Task Status' },
     { value: 'task_assignee', label: 'Task Assignee' },
+    { value: 'task_est_length', label: 'Est length (mins)' },
     { value: 'task_id', label: 'Task ID' },
     { value: 'card_id', label: 'Card ID' },
     { value: 'card_memo', label: 'Card Memo' },
@@ -1940,6 +1974,12 @@ window.app = (function() {
     return isFinite(n) ? n : fallback;
   }
 
+  function formatMinutesLabel_(value) {
+    const n = Number(value);
+    if (!isFinite(n) || n <= 0) return '';
+    return String(Math.round(n)) + 'mins';
+  }
+
   function taskBoolValue_(task, fid, fallbackKeys) {
     const v = taskRawValue_(task, fid, fallbackKeys);
     if (v === true || v === 1) return true;
@@ -1966,12 +2006,32 @@ window.app = (function() {
     if (!task) return;
     if (!task.raw || typeof task.raw !== 'object') task.raw = {};
     const p = (patch && typeof patch === 'object') ? patch : {};
+    const assignTaskValueByFid_ = (fid, val) => {
+      if (fid === TASK_FIDS.status) task.status = String(val || '').trim();
+      if (fid === TASK_FIDS.startDate) {
+        task.planStart = String(val || '').trim();
+        task.planStartIso = String(val || '').trim();
+      }
+      if (fid === TASK_FIDS.endDate) {
+        task.planEnd = String(val || '').trim();
+        task.planEndIso = String(val || '').trim();
+      }
+      if (fid === TASK_FIDS.taskOrder) task.taskOrder = String(val || '').trim();
+      if (fid === TASK_FIDS.stillShot) task.stillShot = String(val || '').trim();
+      if (fid === TASK_FIDS.travelChars) task.travelChars = String(val || '').trim();
+      if (fid === TASK_FIDS.noTravelChars) task.noTravelChars = String(val || '').trim();
+      if (fid === TASK_FIDS.cameraMovement) task.cameraMovement = String(val || '').trim();
+      if (fid === TASK_FIDS.shootingFps) task.shootingFps = String(val || '').trim();
+      if (fid === TASK_FIDS.shootingFrames) task.shootingFrames = String(val || '').trim();
+      if (fid === TASK_FIDS.difficultyFactor) task.difficultyFactor = String(val || '').trim();
+      if (fid === TASK_FIDS.estLength) task.estLength = String(val || '').trim();
+      if (fid === TASK_FIDS.finished) task.finished = String(val || '').trim();
+      if (fid === TASK_FIDS.spentLength) task.spentLength = String(val || '').trim();
+      if (fid === TASK_FIDS.overrunRatio) task.overrunRatio = String(val || '').trim();
+    };
     Object.keys(p).forEach((fid) => {
       task.raw[fid] = p[fid];
-      if (fid === TASK_FIDS.status) task.status = String(p[fid] || '').trim();
-      if (fid === TASK_FIDS.startDate) task.planStart = String(p[fid] || '').trim();
-      if (fid === TASK_FIDS.endDate) task.planEnd = String(p[fid] || '').trim();
-      if (fid === TASK_FIDS.taskOrder) task.taskOrder = String(p[fid] || '').trim();
+      assignTaskValueByFid_(String(fid || ''), p[fid]);
     });
     Object.values(state.cards || {}).forEach((card) => {
       if (String(card && card.taskId || '') !== key) return;
@@ -1993,7 +2053,24 @@ window.app = (function() {
         const t = state.tasksById[key];
         if (t) {
           if (!t.raw || typeof t.raw !== 'object') t.raw = {};
-          Object.keys(rec).forEach((rk) => { t.raw[rk] = rec[rk]; });
+          Object.keys(rec).forEach((rk) => {
+            t.raw[rk] = rec[rk];
+            if (rk === TASK_FIDS.status) t.status = String(rec[rk] || '').trim();
+            if (rk === TASK_FIDS.startDate) { t.planStart = String(rec[rk] || '').trim(); t.planStartIso = t.planStart; }
+            if (rk === TASK_FIDS.endDate) { t.planEnd = String(rec[rk] || '').trim(); t.planEndIso = t.planEnd; }
+            if (rk === TASK_FIDS.taskOrder) t.taskOrder = String(rec[rk] || '').trim();
+            if (rk === TASK_FIDS.stillShot) t.stillShot = String(rec[rk] || '').trim();
+            if (rk === TASK_FIDS.travelChars) t.travelChars = String(rec[rk] || '').trim();
+            if (rk === TASK_FIDS.noTravelChars) t.noTravelChars = String(rec[rk] || '').trim();
+            if (rk === TASK_FIDS.cameraMovement) t.cameraMovement = String(rec[rk] || '').trim();
+            if (rk === TASK_FIDS.shootingFps) t.shootingFps = String(rec[rk] || '').trim();
+            if (rk === TASK_FIDS.shootingFrames) t.shootingFrames = String(rec[rk] || '').trim();
+            if (rk === TASK_FIDS.difficultyFactor) t.difficultyFactor = String(rec[rk] || '').trim();
+            if (rk === TASK_FIDS.estLength) t.estLength = String(rec[rk] || '').trim();
+            if (rk === TASK_FIDS.finished) t.finished = String(rec[rk] || '').trim();
+            if (rk === TASK_FIDS.spentLength) t.spentLength = String(rec[rk] || '').trim();
+            if (rk === TASK_FIDS.overrunRatio) t.overrunRatio = String(rec[rk] || '').trim();
+          });
           t.status = String(rec[TASK_FIDS.status] || t.status || '').trim();
           t.planStart = String(rec[TASK_FIDS.startDate] || t.planStart || '').trim();
           t.planEnd = String(rec[TASK_FIDS.endDate] || t.planEnd || '').trim();
@@ -2018,6 +2095,10 @@ window.app = (function() {
       done(false);
       return;
     }
+    applyTaskPatchLocally_(key, p);
+    render.grid();
+    ui.renderCardList();
+    ui.refreshInspectorValuesFromCard();
     utils.saveStatus('saving', 'Saving task...');
     google.script.run
       .withSuccessHandler((res) => {
@@ -2037,6 +2118,11 @@ window.app = (function() {
         });
       })
       .withFailureHandler((err) => {
+        refreshTaskFromServer_(key, () => {
+          render.grid();
+          ui.renderCardList();
+          ui.refreshInspectorValuesFromCard();
+        });
         utils.saveStatus('error', String(err && (err.message || err) || 'Task save failed'));
         done(false);
       })
@@ -2056,7 +2142,13 @@ window.app = (function() {
     if (/^task:/i.test(fieldKey)) {
       var taskDynKey = fieldKey.replace(/^task:/i, '');
       if (!task) return '';
-      return String(task[taskDynKey] == null ? '' : task[taskDynKey]).trim();
+      var dynVal = task[taskDynKey];
+      if (dynVal == null || dynVal === '') dynVal = taskRawValue_(task, '', [taskDynKey]);
+      var dynKeyNorm = String(taskDynKey || '').trim().toLowerCase();
+      if (dynKeyNorm === 'estlength' || dynKeyNorm === 'est_length' || dynKeyNorm === String(TASK_FIDS.estLength || '').toLowerCase()) {
+        return formatMinutesLabel_(dynVal);
+      }
+      return String(dynVal == null ? '' : dynVal).trim();
     }
     if (/^card:/i.test(fieldKey)) {
       var cardDynKey = fieldKey.replace(/^card:/i, '');
@@ -2068,6 +2160,7 @@ window.app = (function() {
     if (fieldKey === 'task_name') return String(task.name || '').trim();
     if (fieldKey === 'task_status') return String(task.status || '').trim();
     if (fieldKey === 'task_assignee') return String(task.assignee || '').trim();
+    if (fieldKey === 'task_est_length') return formatMinutesLabel_(taskRawValue_(task, TASK_FIDS.estLength, ['estLength', 'est_length']));
     if (fieldKey === 'task_id') return String(task.id || card.taskId || '').trim();
     if (fieldKey === 'card_id') return String(card && card.id || '').trim();
     if (fieldKey === 'card_memo') return String(card && card.memo || '').trim();
@@ -4234,17 +4327,11 @@ window.app = (function() {
     },
 
     addCardDisplayFieldFromSettings: () => {
-      const inp = document.getElementById('inp-card-add-field');
+      const addSel = document.getElementById('sel-card-add-field');
       const targetSel = document.getElementById('sel-card-add-target');
-      if (!inp) return;
-      let raw = String(inp.value || '').trim();
-      if (!raw) return;
-      if (!/^task:|^card:/i.test(raw)) raw = 'task:' + raw;
-      const normalized = normalizeCardDisplayField_(raw, '');
-      if (!normalized || (!/^task:|^card:/i.test(normalized))) {
-        utils.saveStatus('error', 'Use task:field or card:field');
-        return;
-      }
+      if (!addSel) return;
+      const normalized = normalizeCardDisplayField_(addSel.value, '');
+      if (!normalized) return;
       if (!Array.isArray(state.customCardDisplayFields)) state.customCardDisplayFields = [];
       if (state.customCardDisplayFields.indexOf(normalized) < 0) state.customCardDisplayFields.push(normalized);
       const target = String(targetSel && targetSel.value || 'main').toLowerCase() === 'sub' ? 'sub' : 'main';
@@ -4254,7 +4341,6 @@ window.app = (function() {
       render.grid();
       ui.renderCardList();
       markViewDirty_();
-      inp.value = '';
       utils.saveStatus('saved', 'Field added');
     },
 
@@ -4722,10 +4808,16 @@ window.app = (function() {
         });
         div.appendChild(chkMulti);
         if (cameraMove) {
-          const camBadge = document.createElement('div');
-          camBadge.className = 'card-camera-badge';
-          camBadge.textContent = 'CAM';
-          div.appendChild(camBadge);
+          const moveBand = document.createElement('div');
+          moveBand.className = 'card-move-band';
+          moveBand.textContent = 'MOVE';
+          div.appendChild(moveBand);
+        }
+        if (conflictInfo && conflictInfo.overSlots > 0) {
+          const conflictBadge = document.createElement('div');
+          conflictBadge.className = 'card-conflict-badge';
+          conflictBadge.textContent = 'ASSET!';
+          div.appendChild(conflictBadge);
         }
 
         const xBtn = document.createElement('div'); xBtn.className='card-close'; xBtn.textContent='×';
@@ -4788,6 +4880,7 @@ window.app = (function() {
       const main = mainSel || document.getElementById('sel-card-main');
       const sub = subSel || document.getElementById('sel-card-sub');
       if (!main || !sub) return;
+      const addFieldSel = document.getElementById('sel-card-add-field');
       const options = buildCardDisplayOptions_();
       const ensureOption_ = (value) => {
         const v = String(value || '').trim();
@@ -4814,6 +4907,21 @@ window.app = (function() {
       renderTo(sub, state.cardDisplaySub, 'task_name');
       state.cardDisplayMain = normalizeCardDisplayField_(main.value, 'shot_code');
       state.cardDisplaySub = normalizeCardDisplayField_(sub.value, 'task_name');
+      if (addFieldSel) {
+        const addCandidates = options.filter((opt) => {
+          const v = String((opt && opt.value) || '');
+          return !!v;
+        });
+        const prev = String(addFieldSel.value || '');
+        addFieldSel.innerHTML = '';
+        addCandidates.forEach((opt) => {
+          const o = document.createElement('option');
+          o.value = opt.value;
+          o.textContent = opt.label;
+          addFieldSel.appendChild(o);
+        });
+        if (prev && addCandidates.some((opt) => String(opt.value) === prev)) addFieldSel.value = prev;
+      }
     },
     renderMenu: () => {
       const m = document.getElementById('lane-menu-list');
@@ -5341,7 +5449,8 @@ window.app = (function() {
         edit.refs.taskShootFps = makeTaskTextInput_(TASK_FIDS.shootingFps, 'Shooting fps', ['shootingFps', 'shooting_fps'], false, 'number');
         edit.refs.taskDifficulty = makeTaskTextInput_(TASK_FIDS.difficultyFactor, 'difficulty_factor', ['difficultyFactor', 'difficulty_factor'], false, 'number');
         edit.refs.taskShootFrames = makeTaskTextInput_(TASK_FIDS.shootingFrames, 'shooting_frames', ['shootingFrames', 'shooting_frames'], true);
-        edit.refs.taskEstLength = makeTaskTextInput_(TASK_FIDS.estLength, 'Est length', ['estLength', 'est_length'], true);
+        edit.refs.taskEstLength = makeTaskTextInput_(TASK_FIDS.estLength, 'Est length (mins)', ['estLength', 'est_length'], true);
+        if (edit.refs.taskEstLength) edit.refs.taskEstLength.value = formatMinutesLabel_(taskRawValue_(t, TASK_FIDS.estLength, ['estLength', 'est_length']));
         edit.refs.taskFinished = makeTaskTextInput_(TASK_FIDS.finished, 'finished', ['finished'], true);
         edit.refs.taskSpentLength = makeTaskTextInput_(TASK_FIDS.spentLength, 'Spent length', ['spentLength', 'spent_length'], true);
         edit.refs.taskOverrun = makeTaskTextInput_(TASK_FIDS.overrunRatio, 'Overrun Ratio', ['overrunRatio', 'overrun_ratio'], true);
@@ -5714,7 +5823,7 @@ window.app = (function() {
       if (edit.refs.taskShootFps) edit.refs.taskShootFps.value = String(taskRawValue_(t, TASK_FIDS.shootingFps, ['shootingFps', 'shooting_fps']) || '');
       if (edit.refs.taskDifficulty) edit.refs.taskDifficulty.value = String(taskRawValue_(t, TASK_FIDS.difficultyFactor, ['difficultyFactor', 'difficulty_factor']) || '');
       if (edit.refs.taskShootFrames) edit.refs.taskShootFrames.value = String(taskRawValue_(t, TASK_FIDS.shootingFrames, ['shootingFrames', 'shooting_frames']) || '');
-      if (edit.refs.taskEstLength) edit.refs.taskEstLength.value = String(taskRawValue_(t, TASK_FIDS.estLength, ['estLength', 'est_length']) || '');
+      if (edit.refs.taskEstLength) edit.refs.taskEstLength.value = formatMinutesLabel_(taskRawValue_(t, TASK_FIDS.estLength, ['estLength', 'est_length']));
       if (edit.refs.taskFinished) edit.refs.taskFinished.value = String(taskRawValue_(t, TASK_FIDS.finished, ['finished']) || '');
       if (edit.refs.taskSpentLength) edit.refs.taskSpentLength.value = String(taskRawValue_(t, TASK_FIDS.spentLength, ['spentLength', 'spent_length']) || '');
       if (edit.refs.taskOverrun) edit.refs.taskOverrun.value = String(taskRawValue_(t, TASK_FIDS.overrunRatio, ['overrunRatio', 'overrun_ratio']) || '');
@@ -6087,12 +6196,8 @@ window.app = (function() {
     safeAdd('sel-card-main', 'change', (e) => actions.setCardDisplayField('main', e.target.value));
     safeAdd('sel-card-sub', 'change', (e) => actions.setCardDisplayField('sub', e.target.value));
     safeAdd('btn-card-add-field', 'click', () => actions.addCardDisplayFieldFromSettings());
-    safeAdd('inp-card-add-field', 'keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        actions.addCardDisplayFieldFromSettings();
-      }
-    });
+    safeAdd('btn-settings-save-view', 'click', actions.saveViewSettings);
+    safeAdd('btn-settings-save-lane', 'click', actions.saveLaneSettings);
     safeAdd('inp-color-not-started', 'change', (e) => actions.setCardColorFromSettings('notStarted', e.target.value));
     safeAdd('inp-color-in-progress', 'change', (e) => actions.setCardColorFromSettings('inProgress', e.target.value));
     safeAdd('inp-color-review', 'change', (e) => actions.setCardColorFromSettings('review', e.target.value));
