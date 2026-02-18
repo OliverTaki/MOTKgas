@@ -151,6 +151,20 @@
     </div>
 
     <div class="card">
+      <h2>Task Est Recalculate</h2>
+      <div class="row">
+        <label class="row" style="gap:6px;">
+          <input id="taskRecalcIncludeCompleted" type="checkbox" checked />
+          <span>Include completed tasks</span>
+        </label>
+        <button id="btnTaskRecalc" class="primary">Recalculate Est length (all)</button>
+      </div>
+      <div class="muted" style="margin-top:6px;">
+        Applies/refreshes fi_0074 sheet formulas for existing Tasks using current project_meta settings.
+      </div>
+    </div>
+
+    <div class="card">
       <h2>Drive Folders (Diff / Fix)</h2>
       <div class="row">
         <select id="driveEntity">
@@ -656,6 +670,27 @@
       log(`ERROR hydrate: ${e}`);
     } finally {
       $('btnHydrate').disabled = false;
+    }
+  });
+
+  $('btnTaskRecalc').addEventListener('click', async () => {
+    const includeCompleted = !!$('taskRecalcIncludeCompleted').checked;
+    $('btnTaskRecalc').disabled = true;
+    try {
+      setStatus('task recalculate running...');
+      setError('');
+      const out = await callGas('SA_settings_recalculateTaskEst', [includeCompleted]);
+      if (!out || out.ok !== true) {
+        throw new Error((out && out.error && out.error.message) ? out.error.message : 'task recalculate failed');
+      }
+      setStatus('task recalculate done');
+      log(`task recalculate: ${JSON.stringify(out)}`);
+    } catch (e) {
+      setStatus('error');
+      setError(String(e));
+      log(`ERROR task recalculate: ${e}`);
+    } finally {
+      $('btnTaskRecalc').disabled = false;
     }
   });
 

@@ -142,6 +142,20 @@ function SA_settings_driveFixMissing(entity, limit) {
   return { ok: true, entity: e, result: out };
 }
 
+function SA_settings_recalculateTaskEst(includeCompleted) {
+  _settings_requireAccess_();
+  if (typeof sv_task_recalculate_v1 !== 'function') throw new Error('sv_task_recalculate_v1() not found');
+  var req = {
+    includeCompleted: (includeCompleted === undefined) ? true : !!includeCompleted
+  };
+  var raw = sv_task_recalculate_v1(JSON.stringify(req));
+  try {
+    var parsed = JSON.parse(raw || '{}');
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch (_) {}
+  return { ok: false, error: { message: 'recalculate response parse failed', raw: String(raw || '') } };
+}
+
 function SA_settings_canAccess_() {
   var ss = _settings_getHostSpreadsheet_();
   var info = _settings_getAccessInfo_(ss);

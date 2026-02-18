@@ -3944,6 +3944,51 @@ function _dc_minutesBetweenDates_(startValue, endValue) {
   return Math.max(0, Math.round((e.getTime() - s.getTime()) / 60000));
 }
 
+function _dc_parseSpentMinutes_(value) {
+  if (value == null || value === '') return NaN;
+  if (typeof value === 'number' && isFinite(value)) return Number(value);
+  if (typeof value === 'object') {
+    var objNum = Number(value.spentMinutes);
+    if (isFinite(objNum)) return objNum;
+  }
+  var raw = String(value || '').trim();
+  if (!raw) return NaN;
+  if (raw.charAt(0) === '{' && raw.charAt(raw.length - 1) === '}') {
+    try {
+      var parsed = JSON.parse(raw);
+      var jsonNum = Number(parsed && parsed.spentMinutes);
+      if (isFinite(jsonNum)) return jsonNum;
+    } catch (_) {}
+  }
+  return _dc_toNumber_(raw, NaN);
+}
+
+function _dc_extractFinishedDateOnly_(value, tz) {
+  if (value == null || value === '') return '';
+  if (typeof value === 'object') {
+    var objDate = _dc_normalizeDateOnly_(value.completedAt || value.finishedDate || value.date, tz);
+    if (objDate) return objDate;
+  }
+  var raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.charAt(0) === '{' && raw.charAt(raw.length - 1) === '}') {
+    try {
+      var parsed = JSON.parse(raw);
+      var jsonDate = _dc_normalizeDateOnly_(parsed && (parsed.completedAt || parsed.finishedDate || parsed.date), tz);
+      if (jsonDate) return jsonDate;
+    } catch (_) {}
+  }
+  return _dc_normalizeDateOnly_(raw, tz);
+}
+
+function _dc_daysBetweenInclusive_(startDateOnly, endDateOnly) {
+  var s = new Date(String(startDateOnly || '') + 'T00:00:00');
+  var e = new Date(String(endDateOnly || '') + 'T00:00:00');
+  if (isNaN(s.getTime()) || isNaN(e.getTime())) return NaN;
+  if (e.getTime() < s.getTime()) return 1;
+  return Math.max(1, Math.floor((e.getTime() - s.getTime()) / 86400000) + 1);
+}
+
 function _dc_getActiveSchedConfig_() {
   var out = { slotMin: 30, workHours: 8 };
   try {
@@ -4011,6 +4056,237 @@ function _dc_pickTierValue_(count, oneVal, twoVal, threeVal) {
   return 0;
 }
 
+function _dc_colA1_(col1) {
+  var n = Math.floor(Number(col1) || 0);
+  if (n < 1) return '';
+  var s = '';
+  while (n > 0) {
+    var rem = (n - 1) % 26;
+    s = String.fromCharCode(65 + rem) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+function _dc_numLiteral_(v, fallback) {
+  var n = Number(v);
+  if (!isFinite(n)) n = Number(fallback);
+  if (!isFinite(n)) n = 0;
+  return String(n);
+}
+
+function _dc_formulaEsc_(s) {
+  return String(s == null ? '' : s).replace(/"/g, '""');
+}
+
+function _dc_metaNumExpr_(keys, fallback) {
+  var arr = Array.isArray(keys) ? keys : [keys];
+  var out = _dc_numLiteral_(fallback, 0);
+  for (var i = arr.length - 1; i >= 0; i--) {
+    var key = _dc_formulaEsc_(arr[i]);
+    if (!key) continue;
+    var one = 'IFERROR(VALUE(IFERROR(VLOOKUP("' + key + '",project_meta!A:B,2,FALSE),IFERROR(VLOOKUP("' + key + '",ProjectMeta!A:B,2,FALSE),""))),"")';
+    out = 'IF(LEN(' + one + '),' + one + ',' + out + ')';
+  }
+  return out;
+}
+
+function _dc_getEstRuleRhs_(meta) {
+  var raw = String(_dc_metaValue_(meta, ['est_rule.calc.base', 'est_rule_calc_base'], '') || '').trim();
+  if (!raw) raw = 'est_minutes = shooting_frames * animation_level * difficulty_factor';
+  var eq = raw.indexOf('=');
+  var rhs = (eq >= 0) ? raw.slice(eq + 1) : raw;
+  rhs = String(rhs || '').replace(/;+/g, '').trim();
+  if (!rhs) rhs = 'shooting_frames * animation_level * difficulty_factor';
+  return rhs;
+}
+
+function _dc_isValidEstRuleRhs_(rhs) {
+  var s = String(rhs || '').trim();
+  if (!s) return false;
+  if (!/^[A-Za-z0-9_+\-*/().\s]+$/.test(s)) return false;
+  var allowed = {
+    shooting_frames: true,
+    animation_level: true,
+    difficulty_factor: true,
+    est_minutes: true
+  };
+  var ids = s.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
+  for (var i = 0; i < ids.length; i++) {
+    var id = String(ids[i] || '').toLowerCase();
+    if (!allowed[id]) return false;
+  }
+  return true;
+}
+
+function _dc_compileEstRuleExpr_(meta, replacements) {
+  var fallback = 'shooting_frames * animation_level * difficulty_factor';
+  var rhs = _dc_getEstRuleRhs_(meta);
+  if (!_dc_isValidEstRuleRhs_(rhs)) rhs = fallback;
+  var expr = rhs.replace(/[A-Za-z_][A-Za-z0-9_]*/g, function (idRaw) {
+    var id = String(idRaw || '').toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(replacements || {}, id)) {
+      return '(' + String(replacements[id]) + ')';
+    }
+    return '__INVALID_VAR__';
+  });
+  if (expr.indexOf('__INVALID_VAR__') >= 0) {
+    expr = fallback.replace(/[A-Za-z_][A-Za-z0-9_]*/g, function (idRaw2) {
+      var id2 = String(idRaw2 || '').toLowerCase();
+      if (Object.prototype.hasOwnProperty.call(replacements || {}, id2)) {
+        return '(' + String(replacements[id2]) + ')';
+      }
+      return '0';
+    });
+  }
+  return expr;
+}
+
+function _dc_evalEstRuleMinutes_(meta, vars) {
+  var v = vars || {};
+  var numMap = {
+    shooting_frames: _dc_numLiteral_(v.shooting_frames, 0),
+    animation_level: _dc_numLiteral_(v.animation_level, 1),
+    difficulty_factor: _dc_numLiteral_(v.difficulty_factor, 1),
+    est_minutes: _dc_numLiteral_(v.est_minutes, 0)
+  };
+  var expr = _dc_compileEstRuleExpr_(meta, numMap);
+  if (!/^[0-9eE+\-*/().\s]+$/.test(expr)) {
+    return Math.max(1, Math.round(Number(numMap.shooting_frames) * Number(numMap.animation_level) * Number(numMap.difficulty_factor)));
+  }
+  try {
+    var n = Number(Function('return (' + expr + ');')());
+    if (!isFinite(n)) throw new Error('invalid_eval_result');
+    return Math.max(1, Math.round(n));
+  } catch (_) {
+    return Math.max(1, Math.round(Number(numMap.shooting_frames) * Number(numMap.animation_level) * Number(numMap.difficulty_factor)));
+  }
+}
+
+function _dc_buildTaskEstFormula_(rowIndex1, hdr, f, meta) {
+  var row = Math.max(1, Math.floor(Number(rowIndex1) || 0));
+  var header = Array.isArray(hdr) ? hdr : [];
+  var fm = (f && typeof f === 'object') ? f : _dc_taskCalcFids_();
+  if (!row || !header.length || !fm.shootFrames || !fm.estLength) return '';
+
+  var idxShoot = _hdrIndex_(header, fm.shootFrames);
+  var idxTravel = _hdrIndex_(header, fm.travelChars);
+  var idxNoTravel = _hdrIndex_(header, fm.noTravelChars);
+  var idxStill = _hdrIndex_(header, fm.stillShot);
+  var idxCamera = _hdrIndex_(header, fm.cameraMove);
+  var idxDifficulty = _hdrIndex_(header, fm.difficulty);
+  if (idxShoot < 0 || idxTravel < 0 || idxNoTravel < 0 || idxStill < 0 || idxCamera < 0 || idxDifficulty < 0) return '';
+
+  var ref_ = function (idx0) { return _dc_colA1_(idx0 + 1) + row; };
+  var refShoot = ref_(idxShoot);
+  var refTravel = ref_(idxTravel);
+  var refNoTravel = ref_(idxNoTravel);
+  var refStill = ref_(idxStill);
+  var refCamera = ref_(idxCamera);
+  var refDiff = ref_(idxDifficulty);
+  if (!refShoot || !refTravel || !refNoTravel || !refStill || !refCamera || !refDiff) return '';
+
+  var travel1 = _dc_metaNumExpr_(['movie.travel.chars_1', 'movie_travel_chars_1'], 1);
+  var travel2 = _dc_metaNumExpr_(['movie.travel.chars_2', 'movie_travel_chars_2'], 1.5);
+  var travel3 = _dc_metaNumExpr_(['movie.travel.chars_3plus', 'movie_travel_chars_3plus'], 3);
+  var noTravel1 = _dc_metaNumExpr_(['movie.no_travel.chars_1', 'movie_no_travel_chars_1'], 0.5);
+  var noTravel2 = _dc_metaNumExpr_(['movie.no_travel.chars_2', 'movie_no_travel_chars_2'], 0.8);
+  var noTravel3 = _dc_metaNumExpr_(['movie.no_travel.chars_3plus', 'movie_no_travel_chars_3plus'], 1);
+  var still1 = _dc_metaNumExpr_(['still.chars_1', 'still_chars_1'], 30);
+  var still2 = _dc_metaNumExpr_(['still.chars_2plus', 'still_chars_2plus'], 45);
+  var cameraBonus = _dc_metaNumExpr_(['movie.camera_movement_bonus', 'camera_movement_bonus'], 1);
+
+  var travelExpr = 'IF(IFERROR(VALUE(' + refTravel + '),0)>=3,' + travel3 + ',IF(IFERROR(VALUE(' + refTravel + '),0)=2,' + travel2 + ',IF(IFERROR(VALUE(' + refTravel + '),0)=1,' + travel1 + ',0)))';
+  var noTravelExpr = 'IF(IFERROR(VALUE(' + refNoTravel + '),0)>=3,' + noTravel3 + ',IF(IFERROR(VALUE(' + refNoTravel + '),0)=2,' + noTravel2 + ',IF(IFERROR(VALUE(' + refNoTravel + '),0)=1,' + noTravel1 + ',0)))';
+  var stillExpr = 'IF(IFERROR(VALUE(' + refStill + '),0)>=2,' + still2 + ',IF(IFERROR(VALUE(' + refStill + '),0)>=1,' + still1 + ',0))';
+  var cameraExpr = 'IF(OR(LOWER(TO_TEXT(' + refCamera + '))="true",' + refCamera + '=TRUE,' + refCamera + '=1,LOWER(TO_TEXT(' + refCamera + '))="yes",LOWER(TO_TEXT(' + refCamera + '))="y",LOWER(TO_TEXT(' + refCamera + '))="on"),' + cameraBonus + ',0)';
+  var animExpr = '(' + travelExpr + '+' + noTravelExpr + '+' + stillExpr + '+' + cameraExpr + ')';
+  var diffExpr = 'IF(IFERROR(VALUE(' + refDiff + '),1)<=0,1,IFERROR(VALUE(' + refDiff + '),1))';
+  var framesExpr = 'MAX(0,IFERROR(VALUE(' + refShoot + '),0))';
+  var safeAnimExpr = 'IF(' + animExpr + '<=0,1,' + animExpr + ')';
+  var metaObj = (meta && typeof meta === 'object') ? meta : _dc_getProjectMeta_();
+  var calcExpr = _dc_compileEstRuleExpr_(metaObj, {
+    shooting_frames: framesExpr,
+    animation_level: safeAnimExpr,
+    difficulty_factor: diffExpr,
+    est_minutes: '0'
+  });
+  return '=MAX(1,ROUND(' + calcExpr + ',0))';
+}
+
+function _dc_applyTaskEstFormulaByTaskId_(taskId) {
+  var id = String(taskId || '').trim();
+  if (!id) return { ok: false, error: 'MISSING_TASK_ID' };
+  var f = _dc_taskCalcFids_();
+  if (!f.estLength) return { ok: false, error: 'MISSING_EST_FID' };
+  var sh = _shByName_(_entityToSheet_('task'));
+  if (!sh) return { ok: false, error: 'TASK_SHEET_NOT_FOUND' };
+  var values = sh.getDataRange().getValues();
+  if (!values || values.length < 3) return { ok: false, error: 'TASK_SHEET_EMPTY' };
+  var hdr = values[0] || [];
+  var idFid = schemaGetIdFid('task');
+  var idCol = schemaGetColIndexByFid(hdr, idFid);
+  var estCol = _hdrIndex_(hdr, f.estLength);
+  if (idCol < 0 || estCol < 0) return { ok: false, error: 'TASK_HEADER_MISSING_REQUIRED_COLUMN' };
+
+  var rowIndex1 = -1;
+  for (var i = 2; i < values.length; i++) {
+    if (String(values[i][idCol] || '').trim() === id) { rowIndex1 = i + 1; break; }
+  }
+  if (rowIndex1 < 3) return { ok: false, error: 'TASK_ROW_NOT_FOUND' };
+
+  var formula = _dc_buildTaskEstFormula_(rowIndex1, hdr, f, _dc_getProjectMeta_());
+  if (!formula) return { ok: false, error: 'TASK_EST_FORMULA_BUILD_FAILED' };
+  var cell = sh.getRange(rowIndex1, estCol + 1);
+  var current = String(cell.getFormula() || '').trim();
+  if (current === formula) return { ok: true, updated: false, rowIndex: rowIndex1, colIndex: estCol + 1 };
+  cell.setFormula(formula);
+  return { ok: true, updated: true, rowIndex: rowIndex1, colIndex: estCol + 1 };
+}
+
+function _dc_backfillTaskEstFormulas_() {
+  var f = _dc_taskCalcFids_();
+  if (!f.estLength) return { ok: false, reason: 'MISSING_EST_FID' };
+  var sh = _shByName_(_entityToSheet_('task'));
+  if (!sh) return { ok: false, reason: 'TASK_SHEET_NOT_FOUND' };
+  var lastRow = sh.getLastRow();
+  if (lastRow < 3) return { ok: true, scanned: 0, updated: 0 };
+  var lastCol = sh.getLastColumn();
+  if (lastCol < 1) return { ok: true, scanned: 0, updated: 0 };
+
+  var hdr = sh.getRange(1, 1, 1, lastCol).getValues()[0] || [];
+  var idFid = schemaGetIdFid('task');
+  var idCol = schemaGetColIndexByFid(hdr, idFid);
+  var estCol = _hdrIndex_(hdr, f.estLength);
+  if (idCol < 0 || estCol < 0) return { ok: false, reason: 'TASK_HEADER_MISSING_REQUIRED_COLUMN' };
+
+  var rowsCount = lastRow - 2;
+  var idVals = sh.getRange(3, idCol + 1, rowsCount, 1).getDisplayValues();
+  var estRange = sh.getRange(3, estCol + 1, rowsCount, 1);
+  var currentFormulas = estRange.getFormulas();
+  var outFormulas = [];
+  var updated = 0;
+  var scanned = 0;
+
+  for (var i = 0; i < rowsCount; i++) {
+    var rowIndex1 = i + 3;
+    var taskId = String((idVals[i] && idVals[i][0]) || '').trim();
+    var current = String((currentFormulas[i] && currentFormulas[i][0]) || '').trim();
+    var next = current;
+    if (taskId) {
+      scanned++;
+      var desired = _dc_buildTaskEstFormula_(rowIndex1, hdr, f, null);
+      if (desired && current !== desired) {
+        next = desired;
+        updated++;
+      }
+    }
+    outFormulas.push([next]);
+  }
+  if (updated > 0) estRange.setFormulas(outFormulas);
+  return { ok: true, scanned: scanned, updated: updated };
+}
+
 function _dc_calculateTaskDerivedPatch_(taskId, beforeRecord, cleanPatch) {
   var patchOut = {};
   var f = _dc_taskCalcFids_();
@@ -4076,7 +4352,12 @@ function _dc_calculateTaskDerivedPatch_(taskId, beforeRecord, cleanPatch) {
   var difficultyRaw = f.difficulty ? merged[f.difficulty] : '';
   var difficulty = _dc_toNumber_(difficultyRaw, 1);
   if (!isFinite(difficulty) || difficulty <= 0) difficulty = 1;
-  var estMinutes = Math.max(1, Math.round(shootingFrames * animationLevel * difficulty));
+  var estMinutes = _dc_evalEstRuleMinutes_(meta, {
+    shooting_frames: shootingFrames,
+    animation_level: animationLevel,
+    difficulty_factor: difficulty,
+    est_minutes: 0
+  });
   patchOut[f.estLength] = String(estMinutes);
 
   var statusBefore = String(srcBefore[f.status] || '').trim().toLowerCase();
@@ -4086,34 +4367,24 @@ function _dc_calculateTaskDerivedPatch_(taskId, beforeRecord, cleanPatch) {
   var finishedCurrent = String(merged[f.finished] || '').trim();
 
   if (statusAfter === 'completed') {
-    var shouldStamp = (statusBefore !== 'completed') || !spentCurrent || !finishedCurrent;
-    if (shouldStamp) {
-      var startDateText = _dc_normalizeDateOnly_(merged[f.startDate], tz);
-      var spentMinutes = NaN;
-      if (startDateText) {
-        spentMinutes = _dc_minutesBetweenDates_(startDateText + 'T00:00:00', nowIsoTz);
-      }
-      if (!isFinite(spentMinutes) || spentMinutes <= 0) spentMinutes = estMinutes;
-      var estDays = Math.max(1, Math.ceil(estMinutes / dayMinutes));
-      var spentDays = Math.max(1, Math.ceil(spentMinutes / dayMinutes));
-      var overrunPct = Math.round((spentDays / estDays) * 1000) / 10;
-      patchOut[f.finished] = _dc_safeJsonStringify_({
-        completedAt: nowIsoTz,
-        timezone: tz
-      });
-      patchOut[f.spentLength] = _dc_safeJsonStringify_({
-        completedAt: nowIsoTz,
-        spentMinutes: spentMinutes,
-        spentDays: spentDays,
-        dayMinutes: dayMinutes,
-        timezone: tz
-      });
-      patchOut[f.overrunRatio] = _dc_safeJsonStringify_({
-        ratioPercent: overrunPct,
-        estDays: estDays,
-        spentDays: spentDays
-      });
+    var startDateText = _dc_normalizeDateOnly_(merged[f.startDate], tz);
+    var finishedDateText = _dc_extractFinishedDateOnly_(merged[f.finished], tz);
+    if (!finishedDateText) finishedDateText = _dc_normalizeDateOnly_(nowIsoTz, tz);
+
+    var spentDays = _dc_daysBetweenInclusive_(startDateText, finishedDateText);
+    var spentMinutes = spentDays * dayMinutes;
+    if (!isFinite(spentMinutes) || spentMinutes <= 0) {
+      spentMinutes = _dc_parseSpentMinutes_(spentCurrent);
     }
+    if (!isFinite(spentMinutes) || spentMinutes <= 0) spentMinutes = estMinutes;
+    spentMinutes = Math.max(1, Math.round(spentMinutes));
+
+    var estDays = Math.max(1, Math.ceil(estMinutes / dayMinutes));
+    spentDays = Math.max(1, Math.ceil(spentMinutes / dayMinutes));
+    var overrunPct = Math.round((spentDays / estDays) * 1000) / 10;
+    patchOut[f.finished] = String(finishedDateText || '');
+    patchOut[f.spentLength] = String(spentMinutes);
+    patchOut[f.overrunRatio] = String(overrunPct);
   } else if (statusBefore === 'completed') {
     patchOut[f.finished] = '';
     patchOut[f.spentLength] = '';
@@ -4223,6 +4494,25 @@ function sv_setRecord_v2(entity, id, patch, options) {
     var beforePatch = {};
     beforeRecord = sv_getRecord(entity, id);
     var entNorm = _schemaNormalizeEntity_(entity);
+    var schedActiveFid = '';
+    if (entNorm === 'sched') {
+      try { schedActiveFid = String(schemaGetFidByFieldName('sched', 'active') || '').trim(); } catch (_) { schedActiveFid = ''; }
+      var touchedSchedActive = Object.keys(cleanPatch).some(function (k) {
+        var fid = String(k || '').trim();
+        if (!fid) return false;
+        if (schedActiveFid && fid === schedActiveFid) return true;
+        return _schemaNormalizeFieldName_(fid) === 'active';
+      });
+      if (touchedSchedActive) {
+        return {
+          ok: false,
+          error: 'Field not editable: active (system-managed by scheduler switch)',
+          errorCode: 'SCHED_ACTIVE_SYSTEM_MANAGED',
+          entity: entNorm,
+          id: id
+        };
+      }
+    }
     var allowNonEditableFromDerived = {};
     if (entNorm === 'task') {
       try {
@@ -4263,7 +4553,15 @@ function sv_setRecord_v2(entity, id, patch, options) {
       }
     });
 
+    var taskEstFormulaDiag = null;
     if (!Object.keys(changedPatch).length) {
+      if (entNorm === 'task') {
+        try {
+          taskEstFormulaDiag = _dc_applyTaskEstFormulaByTaskId_(id);
+        } catch (taskEstNoopErr) {
+          taskEstFormulaDiag = { ok: false, error: String(taskEstNoopErr && (taskEstNoopErr.message || taskEstNoopErr) || 'task_est_formula_noop_failed') };
+        }
+      }
       undoLogDiag.skipped = true;
       return {
         ok: true,
@@ -4271,7 +4569,8 @@ function sv_setRecord_v2(entity, id, patch, options) {
         id: String(id || ''),
         noop: true,
         note: 'NOOP_NO_DIFF',
-        undoLog: undoLogDiag
+        undoLog: undoLogDiag,
+        taskEstFormula: taskEstFormulaDiag
       };
     }
 
@@ -4287,6 +4586,13 @@ function sv_setRecord_v2(entity, id, patch, options) {
       if (!res.errorCode && res.ok === false && res.error) res.errorCode = "INLINE_EDIT_FAILED";
     }
 
+    if (res && res.ok && entNorm === 'task') {
+      try {
+        taskEstFormulaDiag = _dc_applyTaskEstFormulaByTaskId_(id);
+      } catch (taskEstErr) {
+        taskEstFormulaDiag = { ok: false, error: String(taskEstErr && (taskEstErr.message || taskEstErr) || 'task_est_formula_apply_failed') };
+      }
+    }
     if (!skipUndoLog && res && res.ok) {
       undoLogDiag.attempted = true;
       try {
@@ -4324,7 +4630,10 @@ function sv_setRecord_v2(entity, id, patch, options) {
         console.warn('[sv_setRecord_v2] task->shot status sync skipped: ' + String(syncErr && (syncErr.message || syncErr) || 'unknown'));
       }
     }
-    if (res && typeof res === 'object') res.undoLog = undoLogDiag;
+    if (res && typeof res === 'object') {
+      res.undoLog = undoLogDiag;
+      if (entNorm === 'task') res.taskEstFormula = taskEstFormulaDiag;
+    }
 
     return res;
   } catch (e) {
@@ -4668,6 +4977,14 @@ function sv_schedule_fetchData_v1(opts) {
   console.log('[Server] sv_schedule_fetchData_v1 (V5 Tabs) called');
   var log = [];
   try {
+    try {
+      var estBackfill = _dc_backfillTaskEstFormulas_();
+      if (estBackfill && estBackfill.ok && estBackfill.updated > 0) {
+        log.push('TaskEstFormulaBackfill:' + String(estBackfill.updated));
+      }
+    } catch (estBackfillErr) {
+      log.push('TaskEstFormulaBackfillErr:' + String(estBackfillErr && (estBackfillErr.message || estBackfillErr) || 'unknown'));
+    }
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     if (!ss) throw new Error('No Active Spreadsheet found. Script must be container-bound.');
 
@@ -5400,6 +5717,10 @@ function sv_scheduler_load_v2() {
         projectMeta = _sv_readProjectMeta_(metaSheet) || {};
       }
     } catch (_) {}
+    var projectTimezoneRaw = pickMetaValue_(projectMeta, ['Timezone', 'timezone']);
+    var projectTimezoneResolved = '';
+    try { projectTimezoneResolved = _dc_resolveTimezone_(projectMeta); } catch (_) { projectTimezoneResolved = ''; }
+    var timezoneConfigured = !!String(projectTimezoneRaw || '').trim();
     var shotLinkFid = pickMetaValue_(projectMeta, [
       'task.shotlink_fieldid',
       'task.shotlink_fid',
@@ -5572,6 +5893,9 @@ function sv_scheduler_load_v2() {
       assetCapacityById: assetCapacityById,
       assetNameById: assetNameById,
       assetCapacityDefault: overlapCapacityDefault,
+      projectTimezone: String(projectTimezoneRaw || ''),
+      projectTimezoneResolved: String(projectTimezoneResolved || ''),
+      timezoneConfigured: !!timezoneConfigured,
       scriptUrl: ScriptApp.getService().getUrl(),
       diag: { log: log.join(' | ') }
     };
@@ -5740,6 +6064,31 @@ function sv_scheduler_save_config_v2(reqPayload) {
   }
 }
 
+function _sv_scheduler_applySheetVisibility_(ss, schedData, idColIdx, activeSchedId) {
+  try {
+    if (!ss || !Array.isArray(schedData) || idColIdx < 0) return { ok: false, hidden: 0, shown: 0, reason: 'invalid_args' };
+    var targetId = String(activeSchedId || '').trim();
+    if (!targetId) return { ok: false, hidden: 0, shown: 0, reason: 'missing_active_id' };
+    var hidden = 0;
+    var shown = 0;
+    for (var i = 2; i < schedData.length; i++) {
+      var sid = String((schedData[i] && schedData[i][idColIdx]) || '').trim();
+      if (!sid) continue;
+      var sh = ss.getSheetByName(sid);
+      if (!sh) continue;
+      if (sid === targetId) {
+        try { sh.showSheet(); shown++; } catch (_) {}
+      } else {
+        // Keep scheduler card sheets hidden except active one.
+        try { sh.hideSheet(); hidden++; } catch (_) {}
+      }
+    }
+    return { ok: true, hidden: hidden, shown: shown, active: targetId };
+  } catch (e) {
+    return { ok: false, hidden: 0, shown: 0, reason: String(e && e.message ? e.message : e) };
+  }
+}
+
 function sv_scheduler_switch_active(targetId) {
   try {
     var ss = SpreadsheetApp.getActive();
@@ -5753,11 +6102,15 @@ function sv_scheduler_switch_active(targetId) {
     var cId = schemaGetColIndexByFid(sysHeaders, schemaGetFidByFieldName('sched', 'schedId'));
     if (cId < 0) cId = _getColIdx_v2(headers, ['schedId', 'id']);
     if (cAct < 0 || cId < 0) return JSON.stringify({ ok: false, error: 'Missing columns' });
+    var switched = false;
     for (var i = 2; i < data.length; i++) {
       var isTarget = String(data[i][cId]) === String(targetId);
       sh.getRange(i + 1, cAct + 1).setValue(isTarget);
+      if (isTarget) switched = true;
     }
-    return JSON.stringify({ ok: true });
+    if (!switched) return JSON.stringify({ ok: false, error: 'schedId not found' });
+    var visibility = _sv_scheduler_applySheetVisibility_(ss, data, cId, targetId);
+    return JSON.stringify({ ok: true, visibility: visibility });
   } catch (e) {
     return JSON.stringify({ ok: false, error: e.toString() });
   }
@@ -6799,45 +7152,33 @@ function sv_scheduler_prepare_autocreate_v1(reqPayload) {
     var fidTaskId = '';
     var fidTaskAssignee = '';
     var fidTaskEst = '';
+    var fidTaskShot = '';
     var fidTaskOrder = '';
     try { fidTaskId = schemaGetIdFid('task'); } catch (_) {}
     try { fidTaskAssignee = schemaGetFidByFieldName('task', 'Assigned member'); } catch (_) {}
     try { fidTaskEst = schemaGetFidByFieldName('task', 'Est length'); } catch (_) {}
+    try { fidTaskShot = schemaGetFidByFieldName('task', 'Shot Link'); } catch (_) {}
     try { fidTaskOrder = schemaGetFidByFieldName('task', 'task Order'); } catch (_) {}
     var idxTaskId = _resolveColumnIndex_(taskMap, fidTaskId);
     var idxTaskAssignee = _resolveColumnIndex_(taskMap, fidTaskAssignee);
     var idxTaskEst = _resolveColumnIndex_(taskMap, fidTaskEst);
+    var idxTaskShot = _resolveColumnIndex_(taskMap, fidTaskShot);
     var idxTaskOrder = _resolveColumnIndex_(taskMap, fidTaskOrder);
     if (idxTaskAssignee < 0) idxTaskAssignee = _resolveColumnIndex_(taskMap, 'assigned member');
     if (idxTaskEst < 0) idxTaskEst = _resolveColumnIndex_(taskMap, 'est length');
+    if (idxTaskShot < 0) idxTaskShot = _resolveColumnIndex_(taskMap, 'shot link');
     if (idxTaskOrder < 0) idxTaskOrder = _resolveColumnIndex_(taskMap, 'task order');
     if (idxTaskId < 0) return JSON.stringify({ ok: false, error: { message: 'Tasks sheet missing task id column' } });
 
-    for (var tr = 0; tr < taskRows.length; tr++) {
-      var trow = taskRows[tr] || [];
-      var tid = String(trow[idxTaskId] || '').trim();
-      if (!tid) continue;
-      if (Object.keys(reqTaskIds).length && !reqTaskIds[tid]) continue;
-      try {
-        sv_setRecord_v2('task', tid, {}, { __skipUndoLog: true, __skipLock: true, actor: 'scheduler_auto_create' });
-        recalcCount++;
-      } catch (_) {
-        recalcFailed++;
+    var taskIdSortKey_ = function (taskId) {
+      var s = String(taskId || '').trim();
+      var m = s.match(/_(\d+)$/);
+      if (m) {
+        var n = Number(m[1]);
+        if (isFinite(n)) return n;
       }
-    }
-
-    tasksData = _readEntitySheet_('Tasks');
-    taskIdsHeader = tasksData.ids || [];
-    taskLabels = tasksData.header || [];
-    taskRows = tasksData.rows || [];
-    taskMap = _buildColumnIndexMap_(taskIdsHeader, taskLabels);
-    idxTaskId = _resolveColumnIndex_(taskMap, fidTaskId);
-    idxTaskAssignee = _resolveColumnIndex_(taskMap, fidTaskAssignee);
-    idxTaskEst = _resolveColumnIndex_(taskMap, fidTaskEst);
-    idxTaskOrder = _resolveColumnIndex_(taskMap, fidTaskOrder);
-    if (idxTaskAssignee < 0) idxTaskAssignee = _resolveColumnIndex_(taskMap, 'assigned member');
-    if (idxTaskEst < 0) idxTaskEst = _resolveColumnIndex_(taskMap, 'est length');
-    if (idxTaskOrder < 0) idxTaskOrder = _resolveColumnIndex_(taskMap, 'task order');
+      return Number.MAX_SAFE_INTEGER;
+    };
 
     var candidates = [];
     for (var tx = 0; tx < taskRows.length; tx++) {
@@ -6860,7 +7201,9 @@ function sv_scheduler_prepare_autocreate_v1(reqPayload) {
       });
     }
     candidates.sort(function (a, b) {
-      if (a.order !== b.order) return a.order - b.order;
+      var ka = taskIdSortKey_(a.taskId);
+      var kb = taskIdSortKey_(b.taskId);
+      if (ka !== kb) return ka - kb;
       return String(a.taskId || '').localeCompare(String(b.taskId || ''));
     });
 
@@ -6892,22 +7235,6 @@ function sv_scheduler_prepare_autocreate_v1(reqPayload) {
         order: Number(c.order) || Number.MAX_SAFE_INTEGER
       });
     }
-
-    prepared.sort(function (a, b) {
-      var sa = Number(a.start || 0);
-      var sb = Number(b.start || 0);
-      if (sa !== sb) return sa - sb;
-      var ea = Number(a.end || 0);
-      var eb = Number(b.end || 0);
-      if (ea !== eb) return ea - eb;
-      var la = String(a.lane || '');
-      var lb = String(b.lane || '');
-      if (la !== lb) return la.localeCompare(lb);
-      var oa = Number(a.order || Number.MAX_SAFE_INTEGER);
-      var ob = Number(b.order || Number.MAX_SAFE_INTEGER);
-      if (oa !== ob) return oa - ob;
-      return String(a.taskId || '').localeCompare(String(b.taskId || ''));
-    });
 
     var rowsToAppend = [];
     var createdCards = [];
@@ -6986,6 +7313,9 @@ function sv_task_recalculate_v1(reqPayload) {
     if (idxStatus < 0) idxStatus = _resolveColumnIndex_(map, 'status');
     if (idxId < 0) return JSON.stringify({ ok: false, error: { message: 'Tasks sheet missing task id column' } });
 
+    var formulaBackfill = { ok: false, reason: 'SKIPPED' };
+    try { formulaBackfill = _dc_backfillTaskEstFormulas_(); } catch (_) {}
+
     var processed = 0;
     var updated = 0;
     var skipped = 0;
@@ -7013,6 +7343,7 @@ function sv_task_recalculate_v1(reqPayload) {
     }
     return JSON.stringify({
       ok: true,
+      formulaBackfill: formulaBackfill,
       processed: processed,
       updated: updated,
       skipped: skipped,

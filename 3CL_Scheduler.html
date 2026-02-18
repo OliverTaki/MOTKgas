@@ -20,6 +20,7 @@
       --card-status-approved: #0f766e;
       --card-status-completed: #166534;
       --card-camera-accent: #7dd3fc;
+      --card-taskless-bg: #334155;
     }
     body { background: var(--bg-app); color: var(--text-main); font-family: sans-serif; height: 100vh; overflow: hidden; margin:0; user-select:none; }
     #app-root { display: flex; flex-direction: column; height: 100%; }
@@ -123,23 +124,25 @@
     .card.status-review { background: var(--card-status-review); }
     .card.status-approved { background: var(--card-status-approved); }
     .card.status-completed { background: var(--card-status-completed); }
+    .card.taskless { background: var(--card-taskless-bg); }
     .card.camera-move { box-shadow: inset 0 0 0 2px var(--card-camera-accent), 0 1px 3px rgba(0,0,0,0.5); }
     .card-move-band {
       position: absolute;
       top: 1px;
-      left: 24px;
-      right: 18px;
+      left: 46px;
+      right: 22px;
       height: 12px;
-      font-size: 9px;
+      font-size: 8px;
       font-weight: 700;
       line-height: 12px;
       text-align: center;
       letter-spacing: 0.04em;
-      padding: 0 3px;
+      padding: 0 1px;
       border-radius: 3px;
-      background: rgba(2, 132, 199, 0.48);
+      background: rgba(2, 132, 199, 0.62);
       color: #e0f2fe;
-      border: 1px solid var(--card-camera-accent);
+      border: 0;
+      box-sizing: border-box;
       z-index: 8;
       pointer-events: none;
     }
@@ -164,7 +167,7 @@
     .card:hover .card-close { display:block; }
     .card-resizer { position:absolute; bottom:0; left:0; right:0; height:6px; cursor:ns-resize; }
     .card .c-id { position: absolute; top: 2px; left: 24px; font-size: 10px; opacity: 0.85; }
-    .card.camera-move .c-id { top: 15px; }
+    .card.camera-move .c-main { margin-top: 10px; }
     .card .c-main { text-align: center; font-weight: 700; font-size: 12px; }
     .card .c-sub { text-align: center; font-size: 9px; opacity: 0.8; margin-top: 2px; }
     .card.asset-conflict {
@@ -320,6 +323,22 @@
     .remove-card-title { color: #fff; font-size: 13px; font-weight: 700; }
     .remove-card-msg { color: #aab0ba; font-size: 12px; }
     .remove-card-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .tz-guard-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.72); z-index: 160; display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .tz-guard-modal.hidden { display: none; }
+    .tz-guard-panel {
+      width: min(520px, 96vw);
+      background: #17171a;
+      border: 1px solid #333;
+      border-radius: 10px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.45);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 12px;
+    }
+    .tz-guard-title { color: #fff; font-size: 14px; font-weight: 700; }
+    .tz-guard-msg { color: #aab0ba; font-size: 12px; line-height: 1.5; white-space: pre-line; }
+    .tz-guard-actions { display: flex; justify-content: flex-end; gap: 8px; }
     .lane-row { display: flex; gap: 6px; padding: 4px; border-bottom: 1px solid #222; font-size: 11px; align-items: center; }
     .list-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-bottom: 1px solid #222; cursor: pointer; font-size: 11px; line-height: 1.2; flex-wrap: nowrap; }
     .list-item.unassigned .li-title { color: #ef4444; }
@@ -635,6 +654,10 @@
             <label for="inp-color-camera">camera movement</label>
             <input id="inp-color-camera" class="inp-dark" type="color" value="#7dd3fc">
           </div>
+          <div class="inp-group">
+            <label for="inp-color-taskless">taskless card</label>
+            <input id="inp-color-taskless" class="inp-dark" type="color" value="#334155">
+          </div>
         </div>
       </section>
 
@@ -677,6 +700,16 @@
   </div>
 </div>
 
+<div id="tz-guard-modal" class="tz-guard-modal hidden">
+  <div class="tz-guard-panel">
+    <div class="tz-guard-title">Timezone Required</div>
+    <div id="tz-guard-msg" class="tz-guard-msg">Project timezone is not configured.</div>
+    <div class="tz-guard-actions">
+      <button id="btn-tz-guard-reload" class="btn" type="button">Reload</button>
+    </div>
+  </div>
+</div>
+
 <div id="loadingSpinner">
   <div class="spinner"></div>
   <div id="loadingSpinnerText" style="color:#fff; font-size:11px; margin-top:10px;">Loading...</div>
@@ -713,7 +746,8 @@ window.app = (function() {
       review: '#d97706',
       approved: '#0f766e',
       completed: '#166534',
-      camera: '#7dd3fc'
+      camera: '#7dd3fc',
+      taskless: '#334155'
     },
     assetCapacityById: {},
     assetNameById: {},
@@ -741,6 +775,10 @@ window.app = (function() {
     snapPhase: '',
     publishBusy: false,
     publishPhase: '',
+    projectTimezoneRaw: '',
+    projectTimezoneResolved: '',
+    timezoneConfigured: true,
+    timezoneBlocked: false,
     autoSnapPending: false,
     autoSnapThresholdMs: 10 * 60 * 1000,
     lastSnapshotAtMs: Date.now(),
@@ -843,6 +881,45 @@ window.app = (function() {
     if (!modal) return;
     if (open) modal.classList.remove('hidden');
     else modal.classList.add('hidden');
+  };
+  const setTimezoneGuardModalOpen_ = (open) => {
+    var modal = document.getElementById('tz-guard-modal');
+    if (!modal) return;
+    if (open) modal.classList.remove('hidden');
+    else modal.classList.add('hidden');
+  };
+  const timezoneGuardMessage_ = () => {
+    const raw = String(state.projectTimezoneRaw || '').trim();
+    if (raw) return '';
+    return 'Project timezone is not configured in project_meta.\nPlease set "Timezone" first. Until then, scheduler actions are disabled.';
+  };
+  const syncTimezoneGuardUi_ = () => {
+    const blocked = !state.timezoneConfigured;
+    state.timezoneBlocked = blocked;
+    const msgEl = document.getElementById('tz-guard-msg');
+    if (msgEl) msgEl.textContent = timezoneGuardMessage_();
+    setTimezoneGuardModalOpen_(blocked);
+    const main = document.getElementById('main');
+    if (main) main.style.pointerEvents = blocked ? 'none' : '';
+    const blockIds = [
+      'btn-view', 'btn-lanes', 'btn-undo', 'btn-insp', 'btn-settings', 'btn-publish',
+      'btn-auto', 'btn-new', 'btn-save-view', 'btn-save-lane', 'btn-settings-save',
+      'btn-rename-sched-save', 'sched-switch', 'start-date', 'end-date', 'sel-start-preset',
+      'sel-end-preset', 'sel-range', 'inp-filter', 'chk-push'
+    ];
+    blockIds.forEach((id) => {
+      var el = document.getElementById(id);
+      if (!el) return;
+      if ('disabled' in el) el.disabled = blocked;
+      if (blocked) el.setAttribute('aria-disabled', 'true');
+      else el.removeAttribute('aria-disabled');
+    });
+  };
+  const ensureTimezoneReady_ = () => {
+    if (state.timezoneConfigured) return true;
+    syncTimezoneGuardUi_();
+    try { utils.saveStatus('error', 'Timezone is not configured'); } catch (_) {}
+    return false;
   };
   const requestRemoveCardFromLane_ = (cardId) => {
     if (state.undoBusy) return;
@@ -1904,7 +1981,8 @@ window.app = (function() {
     review: '#d97706',
     approved: '#0f766e',
     completed: '#166534',
-    camera: '#7dd3fc'
+    camera: '#7dd3fc',
+    taskless: '#334155'
   };
 
   function normalizeHexColor_(value, fallback) {
@@ -1925,6 +2003,7 @@ window.app = (function() {
     root.style.setProperty('--card-status-approved', normalizeHexColor_(c.approved, CARD_COLOR_DEFAULTS.approved));
     root.style.setProperty('--card-status-completed', normalizeHexColor_(c.completed, CARD_COLOR_DEFAULTS.completed));
     root.style.setProperty('--card-camera-accent', normalizeHexColor_(c.camera, CARD_COLOR_DEFAULTS.camera));
+    root.style.setProperty('--card-taskless-bg', normalizeHexColor_(c.taskless, CARD_COLOR_DEFAULTS.taskless));
   }
 
   const TASK_FIDS = {
@@ -1986,6 +2065,66 @@ window.app = (function() {
     const n = Number(value);
     if (!isFinite(n) || n <= 0) return '';
     return String(Math.round(n)) + 'mins';
+  }
+
+  function parseSpentMinutesValue_(value) {
+    if (value == null || value === '') return NaN;
+    if (typeof value === 'number' && isFinite(value)) return Number(value);
+    const raw = String(value || '').trim();
+    if (!raw) return NaN;
+    if (raw.startsWith('{') && raw.endsWith('}')) {
+      try {
+        const obj = JSON.parse(raw);
+        const n = Number(obj && obj.spentMinutes);
+        if (isFinite(n)) return n;
+      } catch (_) {}
+    }
+    const n = Number(raw.replace(/,/g, ''));
+    if (isFinite(n)) return n;
+    const m = raw.match(/-?\d+(?:\.\d+)?/);
+    if (!m) return NaN;
+    const d = Number(m[0]);
+    return isFinite(d) ? d : NaN;
+  }
+
+  function parseOverrunRatioValue_(value) {
+    if (value == null || value === '') return NaN;
+    if (typeof value === 'number' && isFinite(value)) return Number(value);
+    const raw = String(value || '').trim();
+    if (!raw) return NaN;
+    if (raw.startsWith('{') && raw.endsWith('}')) {
+      try {
+        const obj = JSON.parse(raw);
+        const n = Number(obj && obj.ratioPercent);
+        if (isFinite(n)) return n;
+      } catch (_) {}
+    }
+    const n = Number(raw.replace(/,/g, ''));
+    if (isFinite(n)) return n;
+    const m = raw.match(/-?\d+(?:\.\d+)?/);
+    if (!m) return NaN;
+    const d = Number(m[0]);
+    return isFinite(d) ? d : NaN;
+  }
+
+  function parseFinishedDateForInput_(value) {
+    if (value == null || value === '') return '';
+    let raw = String(value || '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('{') && raw.endsWith('}')) {
+      try {
+        const obj = JSON.parse(raw);
+        raw = String((obj && (obj.completedAt || obj.finishedDate || obj.date)) || '').trim();
+      } catch (_) {
+        raw = '';
+      }
+    }
+    if (!raw) return '';
+    const d1 = utils.parseDateTextStrict(raw);
+    if (d1) return utils.fmtYmdInput(d1);
+    const d2 = utils.parseDateTime(raw);
+    if (d2 && !isNaN(d2)) return utils.fmtYmdInput(d2);
+    return '';
   }
 
   function taskBoolValue_(task, fid, fallbackKeys) {
@@ -2188,10 +2327,24 @@ window.app = (function() {
     var cardNo = (card && card.displayId != null && card.displayId !== '') ? String(card.displayId) : utils.getDisplayId(card && card.id);
     cardNo = String(cardNo || '').trim();
     if (/^\d+$/.test(cardNo)) cardNo = String(Number(cardNo));
+    var hasTask = !!getTaskByIdSafe_(card && card.taskId);
+    var mainText = resolveCardDisplayValue_(card, 'main');
+    var subText = resolveCardDisplayValue_(card, 'sub');
+    // Keep one selector model while providing deterministic defaults for taskless cards.
+    if (!hasTask) {
+      if (!String(mainText || '').trim()) mainText = String(card && card.memo || '').trim();
+      if (!String(subText || '').trim()) {
+        var st = Number(card && card.start);
+        var ed = Number(card && card.end);
+        if (isFinite(st) && isFinite(ed)) {
+          subText = String(Math.max(1, Math.round(ed - st + 1)) * Math.max(1, Math.round(Number(config.slotMin) || 1)));
+        }
+      }
+    }
     return {
       cardNo: cardNo,
-      mainText: resolveCardDisplayValue_(card, 'main'),
-      subText: resolveCardDisplayValue_(card, 'sub')
+      mainText: mainText,
+      subText: subText
     };
   }
 
@@ -2674,6 +2827,13 @@ window.app = (function() {
       state.assetNameById = (data && data.assetNameById && typeof data.assetNameById === 'object') ? data.assetNameById : {};
       state.assetCapacityDefault = Number(data && data.assetCapacityDefault);
       if (!isFinite(state.assetCapacityDefault) || state.assetCapacityDefault <= 0) state.assetCapacityDefault = 1;
+      state.projectTimezoneRaw = String((data && data.projectTimezone) || '').trim();
+      state.projectTimezoneResolved = String((data && data.projectTimezoneResolved) || '').trim();
+      if (data && Object.prototype.hasOwnProperty.call(data, 'timezoneConfigured')) {
+        state.timezoneConfigured = !!data.timezoneConfigured;
+      } else {
+        state.timezoneConfigured = !!state.projectTimezoneRaw;
+      }
 
       var hasViewDate = false;
       if (state.viewMeta && typeof state.viewMeta === 'object') {
@@ -2698,7 +2858,8 @@ window.app = (function() {
           review: normalizeHexColor_(vmColors.review, CARD_COLOR_DEFAULTS.review),
           approved: normalizeHexColor_(vmColors.approved, CARD_COLOR_DEFAULTS.approved),
           completed: normalizeHexColor_(vmColors.completed, CARD_COLOR_DEFAULTS.completed),
-          camera: normalizeHexColor_(vmColors.camera, CARD_COLOR_DEFAULTS.camera)
+          camera: normalizeHexColor_(vmColors.camera, CARD_COLOR_DEFAULTS.camera),
+          taskless: normalizeHexColor_(vmColors.taskless, CARD_COLOR_DEFAULTS.taskless)
         };
         var vmLaneWidth = Number(state.viewMeta.laneWidth);
         if (isFinite(vmLaneWidth) && vmLaneWidth > 0) state.laneWidth = Math.round(vmLaneWidth);
@@ -2730,10 +2891,12 @@ window.app = (function() {
       if (els.configInfo) {
         var originText = config.originDisplayText || formatYmd_(config.originDate).replace(/-/g, '/');
         var baseOriginText = formatYmd_(config.originDate).replace(/-/g, '/');
+        var tzText = state.projectTimezoneRaw || 'UNSET';
         els.configInfo.innerHTML = `
           <span class="info-tag" title="Base origin for rawSlot: ${baseOriginText}">Origin: ${originText}</span>
           <span class="info-tag">Slot: ${config.slotMin}m</span>
           <span class="info-tag">Work: ${config.workHours}h</span>
+          <span class="info-tag" style="${state.timezoneConfigured ? '' : 'color:#f87171; border-color:#f87171;'}">TZ: ${tzText}</span>
         `;
       }
       state.scriptUrlServer = String(data.scriptUrl || '');
@@ -2945,6 +3108,8 @@ window.app = (function() {
       if (colorCompleted) colorCompleted.value = normalizeHexColor_(state.cardColors.completed, CARD_COLOR_DEFAULTS.completed);
       var colorCamera = document.getElementById('inp-color-camera');
       if (colorCamera) colorCamera.value = normalizeHexColor_(state.cardColors.camera, CARD_COLOR_DEFAULTS.camera);
+      var colorTaskless = document.getElementById('inp-color-taskless');
+      if (colorTaskless) colorTaskless.value = normalizeHexColor_(state.cardColors.taskless, CARD_COLOR_DEFAULTS.taskless);
       var renameInput = document.getElementById('sched-rename-input');
       if (renameInput) renameInput.value = state.schedName;
       var laneWInput = document.getElementById('inp-lane-w');
@@ -2956,6 +3121,7 @@ window.app = (function() {
       updateViewLaneSaveButtons_();
 
       render.all();
+      syncTimezoneGuardUi_();
     },
 
     fitViewToCards: () => {
@@ -3062,7 +3228,8 @@ window.app = (function() {
           review: normalizeHexColor_(state.cardColors && state.cardColors.review, CARD_COLOR_DEFAULTS.review),
           approved: normalizeHexColor_(state.cardColors && state.cardColors.approved, CARD_COLOR_DEFAULTS.approved),
           completed: normalizeHexColor_(state.cardColors && state.cardColors.completed, CARD_COLOR_DEFAULTS.completed),
-          camera: normalizeHexColor_(state.cardColors && state.cardColors.camera, CARD_COLOR_DEFAULTS.camera)
+          camera: normalizeHexColor_(state.cardColors && state.cardColors.camera, CARD_COLOR_DEFAULTS.camera),
+          taskless: normalizeHexColor_(state.cardColors && state.cardColors.taskless, CARD_COLOR_DEFAULTS.taskless)
         }
       };
       var payload = JSON.stringify({ schedId: state.schedId, type: 'view_meta', value: meta });
@@ -3866,7 +4033,8 @@ window.app = (function() {
               cacheUsed = true;
               diag.usedCache = true;
               diag.t_cache_render_end = Date.now();
-              utils.saveStatus('saved', 'Loaded');
+              if (state.timezoneBlocked) utils.saveStatus('error', 'Timezone is not configured');
+              else utils.saveStatus('saved', 'Loaded');
               if (sp) sp.style.display='none';
             }
           }
@@ -3913,7 +4081,8 @@ window.app = (function() {
             }
             store.init(res);
             diag.ok = true;
-            utils.saveStatus('saved', 'Loaded');
+            if (state.timezoneBlocked) utils.saveStatus('error', 'Timezone is not configured');
+            else utils.saveStatus('saved', 'Loaded');
             try {
               localStorage.setItem(SCHED_CACHE_KEY, JSON.stringify(res));
               localStorage.setItem(SCHED_CACHE_TS_KEY, String(Date.now()));
@@ -4636,6 +4805,19 @@ window.app = (function() {
     }
   };
 
+  (function applyTimezoneActionGuard_() {
+    const allow = { load: true };
+    Object.keys(actions).forEach((name) => {
+      if (allow[name]) return;
+      const fn = actions[name];
+      if (typeof fn !== 'function') return;
+      actions[name] = function guardedAction_() {
+        if (!ensureTimezoneReady_()) return;
+        return fn.apply(actions, arguments);
+      };
+    });
+  })();
+
   const render = {
     all: () => { render.headers(); render.grid(); ui.renderMenu(); ui.renderCardList(); },
 
@@ -4671,10 +4853,12 @@ window.app = (function() {
       if (els.configInfo) {
         var originText = config.originDisplayText || formatYmd_(config.originDate).replace(/-/g, '/');
         var baseOriginText = formatYmd_(config.originDate).replace(/-/g, '/');
+        var tzText = state.projectTimezoneRaw || 'UNSET';
         els.configInfo.innerHTML = `
           <span class="info-tag" title="Base origin for rawSlot: ${baseOriginText}">Origin: ${originText}</span>
           <span class="info-tag">Slot: ${config.slotMin}m</span>
           <span class="info-tag">Work: ${config.workHours}h</span>
+          <span class="info-tag" style="${state.timezoneConfigured ? '' : 'color:#f87171; border-color:#f87171;'}">TZ: ${tzText}</span>
           <span class="info-tag">Res: ${snap.label}</span>
           <span class="info-tag" title="Overloaded assets by slot">Asset⚠: ${state.assetUsageStats.conflictSlots || 0}</span>
         `;
@@ -4845,9 +5029,10 @@ window.app = (function() {
         const isPrimary = String(state.selection || '') === String(c.id || '');
         const isMulti = isCardInMultiSelection_(c.id);
         const t = getTaskByIdSafe_(c.taskId);
+        const isTaskless = !t;
         const cardStatus = normalizeTaskStatus_(c.status || (t && t.status) || '');
         const cameraMove = taskBoolValue_(t, TASK_FIDS.cameraMovement, ['cameraMovement', 'camera_movement']);
-        div.className = `card ${isPrimary ? 'selected' : ''} ${isMulti ? 'multi-selected' : ''} ${conflictInfo ? 'asset-conflict' : ''} ${cardStatus ? ('status-' + cardStatus) : ''} ${cameraMove ? 'camera-move' : ''}`;
+        div.className = `card ${isPrimary ? 'selected' : ''} ${isMulti ? 'multi-selected' : ''} ${conflictInfo ? 'asset-conflict' : ''} ${cardStatus ? ('status-' + cardStatus) : ''} ${cameraMove ? 'camera-move' : ''} ${isTaskless ? 'taskless' : ''}`;
         div.style.top = top + 'px'; div.style.left = left + 'px';
         div.style.height = (h - 1) + 'px';
 
@@ -5521,9 +5706,35 @@ window.app = (function() {
         edit.refs.taskShootFrames = makeTaskTextInput_(TASK_FIDS.shootingFrames, 'shooting_frames', ['shootingFrames', 'shooting_frames'], true);
         edit.refs.taskEstLength = makeTaskTextInput_(TASK_FIDS.estLength, 'Est length (mins)', ['estLength', 'est_length'], true);
         if (edit.refs.taskEstLength) edit.refs.taskEstLength.value = formatMinutesLabel_(taskRawValue_(t, TASK_FIDS.estLength, ['estLength', 'est_length']));
-        edit.refs.taskFinished = makeTaskTextInput_(TASK_FIDS.finished, 'finished', ['finished'], true);
-        edit.refs.taskSpentLength = makeTaskTextInput_(TASK_FIDS.spentLength, 'Spent length', ['spentLength', 'spent_length'], true);
-        edit.refs.taskOverrun = makeTaskTextInput_(TASK_FIDS.overrunRatio, 'Overrun Ratio', ['overrunRatio', 'overrun_ratio'], true);
+        const finishedInput = document.createElement('input');
+        finishedInput.className = 'inp';
+        finishedInput.type = 'date';
+        finishedInput.value = parseFinishedDateForInput_(taskRawValue_(t, TASK_FIDS.finished, ['finished']));
+        if (taskId) {
+          finishedInput.addEventListener('change', () => {
+            const next = String(finishedInput.value || '').trim();
+            const patch = {};
+            patch[TASK_FIDS.finished] = next;
+            commitTaskPatchFromInspector_(taskId, patch, () => ui.renderInspector());
+          });
+        } else {
+          finishedInput.disabled = true;
+        }
+        edit.refs.taskFinished = finishedInput;
+        addField('finished', finishedInput);
+
+        edit.refs.taskSpentLength = makeTaskTextInput_(TASK_FIDS.spentLength, 'Spent length (mins)', ['spentLength', 'spent_length'], true, 'number');
+        if (edit.refs.taskSpentLength) {
+          const spentRaw = taskRawValue_(t, TASK_FIDS.spentLength, ['spentLength', 'spent_length']);
+          const spentNum = parseSpentMinutesValue_(spentRaw);
+          edit.refs.taskSpentLength.value = isFinite(spentNum) && spentNum > 0 ? String(Math.round(spentNum)) : '';
+        }
+        edit.refs.taskOverrun = makeTaskTextInput_(TASK_FIDS.overrunRatio, 'Overrun Ratio (%)', ['overrunRatio', 'overrun_ratio'], true);
+        if (edit.refs.taskOverrun) {
+          const overrunRaw = taskRawValue_(t, TASK_FIDS.overrunRatio, ['overrunRatio', 'overrun_ratio']);
+          const overrunNum = parseOverrunRatioValue_(overrunRaw);
+          edit.refs.taskOverrun.value = isFinite(overrunNum) ? String(overrunNum) : '';
+        }
 
         const taskOrder = document.createElement('input');
         taskOrder.className = 'inp';
@@ -5894,9 +6105,17 @@ window.app = (function() {
       if (edit.refs.taskDifficulty) edit.refs.taskDifficulty.value = String(taskRawValue_(t, TASK_FIDS.difficultyFactor, ['difficultyFactor', 'difficulty_factor']) || '');
       if (edit.refs.taskShootFrames) edit.refs.taskShootFrames.value = String(taskRawValue_(t, TASK_FIDS.shootingFrames, ['shootingFrames', 'shooting_frames']) || '');
       if (edit.refs.taskEstLength) edit.refs.taskEstLength.value = formatMinutesLabel_(taskRawValue_(t, TASK_FIDS.estLength, ['estLength', 'est_length']));
-      if (edit.refs.taskFinished) edit.refs.taskFinished.value = String(taskRawValue_(t, TASK_FIDS.finished, ['finished']) || '');
-      if (edit.refs.taskSpentLength) edit.refs.taskSpentLength.value = String(taskRawValue_(t, TASK_FIDS.spentLength, ['spentLength', 'spent_length']) || '');
-      if (edit.refs.taskOverrun) edit.refs.taskOverrun.value = String(taskRawValue_(t, TASK_FIDS.overrunRatio, ['overrunRatio', 'overrun_ratio']) || '');
+      if (edit.refs.taskFinished) edit.refs.taskFinished.value = parseFinishedDateForInput_(taskRawValue_(t, TASK_FIDS.finished, ['finished']));
+      if (edit.refs.taskSpentLength) {
+        const spentRaw = taskRawValue_(t, TASK_FIDS.spentLength, ['spentLength', 'spent_length']);
+        const spentNum = parseSpentMinutesValue_(spentRaw);
+        edit.refs.taskSpentLength.value = isFinite(spentNum) && spentNum > 0 ? String(Math.round(spentNum)) : '';
+      }
+      if (edit.refs.taskOverrun) {
+        const overrunRaw = taskRawValue_(t, TASK_FIDS.overrunRatio, ['overrunRatio', 'overrun_ratio']);
+        const overrunNum = parseOverrunRatioValue_(overrunRaw);
+        edit.refs.taskOverrun.value = isFinite(overrunNum) ? String(overrunNum) : '';
+      }
       if (edit.refs.taskOrder) edit.refs.taskOrder.value = String(taskRawValue_(t, TASK_FIDS.taskOrder, ['taskOrder', 'order']) || '');
       if (edit.refs.metaStart) edit.refs.metaStart.textContent = `rawSlot: ${utils.normalizeSlot(c.start, 'start').rawSlot}`;
       if (edit.refs.metaEnd) edit.refs.metaEnd.textContent = `rawSlot: ${utils.normalizeSlot(c.end, 'end').rawSlot}`;
@@ -5975,6 +6194,12 @@ window.app = (function() {
   }
 
   function dragStart(e, card, el) {
+    if (state.timezoneBlocked) {
+      e.preventDefault();
+      e.stopPropagation();
+      ensureTimezoneReady_();
+      return;
+    }
     if (state.undoBusy) {
       e.preventDefault();
       e.stopPropagation();
@@ -6011,6 +6236,7 @@ window.app = (function() {
   }
 
   function dragMove(e) {
+    if (state.timezoneBlocked) return;
     if (!drag || state.undoBusy) return;
     const dy = e.clientY - drag.startY;
     const dx = e.clientX - drag.startX;
@@ -6080,6 +6306,11 @@ window.app = (function() {
     document.removeEventListener('mousemove', dragMove);
     document.removeEventListener('mouseup', dragEnd);
     if (!drag) return;
+    if (state.timezoneBlocked) {
+      render.grid();
+      drag = null;
+      return;
+    }
     if (state.undoBusy) {
       render.grid();
       drag = null;
@@ -6165,6 +6396,7 @@ window.app = (function() {
 
   function handleCanvasDrop_(e) {
     e.preventDefault();
+    if (state.timezoneBlocked) return;
     if (state.undoBusy) return;
     const cardId = e.dataTransfer.getData('text/plain');
     const key = String(cardId || '');
@@ -6205,6 +6437,7 @@ window.app = (function() {
       return false;
     };
     const pickGapFromCanvasEvent_ = (e) => {
+      if (state.timezoneBlocked) return;
       if (state.undoBusy) return;
       if (Date.now() < Number(state.suppressCanvasPickUntil || 0)) return;
       const canvas = els.canvas || document.getElementById('grid-canvas');
@@ -6273,6 +6506,7 @@ window.app = (function() {
     safeAdd('inp-color-approved', 'change', (e) => actions.setCardColorFromSettings('approved', e.target.value));
     safeAdd('inp-color-completed', 'change', (e) => actions.setCardColorFromSettings('completed', e.target.value));
     safeAdd('inp-color-camera', 'change', (e) => actions.setCardColorFromSettings('camera', e.target.value));
+    safeAdd('inp-color-taskless', 'change', (e) => actions.setCardColorFromSettings('taskless', e.target.value));
     safeAdd('inp-zoom', 'input', (e) => actions.setZoomFromSlider(e.target.value));
     safeAdd('inp-zoom-val', 'change', (e) => actions.setZoomFromInput(e.target.value));
     safeAdd('btn-view-fit', 'click', () => actions.fitZoomToView());
@@ -6433,9 +6667,11 @@ window.app = (function() {
     safeAdd('btn-save-view', 'click', actions.saveViewSettings);
     safeAdd('btn-save-lane', 'click', actions.saveLaneSettings);
     safeAdd('btn-settings', 'click', () => {
+      if (!ensureTimezoneReady_()) return;
       closeToolbarMenus_();
       setSettingsModalOpen_(true);
     });
+    safeAdd('btn-tz-guard-reload', 'click', () => actions.load({ forceNetwork: true }));
     safeAdd('btn-publish', 'click', actions.publish);
     safeAdd('btn-settings-close', 'click', () => setSettingsModalOpen_(false));
     safeAdd('btn-rename-sched-save', 'click', actions.renameSchedFromSettings);
@@ -6482,6 +6718,14 @@ window.app = (function() {
       });
     }
     document.addEventListener('keydown', (e) => {
+      if (state.timezoneBlocked) {
+        if (e.key === 'Escape' || e.key === 'Delete' || e.key === 'Backspace' || e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        setTimezoneGuardModalOpen_(true);
+        return;
+      }
       if (state.undoBusy) {
         if (e.key === 'Delete' || e.key === 'Backspace' || e.key === 'Escape' || e.key === 'Enter') {
           e.preventDefault();
