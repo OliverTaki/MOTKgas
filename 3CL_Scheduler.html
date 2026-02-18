@@ -222,6 +222,20 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .lite-token.selected {
+      border-color: #facc15;
+      box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.45) inset;
+    }
+    .lite-token.multi-selected {
+      border-color: #22d3ee;
+      box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.42) inset;
+    }
+    .lite-token.more {
+      justify-content: center;
+      color: #9ca3af;
+      border-style: dashed;
+      cursor: default;
+    }
     .lite-token:last-child { margin-bottom: 0; }
     .lite-token.status-not_started { background: color-mix(in srgb, var(--card-status-not-started) 32%, #000 68%); }
     .lite-token.status-in_progress { background: color-mix(in srgb, var(--card-status-in-progress) 32%, #000 68%); }
@@ -5252,14 +5266,19 @@ window.app = (function() {
           cell.style.width = laneWidth + 'px';
           cell.style.height = rowH + 'px';
           const items = (bucket[keyOf_(lane.id, di)] || []).slice().sort(sortInCell_);
-          for (let ii = 0; ii < items.length && ii < 6; ii++) {
+          const maxTokensPerCell = 6;
+          const overflowCount = Math.max(0, items.length - maxTokensPerCell);
+          const visibleCardCount = overflowCount > 0 ? (maxTokensPerCell - 1) : items.length;
+          for (let ii = 0; ii < visibleCardCount; ii++) {
             const c = items[ii];
             const t = getTaskByIdSafe_(c.taskId);
             const isTaskless = !t;
             const status = normalizeTaskStatus_(c.status || (t && t.status) || '');
             const cardView = getCardDisplayModel_(c);
+            const isPrimary = String(state.selection || '') === String(c.id || '');
+            const isMulti = isCardInMultiSelection_(c.id);
             const token = document.createElement('div');
-            token.className = `lite-token ${status ? ('status-' + status) : ''} ${isTaskless ? 'taskless' : ''}`;
+            token.className = `lite-token ${status ? ('status-' + status) : ''} ${isTaskless ? 'taskless' : ''} ${isPrimary ? 'selected' : ''} ${isMulti ? 'multi-selected' : ''}`;
             const taskOrder = getTaskOrderValue_(t || {});
             const s = utils.slotToDateVal(Number(c.start || 1), 'start');
             const e = utils.slotToDateVal(Number(c.end || 1), 'end');
@@ -5277,6 +5296,13 @@ window.app = (function() {
               actions.selectCard(c.id);
             });
             cell.appendChild(token);
+          }
+          if (overflowCount > 0) {
+            const more = document.createElement('div');
+            more.className = 'lite-token more';
+            more.innerHTML = `<span class="lt-main">+${overflowCount} more</span>`;
+            more.title = `+${overflowCount} more cards in this day cell`;
+            cell.appendChild(more);
           }
           els.canvas.appendChild(cell);
         }
@@ -5311,6 +5337,113 @@ window.app = (function() {
     const laneIdx = Math.floor(x / laneWidth);
     const newLane = (laneIdx >= 0 && laneIdx < lanes.length) ? lanes[laneIdx].id : null;
     return { newStart, newLane, snapState };
+  }
+
+  function getLaneLabelById_(laneId) {
+    const key = String(laneId || '').trim();
+    const lane = (state.lanes || []).find((l) => String((l && l.id) || '').trim() === key);
+    if (lane && lane.label) return String(lane.label);
+    return key || 'unassigned';
+  }
+
+  function renderLiteInspector_(container, c) {
+    if (!container || !c) return;
+    const t = getTaskByIdSafe_(c.taskId);
+    const cardView = getCardDisplayModel_(c);
+    const displayId = (c.displayId != null && c.displayId !== '') ? String(c.displayId) : utils.getDisplayId(c.id);
+    const sVal = utils.slotToDateVal(c.start || 1, 'start');
+    const eVal = utils.slotToDateVal(c.end || 1, 'end');
+    const lenSlots = Math.max(1, Math.round(Number(c.end || 1) - Number(c.start || 1) + 1));
+    const lenMin = lenSlots * Math.max(1, Math.round(Number(config.slotMin) || 1));
+
+    const makeReadRow_ = (label, value) => {
+      const g = document.createElement('div');
+      g.className = 'inp-group';
+      const l = document.createElement('label');
+      l.textContent = label;
+      const v = document.createElement('input');
+      v.className = 'inp';
+      v.readOnly = true;
+      v.value = String(value || '');
+      g.appendChild(l);
+      g.appendChild(v);
+      container.appendChild(g);
+    };
+
+    const headerMeta = document.createElement('div');
+    headerMeta.style.cssText = 'display:flex; align-items:center; gap:6px; min-width:0;';
+    const cardNo = document.createElement('div');
+    cardNo.className = 'info-tag';
+    cardNo.style.cssText = 'display:inline-block; font-size:10px; margin-bottom:2px;';
+    cardNo.textContent = `CARD NO. ${displayId}`;
+    headerMeta.appendChild(cardNo);
+    container.appendChild(headerMeta);
+
+    const title = document.createElement('div');
+    title.style.cssText = 'background:#222; padding:6px; font-weight:bold; border-radius:4px; display:flex; align-items:center; justify-content:space-between; gap:8px;';
+    const titleText = document.createElement('span');
+    titleText.style.cssText = 'min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+    titleText.textContent = cardView.mainText || c.title || '';
+    const focusBtn = document.createElement('button');
+    focusBtn.type = 'button';
+    focusBtn.className = 'btn';
+    focusBtn.textContent = 'Focus';
+    focusBtn.addEventListener('click', () => actions.focusSelected());
+    title.appendChild(titleText);
+    title.appendChild(focusBtn);
+    container.appendChild(title);
+
+    const hint = document.createElement('div');
+    hint.className = 'info-tag';
+    hint.style.cssText = 'margin-top:6px;';
+    hint.textContent = 'Lite mode: status editable only';
+    container.appendChild(hint);
+
+    if (t && c.taskId) {
+      const taskWrap = document.createElement('div');
+      taskWrap.className = 'inp-group';
+      const label = document.createElement('label');
+      label.textContent = 'Status';
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; align-items:center; gap:6px;';
+      const statusSel = document.createElement('select');
+      statusSel.className = 'inp';
+      statusSel.style.maxWidth = '220px';
+      statusSel.innerHTML = TASK_STATUS_OPTIONS.map((s) => `<option value="${s}">${s}</option>`).join('');
+      statusSel.value = normalizeTaskStatus_(taskRawValue_(t, TASK_FIDS.status, ['status'])) || 'not_started';
+      const statusPill = document.createElement('div');
+      statusPill.className = 'status-pill ' + normalizeTaskStatus_(statusSel.value || '');
+      statusPill.textContent = String(statusSel.value || '').replace(/_/g, ' ');
+      statusSel.addEventListener('change', () => {
+        const next = normalizeTaskStatus_(statusSel.value) || 'not_started';
+        const patch = {};
+        patch[TASK_FIDS.status] = next;
+        commitTaskPatchFromInspector_(String(c.taskId || ''), patch, () => {
+          statusSel.value = next;
+          statusPill.className = 'status-pill ' + next;
+          statusPill.textContent = String(next).replace(/_/g, ' ');
+          ui.renderInspector();
+        });
+      });
+      row.appendChild(statusSel);
+      row.appendChild(statusPill);
+      taskWrap.appendChild(label);
+      taskWrap.appendChild(row);
+      container.appendChild(taskWrap);
+    } else {
+      const note = document.createElement('div');
+      note.className = 'info-tag';
+      note.style.cssText = 'margin-top:6px; border-color:#4b5563; color:#9ca3af;';
+      note.textContent = 'Taskless card (status edit unavailable)';
+      container.appendChild(note);
+    }
+
+    makeReadRow_('Lane', getLaneLabelById_(c.laneId));
+    makeReadRow_('Start', `${utils.fmtYmdText(sVal.date)} / slot ${sVal.slot}`);
+    makeReadRow_('End', `${utils.fmtYmdText(eVal.date)} / slot ${eVal.slot}`);
+    makeReadRow_('Length', `${lenMin}mins`);
+    makeReadRow_('Task', String(c.taskId || ''));
+    makeReadRow_('Memo', String(c.memo || ''));
   }
 
   const ui = {
@@ -5503,6 +5636,11 @@ window.app = (function() {
       }
       setInspectorClosed_(false);
       p.innerHTML = '';
+      if (state.viewMode === 'lite') {
+        clearInspectorTimers_();
+        renderLiteInspector_(p, c);
+        return;
+      }
 
       let renderQueued = false;
       const scheduleRender_ = (refreshInspector) => {
