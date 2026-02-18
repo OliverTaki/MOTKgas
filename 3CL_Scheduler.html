@@ -197,6 +197,41 @@
       z-index: 8;
       pointer-events: none;
     }
+    .lite-cell {
+      position: absolute;
+      box-sizing: border-box;
+      border-bottom: 1px solid var(--grid-line-strong);
+      border-right: 1px solid var(--border-color);
+      background: rgba(16, 18, 23, 0.9);
+      overflow: hidden;
+      padding: 4px;
+    }
+    .lite-token {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 3px;
+      padding: 2px 4px;
+      border-radius: 4px;
+      font-size: 10px;
+      color: #e5e7eb;
+      border: 1px solid rgba(255,255,255,0.15);
+      cursor: pointer;
+      background: rgba(37, 99, 235, 0.35);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .lite-token:last-child { margin-bottom: 0; }
+    .lite-token.status-not_started { background: color-mix(in srgb, var(--card-status-not-started) 32%, #000 68%); }
+    .lite-token.status-in_progress { background: color-mix(in srgb, var(--card-status-in-progress) 32%, #000 68%); }
+    .lite-token.status-review { background: color-mix(in srgb, var(--card-status-review) 35%, #000 65%); }
+    .lite-token.status-approved { background: color-mix(in srgb, var(--card-status-approved) 35%, #000 65%); }
+    .lite-token.status-completed { background: color-mix(in srgb, var(--card-status-completed) 35%, #000 65%); }
+    .lite-token.taskless { background: color-mix(in srgb, var(--card-taskless-bg) 45%, #000 55%); }
+    .lite-token .lt-order { font-size: 9px; opacity: 0.85; min-width: 18px; text-align: right; }
+    .lite-token .lt-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .lite-token .lt-arrow { font-size: 10px; opacity: 0.75; }
     .gap-marker {
       position: absolute;
       width: calc(var(--lane-w) - 10px);
@@ -474,6 +509,13 @@
             </datalist>
           </div>
           <div class="pop-row">
+            <label for="sel-view-mode">Mode</label>
+            <select id="sel-view-mode" class="inp-dark" style="flex:1;">
+              <option value="grid">Grid</option>
+              <option value="lite">Lite (day)</option>
+            </select>
+          </div>
+          <div class="pop-row">
             <label for="sel-range">Range</label>
             <select id="sel-range" class="inp-dark" style="flex:1;">
               <option value="1">1 Day</option>
@@ -730,6 +772,7 @@ window.app = (function() {
     tasksById: {},
     startDate: new Date(), dayCount: 14, slotPx: 20,
     endDate: null, startPreset: 'custom', endPreset: 'custom', viewDriver: 'range',
+    viewMode: 'grid',
     workDayMap: [], selection: null, autoPush: true,
     schedId: 'sched_0001', schedName: 'Schedule', scriptUrl: (function(){ try { return location.origin + location.pathname; } catch (_) { return location.pathname || ''; } })(), scriptUrlServer: '', viewMeta: {}, allScheds: [],
     laneWidth: 65,
@@ -2846,6 +2889,7 @@ window.app = (function() {
         state.startPreset = normalizePresetKey_(state.viewMeta.startPreset || 'custom');
         state.endPreset = normalizePresetKey_(state.viewMeta.endPreset || 'custom');
         state.viewDriver = String(state.viewMeta.viewDriver || '').trim().toLowerCase() === 'end' ? 'end' : 'range';
+        state.viewMode = String(state.viewMeta.viewMode || '').trim().toLowerCase() === 'lite' ? 'lite' : 'grid';
         state.cardDisplayMain = normalizeCardDisplayField_(state.viewMeta.cardDisplayMain, 'shot_code');
         state.cardDisplaySub = normalizeCardDisplayField_(state.viewMeta.cardDisplaySub, 'task_name');
         state.customCardDisplayFields = Array.isArray(state.viewMeta.customCardDisplayFields)
@@ -3093,6 +3137,8 @@ window.app = (function() {
       if (startPresetSel) startPresetSel.value = normalizePresetKey_(state.startPreset);
       var endPresetSel = document.getElementById('sel-end-preset');
       if (endPresetSel) endPresetSel.value = normalizePresetKey_(state.endPreset);
+      var modeSel = document.getElementById('sel-view-mode');
+      if (modeSel) modeSel.value = (state.viewMode === 'lite') ? 'lite' : 'grid';
       var cardMainSel = document.getElementById('sel-card-main');
       var cardSubSel = document.getElementById('sel-card-sub');
       ui.syncCardDisplayFieldSelectors(cardMainSel, cardSubSel);
@@ -3212,6 +3258,7 @@ window.app = (function() {
         startPreset: normalizePresetKey_(state.startPreset),
         endPreset: normalizePresetKey_(state.endPreset),
         viewDriver: state.viewDriver === 'end' ? 'end' : 'range',
+        viewMode: state.viewMode === 'lite' ? 'lite' : 'grid',
         laneVisibility: visMap,
         laneOrder: state.lanes.map(function(l) { return String(l.id || ''); }),
         laneWidth: Math.round(getLaneWidth_()),
@@ -4706,6 +4753,13 @@ window.app = (function() {
       render.all();
       markLaneDirty_();
     },
+    setViewMode: (rawMode) => {
+      const next = String(rawMode || '').trim().toLowerCase() === 'lite' ? 'lite' : 'grid';
+      if (state.viewMode === next) return;
+      state.viewMode = next;
+      render.all();
+      markViewDirty_();
+    },
 
     deleteCard: (id) => {
       if (!confirm('Delete permanently?')) return;
@@ -4819,7 +4873,13 @@ window.app = (function() {
   })();
 
   const render = {
-    all: () => { render.headers(); render.grid(); ui.renderMenu(); ui.renderCardList(); },
+    all: () => {
+      render.headers();
+      if (state.viewMode === 'lite') render.lite();
+      else render.grid();
+      ui.renderMenu();
+      ui.renderCardList();
+    },
 
     headers: () => {
       els.laneHeaders.innerHTML = '';
@@ -4828,7 +4888,7 @@ window.app = (function() {
         d.className = 'lane-header-cell'; d.textContent = l.label;
         els.laneHeaders.appendChild(d);
       });
-      if (state.assetColumnVisible) {
+      if (state.assetColumnVisible && state.viewMode !== 'lite') {
         const assetsHead = document.createElement('div');
         assetsHead.className = 'lane-header-cell assets-col';
         assetsHead.textContent = 'ASSETS';
@@ -4837,6 +4897,10 @@ window.app = (function() {
     },
 
     grid: () => {
+      if (state.viewMode === 'lite') {
+        render.lite();
+        return;
+      }
       els.dateAxis.innerHTML = ''; els.canvas.innerHTML = '';
       refreshAssetUsageState_();
       const lanes = state.lanes.filter(l => l.visible);
@@ -5097,6 +5161,125 @@ window.app = (function() {
           state.assetCellSelection.rawEnd
         );
         ui.renderInspector();
+      }
+    },
+
+    lite: () => {
+      els.dateAxis.innerHTML = '';
+      els.canvas.innerHTML = '';
+      const lanes = state.lanes.filter(l => l.visible);
+      const laneWidth = getLaneWidth_();
+      const rowH = Math.max(72, Math.round(getPxPerDay_()));
+      const h = state.workDayMap.length * rowH;
+      const w = lanes.length * laneWidth;
+      els.canvas.style.height = h + 'px';
+      els.canvas.style.width = w + 'px';
+      els.canvas.style.backgroundImage = 'linear-gradient(to bottom, var(--grid-line-strong) 1px, transparent 1px)';
+      els.canvas.style.backgroundSize = `100% ${rowH}px`;
+
+      if (els.configInfo) {
+        var originText = config.originDisplayText || formatYmd_(config.originDate).replace(/-/g, '/');
+        var baseOriginText = formatYmd_(config.originDate).replace(/-/g, '/');
+        var tzText = state.projectTimezoneRaw || 'UNSET';
+        els.configInfo.innerHTML = `
+          <span class="info-tag" title="Base origin for rawSlot: ${baseOriginText}">Origin: ${originText}</span>
+          <span class="info-tag">Mode: Lite</span>
+          <span class="info-tag">Slot: ${config.slotMin}m</span>
+          <span class="info-tag">Work: ${config.workHours}h</span>
+          <span class="info-tag" style="${state.timezoneConfigured ? '' : 'color:#f87171; border-color:#f87171;'}">TZ: ${tzText}</span>
+        `;
+      }
+
+      let lastYear = null;
+      if (state.workDayMap && state.workDayMap.length) lastYear = state.workDayMap[0].getFullYear();
+      state.workDayMap.forEach((d) => {
+        const cell = document.createElement('div');
+        cell.className = 'date-cell';
+        cell.style.height = rowH + 'px';
+        const year = d.getFullYear();
+        const showYear = year !== lastYear;
+        if (showYear) lastYear = year;
+        const fmt = utils.fmtDateAxis(d);
+        let html = `<div class="d-main">${fmt.main}</div><div class="d-sub">${fmt.sub}</div>`;
+        if (showYear) html = `<div class="year-marker">${year}</div>` + html;
+        cell.innerHTML = html;
+        els.dateAxis.appendChild(cell);
+      });
+
+      const dayVals = state.workDayMap.map((d) => formatYmd_(d));
+      const laneIndexById = {};
+      lanes.forEach((l, idx) => { laneIndexById[String(l.id || '')] = idx; });
+
+      const bucket = {};
+      const keyOf_ = (laneId, dayIdx) => String(laneId || '') + '|' + String(dayIdx);
+      Object.values(state.cards || {}).forEach((c) => {
+        if (!c || !isFinite(Number(c.start)) || !isFinite(Number(c.end))) return;
+        const laneId = String(c.laneId || '');
+        if (!Object.prototype.hasOwnProperty.call(laneIndexById, laneId)) return;
+        const s = utils.slotToDateVal(Number(c.start || 1), 'start');
+        const e = utils.slotToDateVal(Number(c.end || 1), 'end');
+        const sVal = String((s && s.dateVal) || '');
+        const eVal = String((e && e.dateVal) || '');
+        if (!sVal || !eVal) return;
+        for (let di = 0; di < dayVals.length; di++) {
+          const dv = dayVals[di];
+          if (dv < sVal || dv > eVal) continue;
+          const k = keyOf_(laneId, di);
+          if (!bucket[k]) bucket[k] = [];
+          bucket[k].push(c);
+        }
+      });
+
+      const sortInCell_ = (a, b) => {
+        const ta = getTaskByIdSafe_(a && a.taskId);
+        const tb = getTaskByIdSafe_(b && b.taskId);
+        const oa = getTaskOrderValue_(ta || {});
+        const ob = getTaskOrderValue_(tb || {});
+        if (oa !== ob) return oa - ob;
+        const sa = Number(a && a.start || 0);
+        const sb = Number(b && b.start || 0);
+        if (sa !== sb) return sa - sb;
+        return String(a && a.id || '').localeCompare(String(b && b.id || ''));
+      };
+
+      for (let li = 0; li < lanes.length; li++) {
+        const lane = lanes[li];
+        for (let di = 0; di < dayVals.length; di++) {
+          const cell = document.createElement('div');
+          cell.className = 'lite-cell';
+          cell.style.left = (li * laneWidth) + 'px';
+          cell.style.top = (di * rowH) + 'px';
+          cell.style.width = laneWidth + 'px';
+          cell.style.height = rowH + 'px';
+          const items = (bucket[keyOf_(lane.id, di)] || []).slice().sort(sortInCell_);
+          for (let ii = 0; ii < items.length && ii < 6; ii++) {
+            const c = items[ii];
+            const t = getTaskByIdSafe_(c.taskId);
+            const isTaskless = !t;
+            const status = normalizeTaskStatus_(c.status || (t && t.status) || '');
+            const cardView = getCardDisplayModel_(c);
+            const token = document.createElement('div');
+            token.className = `lite-token ${status ? ('status-' + status) : ''} ${isTaskless ? 'taskless' : ''}`;
+            const taskOrder = getTaskOrderValue_(t || {});
+            const s = utils.slotToDateVal(Number(c.start || 1), 'start');
+            const e = utils.slotToDateVal(Number(c.end || 1), 'end');
+            const sVal = String((s && s.dateVal) || '');
+            const eVal = String((e && e.dateVal) || '');
+            const arrow = (sVal !== eVal)
+              ? (dayVals[di] === sVal ? '→' : (dayVals[di] === eVal ? '←' : '↔'))
+              : '';
+            token.innerHTML = `<span class="lt-order">${isFinite(taskOrder) && taskOrder < Number.MAX_SAFE_INTEGER ? taskOrder : '-'}</span>` +
+              `<span class="lt-main">${escapeHtml_(cardView.mainText || cardView.cardNo || c.id || '')}</span>` +
+              `${arrow ? `<span class="lt-arrow">${arrow}</span>` : ''}`;
+            token.title = `${cardView.cardNo || c.id || ''} ${cardView.mainText || ''}`.trim();
+            token.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              actions.selectCard(c.id);
+            });
+            cell.appendChild(token);
+          }
+          els.canvas.appendChild(cell);
+        }
       }
     }
   };
@@ -6194,6 +6377,12 @@ window.app = (function() {
   }
 
   function dragStart(e, card, el) {
+    if (state.viewMode === 'lite') {
+      e.preventDefault();
+      e.stopPropagation();
+      actions.selectCard(card && card.id);
+      return;
+    }
     if (state.timezoneBlocked) {
       e.preventDefault();
       e.stopPropagation();
@@ -6396,6 +6585,7 @@ window.app = (function() {
 
   function handleCanvasDrop_(e) {
     e.preventDefault();
+    if (state.viewMode === 'lite') return;
     if (state.timezoneBlocked) return;
     if (state.undoBusy) return;
     const cardId = e.dataTransfer.getData('text/plain');
@@ -6437,6 +6627,7 @@ window.app = (function() {
       return false;
     };
     const pickGapFromCanvasEvent_ = (e) => {
+      if (state.viewMode === 'lite') return;
       if (state.timezoneBlocked) return;
       if (state.undoBusy) return;
       if (Date.now() < Number(state.suppressCanvasPickUntil || 0)) return;
@@ -6510,6 +6701,7 @@ window.app = (function() {
     safeAdd('inp-zoom', 'input', (e) => actions.setZoomFromSlider(e.target.value));
     safeAdd('inp-zoom-val', 'change', (e) => actions.setZoomFromInput(e.target.value));
     safeAdd('btn-view-fit', 'click', () => actions.fitZoomToView());
+    safeAdd('sel-view-mode', 'change', (e) => actions.setViewMode(e && e.target ? e.target.value : 'grid'));
 
     const syncRangeSelect_ = () => {
       const rangeSel = document.getElementById('sel-range');
