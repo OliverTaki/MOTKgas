@@ -667,6 +667,24 @@
             </select>
           </div>
         </div>
+        <div class="settings-grid-2" style="margin-top:8px;">
+          <div class="inp-group">
+            <label for="sel-taskless-main">Taskless Main (center)</label>
+            <select id="sel-taskless-main" class="inp-dark">
+              <option value="card_memo">Card Memo</option>
+              <option value="card_length">Card Length</option>
+              <option value="card_id">Card ID</option>
+            </select>
+          </div>
+          <div class="inp-group">
+            <label for="sel-taskless-sub">Taskless Sub (bottom)</label>
+            <select id="sel-taskless-sub" class="inp-dark">
+              <option value="card_length">Card Length</option>
+              <option value="card_memo">Card Memo</option>
+              <option value="card_id">Card ID</option>
+            </select>
+          </div>
+        </div>
         <div class="settings-inline">
           <div class="inp-group">
             <label for="sel-card-add-field">Add field</label>
@@ -796,6 +814,8 @@ window.app = (function() {
     laneDirty: false,
     cardDisplayMain: 'shot_code',
     cardDisplaySub: 'task_name',
+    tasklessDisplayMain: 'card_memo',
+    tasklessDisplaySub: 'card_length',
     customCardDisplayFields: [],
     cardColors: {
       notStarted: '#1d4ed8',
@@ -2339,8 +2359,8 @@ window.app = (function() {
     return state.tasksById[key] || null;
   }
 
-  function resolveCardDisplayValue_(card, slotType) {
-    var fieldKey = slotType === 'main' ? state.cardDisplayMain : state.cardDisplaySub;
+  function resolveCardDisplayValueByField_(card, rawFieldKey, slotType) {
+    var fieldKey = rawFieldKey;
     fieldKey = normalizeCardDisplayField_(fieldKey, slotType === 'main' ? 'shot_code' : 'task_name');
     var task = getTaskByIdSafe_(card && card.taskId);
     if (/^task:/i.test(fieldKey)) {
@@ -2380,6 +2400,11 @@ window.app = (function() {
     return '';
   }
 
+  function resolveCardDisplayValue_(card, slotType) {
+    var fieldKey = slotType === 'main' ? state.cardDisplayMain : state.cardDisplaySub;
+    return resolveCardDisplayValueByField_(card, fieldKey, slotType);
+  }
+
   function getCardDisplayModel_(card) {
     var cardNo = (card && card.displayId != null && card.displayId !== '') ? String(card.displayId) : utils.getDisplayId(card && card.id);
     cardNo = String(cardNo || '').trim();
@@ -2387,8 +2412,12 @@ window.app = (function() {
     var hasTask = !!getTaskByIdSafe_(card && card.taskId);
     var mainText = resolveCardDisplayValue_(card, 'main');
     var subText = resolveCardDisplayValue_(card, 'sub');
-    // Keep one selector model while providing deterministic defaults for taskless cards.
+    // Taskless cards can use dedicated display fields from settings.
     if (!hasTask) {
+      var tasklessMain = resolveCardDisplayValueByField_(card, state.tasklessDisplayMain, 'main');
+      var tasklessSub = resolveCardDisplayValueByField_(card, state.tasklessDisplaySub, 'sub');
+      if (String(tasklessMain || '').trim()) mainText = tasklessMain;
+      if (String(tasklessSub || '').trim()) subText = tasklessSub;
       if (!String(mainText || '').trim()) mainText = String(card && card.memo || '').trim();
       if (!String(subText || '').trim()) {
         var st = Number(card && card.start);
@@ -2906,6 +2935,8 @@ window.app = (function() {
         state.viewMode = String(state.viewMeta.viewMode || '').trim().toLowerCase() === 'lite' ? 'lite' : 'grid';
         state.cardDisplayMain = normalizeCardDisplayField_(state.viewMeta.cardDisplayMain, 'shot_code');
         state.cardDisplaySub = normalizeCardDisplayField_(state.viewMeta.cardDisplaySub, 'task_name');
+        state.tasklessDisplayMain = normalizeCardDisplayField_(state.viewMeta.tasklessDisplayMain, 'card_memo');
+        state.tasklessDisplaySub = normalizeCardDisplayField_(state.viewMeta.tasklessDisplaySub, 'card_length');
         state.customCardDisplayFields = Array.isArray(state.viewMeta.customCardDisplayFields)
           ? state.viewMeta.customCardDisplayFields.map(function (v) { return normalizeCardDisplayField_(v, ''); }).filter(function (v) { return /^task:|^card:/i.test(String(v || '')); })
           : [];
@@ -3155,7 +3186,9 @@ window.app = (function() {
       if (modeSel) modeSel.value = (state.viewMode === 'lite') ? 'lite' : 'grid';
       var cardMainSel = document.getElementById('sel-card-main');
       var cardSubSel = document.getElementById('sel-card-sub');
-      ui.syncCardDisplayFieldSelectors(cardMainSel, cardSubSel);
+      var tasklessMainSel = document.getElementById('sel-taskless-main');
+      var tasklessSubSel = document.getElementById('sel-taskless-sub');
+      ui.syncCardDisplayFieldSelectors(cardMainSel, cardSubSel, tasklessMainSel, tasklessSubSel);
       var colorNotStarted = document.getElementById('inp-color-not-started');
       if (colorNotStarted) colorNotStarted.value = normalizeHexColor_(state.cardColors.notStarted, CARD_COLOR_DEFAULTS.notStarted);
       var colorInProgress = document.getElementById('inp-color-in-progress');
@@ -3280,6 +3313,8 @@ window.app = (function() {
         assetColumnVisible: !!state.assetColumnVisible,
         cardDisplayMain: normalizeCardDisplayField_(state.cardDisplayMain, 'shot_code'),
         cardDisplaySub: normalizeCardDisplayField_(state.cardDisplaySub, 'task_name'),
+        tasklessDisplayMain: normalizeCardDisplayField_(state.tasklessDisplayMain, 'card_memo'),
+        tasklessDisplaySub: normalizeCardDisplayField_(state.tasklessDisplaySub, 'card_length'),
         customCardDisplayFields: (Array.isArray(state.customCardDisplayFields) ? state.customCardDisplayFields : [])
           .map(function (v) { return normalizeCardDisplayField_(v, ''); })
           .filter(function (v) { return /^task:|^card:/i.test(String(v || '')); }),
@@ -4239,6 +4274,7 @@ window.app = (function() {
                     silentStatus: true,
                     onDone: () => {
                       utils.saveStatus('saved', msg);
+                      try { alert(msg); } catch (_) {}
                     }
                   });
                   return;
@@ -4588,9 +4624,16 @@ window.app = (function() {
     },
 
     setCardDisplayField: (slotType, fieldKey) => {
-      var normalized = normalizeCardDisplayField_(fieldKey, slotType === 'main' ? 'shot_code' : 'task_name');
+      var fallback = 'task_name';
+      if (slotType === 'main') fallback = 'shot_code';
+      else if (slotType === 'taskless_main') fallback = 'card_memo';
+      else if (slotType === 'taskless_sub') fallback = 'card_length';
+      var normalized = normalizeCardDisplayField_(fieldKey, fallback);
       if (slotType === 'main') state.cardDisplayMain = normalized;
-      else state.cardDisplaySub = normalized;
+      else if (slotType === 'sub') state.cardDisplaySub = normalized;
+      else if (slotType === 'taskless_main') state.tasklessDisplayMain = normalized;
+      else if (slotType === 'taskless_sub') state.tasklessDisplaySub = normalized;
+      else return;
       render.grid();
       ui.renderCardList();
       markViewDirty_();
@@ -5473,9 +5516,11 @@ window.app = (function() {
   }
 
   const ui = {
-    syncCardDisplayFieldSelectors: (mainSel, subSel) => {
+    syncCardDisplayFieldSelectors: (mainSel, subSel, tasklessMainSel, tasklessSubSel) => {
       const main = mainSel || document.getElementById('sel-card-main');
       const sub = subSel || document.getElementById('sel-card-sub');
+      const tasklessMain = tasklessMainSel || document.getElementById('sel-taskless-main');
+      const tasklessSub = tasklessSubSel || document.getElementById('sel-taskless-sub');
       if (!main || !sub) return;
       const addFieldSel = document.getElementById('sel-card-add-field');
       const options = buildCardDisplayOptions_();
@@ -5487,6 +5532,8 @@ window.app = (function() {
       };
       ensureOption_(state.cardDisplayMain);
       ensureOption_(state.cardDisplaySub);
+      ensureOption_(state.tasklessDisplayMain);
+      ensureOption_(state.tasklessDisplaySub);
       const renderTo = (sel, selectedValue, fallback) => {
         const normalized = normalizeCardDisplayField_(selectedValue, fallback);
         sel.innerHTML = '';
@@ -5502,8 +5549,12 @@ window.app = (function() {
       };
       renderTo(main, state.cardDisplayMain, 'shot_code');
       renderTo(sub, state.cardDisplaySub, 'task_name');
+      if (tasklessMain) renderTo(tasklessMain, state.tasklessDisplayMain, 'card_memo');
+      if (tasklessSub) renderTo(tasklessSub, state.tasklessDisplaySub, 'card_length');
       state.cardDisplayMain = normalizeCardDisplayField_(main.value, 'shot_code');
       state.cardDisplaySub = normalizeCardDisplayField_(sub.value, 'task_name');
+      if (tasklessMain) state.tasklessDisplayMain = normalizeCardDisplayField_(tasklessMain.value, 'card_memo');
+      if (tasklessSub) state.tasklessDisplaySub = normalizeCardDisplayField_(tasklessSub.value, 'card_length');
       if (addFieldSel) {
         const addCandidates = options.filter((opt) => {
           const v = String((opt && opt.value) || '');
@@ -6080,8 +6131,26 @@ window.app = (function() {
 
         const taskOrder = document.createElement('input');
         taskOrder.className = 'inp';
-        taskOrder.readOnly = true;
+        taskOrder.inputMode = 'numeric';
         taskOrder.value = String(taskRawValue_(t, TASK_FIDS.taskOrder, ['taskOrder', 'order']) || '').trim();
+        if (taskId) {
+          const commitTaskOrder_ = () => {
+            const raw = String(taskOrder.value || '').trim();
+            const next = raw ? String(Math.max(1, Math.round(Number(raw) || 1))) : '';
+            const patch = {};
+            patch[TASK_FIDS.taskOrder] = next;
+            commitTaskPatchFromInspector_(taskId, patch, () => ui.renderInspector());
+          };
+          taskOrder.addEventListener('blur', commitTaskOrder_);
+          taskOrder.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter') {
+              ev.preventDefault();
+              taskOrder.blur();
+            }
+          });
+        } else {
+          taskOrder.disabled = true;
+        }
         edit.refs.taskOrder = taskOrder;
         addField('task Order', taskOrder);
       }
@@ -6848,6 +6917,8 @@ window.app = (function() {
     });
     safeAdd('sel-card-main', 'change', (e) => actions.setCardDisplayField('main', e.target.value));
     safeAdd('sel-card-sub', 'change', (e) => actions.setCardDisplayField('sub', e.target.value));
+    safeAdd('sel-taskless-main', 'change', (e) => actions.setCardDisplayField('taskless_main', e.target.value));
+    safeAdd('sel-taskless-sub', 'change', (e) => actions.setCardDisplayField('taskless_sub', e.target.value));
     safeAdd('btn-card-add-field', 'click', () => actions.addCardDisplayFieldFromSettings());
     safeAdd('btn-settings-save', 'click', actions.saveViewSettings);
     safeAdd('inp-color-not-started', 'change', (e) => actions.setCardColorFromSettings('notStarted', e.target.value));
