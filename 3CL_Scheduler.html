@@ -237,12 +237,12 @@
       cursor: default;
     }
     .lite-token:last-child { margin-bottom: 0; }
-    .lite-token.status-not_started { background: color-mix(in srgb, var(--card-status-not-started) 32%, #000 68%); }
-    .lite-token.status-in_progress { background: color-mix(in srgb, var(--card-status-in-progress) 32%, #000 68%); }
-    .lite-token.status-review { background: color-mix(in srgb, var(--card-status-review) 35%, #000 65%); }
-    .lite-token.status-approved { background: color-mix(in srgb, var(--card-status-approved) 35%, #000 65%); }
-    .lite-token.status-completed { background: color-mix(in srgb, var(--card-status-completed) 35%, #000 65%); }
-    .lite-token.taskless { background: color-mix(in srgb, var(--card-taskless-bg) 45%, #000 55%); }
+    .lite-token.status-not_started { background: var(--card-status-not-started); }
+    .lite-token.status-in_progress { background: var(--card-status-in-progress); }
+    .lite-token.status-review { background: var(--card-status-review); }
+    .lite-token.status-approved { background: var(--card-status-approved); }
+    .lite-token.status-completed { background: var(--card-status-completed); }
+    .lite-token.taskless { background: var(--card-taskless-bg); }
     .lite-token .lt-order { font-size: 9px; opacity: 0.85; min-width: 18px; text-align: right; }
     .lite-token .lt-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .lite-token .lt-arrow { font-size: 10px; opacity: 0.75; }
@@ -4053,6 +4053,7 @@ window.app = (function() {
     },
     load: (opts) => {
       opts = opts || {};
+      const silentStatus = !!opts.silentStatus;
       const onDone = (typeof opts.onDone === 'function') ? opts.onDone : null;
       let doneCalled = false;
       const done_ = () => {
@@ -4062,7 +4063,7 @@ window.app = (function() {
           try { onDone(); } catch (_) {}
         }
       };
-      utils.saveStatus('saving', 'Loading...');
+      if (!silentStatus) utils.saveStatus('saving', 'Loading...');
       const sp = document.getElementById('loadingSpinner');
       if (sp) sp.style.display='flex';
 
@@ -4094,8 +4095,10 @@ window.app = (function() {
               cacheUsed = true;
               diag.usedCache = true;
               diag.t_cache_render_end = Date.now();
-              if (state.timezoneBlocked) utils.saveStatus('error', 'Timezone is not configured');
-              else utils.saveStatus('saved', 'Loaded');
+              if (!silentStatus) {
+                if (state.timezoneBlocked) utils.saveStatus('error', 'Timezone is not configured');
+                else utils.saveStatus('saved', 'Loaded');
+              }
               if (sp) sp.style.display='none';
             }
           }
@@ -4142,8 +4145,10 @@ window.app = (function() {
             }
             store.init(res);
             diag.ok = true;
-            if (state.timezoneBlocked) utils.saveStatus('error', 'Timezone is not configured');
-            else utils.saveStatus('saved', 'Loaded');
+            if (!silentStatus) {
+              if (state.timezoneBlocked) utils.saveStatus('error', 'Timezone is not configured');
+              else utils.saveStatus('saved', 'Loaded');
+            }
             try {
               localStorage.setItem(SCHED_CACHE_KEY, JSON.stringify(res));
               localStorage.setItem(SCHED_CACHE_TS_KEY, String(Date.now()));
@@ -4154,7 +4159,7 @@ window.app = (function() {
             if (!cacheUsed) {
               utils.saveStatus('error', diag.error);
             } else {
-              utils.saveStatus('saved', 'Loaded');
+              if (!silentStatus) utils.saveStatus('saved', 'Loaded');
             }
           }
           try { sessionStorage.setItem(SCHED_LOAD_DIAG_KEY, JSON.stringify(diag, null, 2)); } catch (_) { }
@@ -4170,7 +4175,7 @@ window.app = (function() {
           if (!cacheUsed) {
             utils.saveStatus('error', diag.error);
           } else {
-            utils.saveStatus('saved', 'Loaded');
+            if (!silentStatus) utils.saveStatus('saved', 'Loaded');
           }
           try { sessionStorage.setItem(SCHED_LOAD_DIAG_KEY, JSON.stringify(diag, null, 2)); } catch (_) { }
           done_();
@@ -4229,7 +4234,13 @@ window.app = (function() {
                   const unchanged = Number(res.skippedNoChange || 0);
                   const msg = `Publish done: updated ${updated} / skipped ${skipped} (completed ${completed}, missing ${missing}, invalid ${invalid}, unchanged ${unchanged})`;
                   finish_('saved', msg);
-                  actions.load({ forceNetwork: true });
+                  actions.load({
+                    forceNetwork: true,
+                    silentStatus: true,
+                    onDone: () => {
+                      utils.saveStatus('saved', msg);
+                    }
+                  });
                   return;
                 }
                 const errMsg = String((res && (res.error || res.details)) || 'Publish failed');
@@ -5247,12 +5258,27 @@ window.app = (function() {
       const sortInCell_ = (a, b) => {
         const ta = getTaskByIdSafe_(a && a.taskId);
         const tb = getTaskByIdSafe_(b && b.taskId);
-        const oa = getTaskOrderValue_(ta || {});
-        const ob = getTaskOrderValue_(tb || {});
+        const parseOrder_ = (task, card) => {
+          const raw = task ? (
+            task.taskOrder ||
+            task.order ||
+            taskRawValue_(task, TASK_FIDS.taskOrder, ['taskOrder', 'task Order', 'task_order', 'order'])
+          ) : '';
+          const n = Number(String(raw || '').replace(/[^\d.-]/g, ''));
+          if (isFinite(n) && n > 0) return Math.round(n);
+          const cNo = Number(String((card && (card.displayId || card.id)) || '').replace(/\D+/g, ''));
+          if (isFinite(cNo) && cNo > 0) return (1000000 + cNo);
+          return Number.MAX_SAFE_INTEGER;
+        };
+        const oa = parseOrder_(ta || null, a || null);
+        const ob = parseOrder_(tb || null, b || null);
         if (oa !== ob) return oa - ob;
         const sa = Number(a && a.start || 0);
         const sb = Number(b && b.start || 0);
         if (sa !== sb) return sa - sb;
+        const aNo = Number(String((a && (a.displayId || a.id)) || '').replace(/\D+/g, ''));
+        const bNo = Number(String((b && (b.displayId || b.id)) || '').replace(/\D+/g, ''));
+        if (isFinite(aNo) && isFinite(bNo) && aNo !== bNo) return aNo - bNo;
         return String(a && a.id || '').localeCompare(String(b && b.id || ''));
       };
 
@@ -5266,7 +5292,7 @@ window.app = (function() {
           cell.style.width = laneWidth + 'px';
           cell.style.height = rowH + 'px';
           const items = (bucket[keyOf_(lane.id, di)] || []).slice().sort(sortInCell_);
-          const maxTokensPerCell = 6;
+          const maxTokensPerCell = Math.max(2, Math.min(8, Math.floor((rowH - 10) / 17)));
           const overflowCount = Math.max(0, items.length - maxTokensPerCell);
           const visibleCardCount = overflowCount > 0 ? (maxTokensPerCell - 1) : items.length;
           for (let ii = 0; ii < visibleCardCount; ii++) {
@@ -5636,11 +5662,6 @@ window.app = (function() {
       }
       setInspectorClosed_(false);
       p.innerHTML = '';
-      if (state.viewMode === 'lite') {
-        clearInspectorTimers_();
-        renderLiteInspector_(p, c);
-        return;
-      }
 
       let renderQueued = false;
       const scheduleRender_ = (refreshInspector) => {
