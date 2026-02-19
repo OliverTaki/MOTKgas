@@ -4027,23 +4027,34 @@ function _dc_getActiveSchedConfig_() {
 function _dc_taskCalcFids_() {
   var out = {};
   var safeSet_ = function (k, entity, fieldName) {
-    try { out[k] = schemaGetFidByFieldName(entity, fieldName); } catch (_) { out[k] = ''; }
+    var names = Array.isArray(fieldName) ? fieldName : [fieldName];
+    out[k] = '';
+    for (var i = 0; i < names.length; i++) {
+      try {
+        var fid = schemaGetFidByFieldName(entity, names[i]);
+        if (String(fid || '').trim()) {
+          out[k] = fid;
+          return;
+        }
+      } catch (_) {}
+    }
   };
   safeSet_('status', 'task', 'Status');
   safeSet_('shotLink', 'task', 'Shot Link');
   safeSet_('startDate', 'task', 'Start Date');
-  safeSet_('stillShot', 'task', 'Still Shot');
+  safeSet_('stillShot', 'task', ['Still Shot', 'Still Shot Characters']);
   safeSet_('travelChars', 'task', 'Travel Characters');
   safeSet_('noTravelChars', 'task', 'No-Travel Characters');
   safeSet_('cameraMove', 'task', 'Camera movement');
-  safeSet_('shootFps', 'task', 'Shooting fps');
-  safeSet_('shootFrames', 'task', 'shooting_frames');
+  safeSet_('shootFps', 'task', ['Shooting fps', 'shooting_fps']);
+  safeSet_('shootFrames', 'task', ['shooting_frames', 'Shooting Frames']);
   safeSet_('difficulty', 'task', 'difficulty_factor');
-  safeSet_('estLength', 'task', 'Est length');
+  safeSet_('estLength', 'task', ['Est length', 'Est length (mins)']);
   safeSet_('finished', 'task', 'finished');
-  safeSet_('spentLength', 'task', 'Spent length');
-  safeSet_('overrunRatio', 'task', 'Overrun Ratio');
-  safeSet_('shotFrames24', 'shot', 'Frames @fps24');
+  safeSet_('spentLength', 'task', ['Spent length', 'Spent length (mins)']);
+  safeSet_('overrunRatio', 'task', ['Overrun Ratio', 'Overrun Ratio (%)']);
+  safeSet_('shotFrames24', 'shot', ['Frames @fps24', 'Frames']);
+  try { out.shotId = schemaGetIdFid('shot'); } catch (_) { out.shotId = ''; }
   safeSet_('shotStatus', 'shot', 'Status');
   return out;
 }
@@ -4077,6 +4088,12 @@ function _dc_numLiteral_(v, fallback) {
 
 function _dc_formulaEsc_(s) {
   return String(s == null ? '' : s).replace(/"/g, '""');
+}
+
+function _dc_formulaSheetRef_(sheetName) {
+  var s = String(sheetName || '').trim();
+  if (!s) return '';
+  return "'" + s.replace(/'/g, "''") + "'";
 }
 
 function _dc_metaNumExpr_(keys, fallback) {
@@ -4214,11 +4231,76 @@ function _dc_buildTaskEstFormula_(rowIndex1, hdr, f, meta) {
   return '=MAX(1,ROUND(' + calcExpr + ',0))';
 }
 
+function _dc_buildTaskShootFramesFormula_(rowIndex1, hdr, f) {
+  var row = Math.max(1, Math.floor(Number(rowIndex1) || 0));
+  var header = Array.isArray(hdr) ? hdr : [];
+  var fm = (f && typeof f === 'object') ? f : _dc_taskCalcFids_();
+  if (!row || !header.length || !fm.shootFrames || !fm.shootFps || !fm.shotLink || !fm.shotFrames24 || !fm.shotId) return '';
+  var idxShotLink = _hdrIndex_(header, fm.shotLink);
+  var idxFps = _hdrIndex_(header, fm.shootFps);
+  if (idxShotLink < 0 || idxFps < 0) return '';
+
+  var shotSheet = _entityToSheet_('shot');
+  var shotRef = _dc_formulaSheetRef_(shotSheet);
+  if (!shotRef) return '';
+
+  var ref_ = function (idx0) { return _dc_colA1_(idx0 + 1) + row; };
+  var refShotLink = ref_(idxShotLink);
+  var refFps = ref_(idxFps);
+  if (!refShotLink || !refFps) return '';
+
+  var shotIdColExpr = 'MATCH("' + _dc_formulaEsc_(fm.shotId) + '",' + shotRef + '!1:1,0)';
+  var shotFramesColExpr = 'MATCH("' + _dc_formulaEsc_(fm.shotFrames24) + '",' + shotRef + '!1:1,0)';
+  var taskShotIdExpr = 'IFERROR(REGEXEXTRACT(TO_TEXT(' + refShotLink + '),"sh_[0-9]+"),"")';
+  var framesExpr =
+    'IF(' + taskShotIdExpr + '="",' +
+    '0,' +
+    'IFERROR(VALUE(INDEX(' + shotRef + '!A:ZZ,MATCH(' + taskShotIdExpr + ',INDEX(' + shotRef + '!A:ZZ,0,' + shotIdColExpr + '),0),' + shotFramesColExpr + ')),0)' +
+    ')';
+  var fpsExpr = 'IF(IFERROR(VALUE(' + refFps + '),24)<=0,24,IFERROR(VALUE(' + refFps + '),24))';
+  return '=MAX(0,ROUND((' + framesExpr + ')*(' + fpsExpr + '/24),0))';
+}
+
+function _dc_buildTaskOverrunFormula_(rowIndex1, hdr, f) {
+  var row = Math.max(1, Math.floor(Number(rowIndex1) || 0));
+  var header = Array.isArray(hdr) ? hdr : [];
+  var fm = (f && typeof f === 'object') ? f : _dc_taskCalcFids_();
+  if (!row || !header.length || !fm.overrunRatio || !fm.spentLength || !fm.estLength || !fm.status) return '';
+
+  var idxSpent = _hdrIndex_(header, fm.spentLength);
+  var idxEst = _hdrIndex_(header, fm.estLength);
+  var idxStatus = _hdrIndex_(header, fm.status);
+  if (idxSpent < 0 || idxEst < 0 || idxStatus < 0) return '';
+
+  var schedCfg = _dc_getActiveSchedConfig_();
+  var dayMinutes = Math.max(60, Math.round((Number(schedCfg.workHours) || 8) * 60));
+
+  var ref_ = function (idx0) { return _dc_colA1_(idx0 + 1) + row; };
+  var refSpent = ref_(idxSpent);
+  var refEst = ref_(idxEst);
+  var refStatus = ref_(idxStatus);
+  if (!refSpent || !refEst || !refStatus) return '';
+
+  var estDaysExpr = 'MAX(1,CEILING(IFERROR(VALUE(' + refEst + '),0)/' + dayMinutes + ',1))';
+  var spentDaysExpr = 'MAX(1,CEILING(IFERROR(VALUE(' + refSpent + '),0)/' + dayMinutes + ',1))';
+  var statusCompletedExpr = 'LOWER(TRIM(TO_TEXT(' + refStatus + ')))="completed"';
+  return '=IF(' + statusCompletedExpr + ',IF(IFERROR(VALUE(' + refSpent + '),0)>0,ROUND((' + spentDaysExpr + '/' + estDaysExpr + ')*1000,0)/10,""),"")';
+}
+
+function _dc_buildTaskCalcFormulas_(rowIndex1, hdr, f, meta) {
+  var fm = (f && typeof f === 'object') ? f : _dc_taskCalcFids_();
+  var out = {};
+  out.shootFrames = _dc_buildTaskShootFramesFormula_(rowIndex1, hdr, fm);
+  out.estLength = _dc_buildTaskEstFormula_(rowIndex1, hdr, fm, meta);
+  out.overrunRatio = _dc_buildTaskOverrunFormula_(rowIndex1, hdr, fm);
+  return out;
+}
+
 function _dc_applyTaskEstFormulaByTaskId_(taskId) {
   var id = String(taskId || '').trim();
   if (!id) return { ok: false, error: 'MISSING_TASK_ID' };
   var f = _dc_taskCalcFids_();
-  if (!f.estLength) return { ok: false, error: 'MISSING_EST_FID' };
+  if (!f.estLength && !f.shootFrames && !f.overrunRatio) return { ok: false, error: 'MISSING_TASK_CALC_FID' };
   var sh = _shByName_(_entityToSheet_('task'));
   if (!sh) return { ok: false, error: 'TASK_SHEET_NOT_FOUND' };
   var values = sh.getDataRange().getValues();
@@ -4226,8 +4308,7 @@ function _dc_applyTaskEstFormulaByTaskId_(taskId) {
   var hdr = values[0] || [];
   var idFid = schemaGetIdFid('task');
   var idCol = schemaGetColIndexByFid(hdr, idFid);
-  var estCol = _hdrIndex_(hdr, f.estLength);
-  if (idCol < 0 || estCol < 0) return { ok: false, error: 'TASK_HEADER_MISSING_REQUIRED_COLUMN' };
+  if (idCol < 0) return { ok: false, error: 'TASK_HEADER_MISSING_TASK_ID_COLUMN' };
 
   var rowIndex1 = -1;
   for (var i = 2; i < values.length; i++) {
@@ -4235,18 +4316,36 @@ function _dc_applyTaskEstFormulaByTaskId_(taskId) {
   }
   if (rowIndex1 < 3) return { ok: false, error: 'TASK_ROW_NOT_FOUND' };
 
-  var formula = _dc_buildTaskEstFormula_(rowIndex1, hdr, f, _dc_getProjectMeta_());
-  if (!formula) return { ok: false, error: 'TASK_EST_FORMULA_BUILD_FAILED' };
-  var cell = sh.getRange(rowIndex1, estCol + 1);
-  var current = String(cell.getFormula() || '').trim();
-  if (current === formula) return { ok: true, updated: false, rowIndex: rowIndex1, colIndex: estCol + 1 };
-  cell.setFormula(formula);
-  return { ok: true, updated: true, rowIndex: rowIndex1, colIndex: estCol + 1 };
+  var formulas = _dc_buildTaskCalcFormulas_(rowIndex1, hdr, f, _dc_getProjectMeta_());
+  var targets = [
+    { key: 'shootFrames', fid: f.shootFrames, formula: formulas.shootFrames },
+    { key: 'estLength', fid: f.estLength, formula: formulas.estLength },
+    { key: 'overrunRatio', fid: f.overrunRatio, formula: formulas.overrunRatio }
+  ];
+  var changed = 0;
+  var applied = {};
+  for (var t = 0; t < targets.length; t++) {
+    var one = targets[t];
+    var fid = String(one.fid || '').trim();
+    var formula = String(one.formula || '').trim();
+    if (!fid || !formula) continue;
+    var col = _hdrIndex_(hdr, fid);
+    if (col < 0) continue;
+    var cell = sh.getRange(rowIndex1, col + 1);
+    var current = String(cell.getFormula() || '').trim();
+    if (current !== formula) {
+      cell.setFormula(formula);
+      changed++;
+    }
+    applied[one.key] = { rowIndex: rowIndex1, colIndex: col + 1, changed: current !== formula };
+  }
+  if (!Object.keys(applied).length) return { ok: false, error: 'TASK_CALC_FORMULA_BUILD_FAILED' };
+  return { ok: true, updated: changed > 0, updatedCount: changed, applied: applied };
 }
 
 function _dc_backfillTaskEstFormulas_() {
   var f = _dc_taskCalcFids_();
-  if (!f.estLength) return { ok: false, reason: 'MISSING_EST_FID' };
+  if (!f.estLength && !f.shootFrames && !f.overrunRatio) return { ok: false, reason: 'MISSING_TASK_CALC_FID' };
   var sh = _shByName_(_entityToSheet_('task'));
   if (!sh) return { ok: false, reason: 'TASK_SHEET_NOT_FOUND' };
   var lastRow = sh.getLastRow();
@@ -4257,34 +4356,79 @@ function _dc_backfillTaskEstFormulas_() {
   var hdr = sh.getRange(1, 1, 1, lastCol).getValues()[0] || [];
   var idFid = schemaGetIdFid('task');
   var idCol = schemaGetColIndexByFid(hdr, idFid);
-  var estCol = _hdrIndex_(hdr, f.estLength);
-  if (idCol < 0 || estCol < 0) return { ok: false, reason: 'TASK_HEADER_MISSING_REQUIRED_COLUMN' };
+  if (idCol < 0) return { ok: false, reason: 'TASK_HEADER_MISSING_TASK_ID_COLUMN' };
+
+  var calcCols = {
+    shootFrames: _hdrIndex_(hdr, f.shootFrames),
+    estLength: _hdrIndex_(hdr, f.estLength),
+    overrunRatio: _hdrIndex_(hdr, f.overrunRatio)
+  };
+  if (calcCols.shootFrames < 0 && calcCols.estLength < 0 && calcCols.overrunRatio < 0) {
+    return { ok: false, reason: 'TASK_HEADER_MISSING_CALC_COLUMNS' };
+  }
 
   var rowsCount = lastRow - 2;
   var idVals = sh.getRange(3, idCol + 1, rowsCount, 1).getDisplayValues();
-  var estRange = sh.getRange(3, estCol + 1, rowsCount, 1);
-  var currentFormulas = estRange.getFormulas();
-  var outFormulas = [];
+  var ranges = {};
+  var currentFormulas = {};
+  if (calcCols.shootFrames >= 0) {
+    ranges.shootFrames = sh.getRange(3, calcCols.shootFrames + 1, rowsCount, 1);
+    currentFormulas.shootFrames = ranges.shootFrames.getFormulas();
+  }
+  if (calcCols.estLength >= 0) {
+    ranges.estLength = sh.getRange(3, calcCols.estLength + 1, rowsCount, 1);
+    currentFormulas.estLength = ranges.estLength.getFormulas();
+  }
+  if (calcCols.overrunRatio >= 0) {
+    ranges.overrunRatio = sh.getRange(3, calcCols.overrunRatio + 1, rowsCount, 1);
+    currentFormulas.overrunRatio = ranges.overrunRatio.getFormulas();
+  }
+  var outFormulas = {
+    shootFrames: [],
+    estLength: [],
+    overrunRatio: []
+  };
   var updated = 0;
   var scanned = 0;
 
   for (var i = 0; i < rowsCount; i++) {
     var rowIndex1 = i + 3;
     var taskId = String((idVals[i] && idVals[i][0]) || '').trim();
-    var current = String((currentFormulas[i] && currentFormulas[i][0]) || '').trim();
-    var next = current;
+    var current = {
+      shootFrames: String((currentFormulas.shootFrames && currentFormulas.shootFrames[i] && currentFormulas.shootFrames[i][0]) || '').trim(),
+      estLength: String((currentFormulas.estLength && currentFormulas.estLength[i] && currentFormulas.estLength[i][0]) || '').trim(),
+      overrunRatio: String((currentFormulas.overrunRatio && currentFormulas.overrunRatio[i] && currentFormulas.overrunRatio[i][0]) || '').trim()
+    };
+    var next = {
+      shootFrames: current.shootFrames,
+      estLength: current.estLength,
+      overrunRatio: current.overrunRatio
+    };
     if (taskId) {
       scanned++;
-      var desired = _dc_buildTaskEstFormula_(rowIndex1, hdr, f, null);
-      if (desired && current !== desired) {
-        next = desired;
-        updated++;
+      var desired = _dc_buildTaskCalcFormulas_(rowIndex1, hdr, f, null);
+      var keys = ['shootFrames', 'estLength', 'overrunRatio'];
+      for (var k = 0; k < keys.length; k++) {
+        var key = keys[k];
+        if (calcCols[key] < 0) continue;
+        var want = String(desired[key] || '').trim();
+        if (!want) continue;
+        if (next[key] !== want) {
+          next[key] = want;
+          updated++;
+        }
       }
     }
-    outFormulas.push([next]);
+    outFormulas.shootFrames.push([next.shootFrames]);
+    outFormulas.estLength.push([next.estLength]);
+    outFormulas.overrunRatio.push([next.overrunRatio]);
   }
-  if (updated > 0) estRange.setFormulas(outFormulas);
-  return { ok: true, scanned: scanned, updated: updated };
+  if (updated > 0) {
+    if (ranges.shootFrames) ranges.shootFrames.setFormulas(outFormulas.shootFrames);
+    if (ranges.estLength) ranges.estLength.setFormulas(outFormulas.estLength);
+    if (ranges.overrunRatio) ranges.overrunRatio.setFormulas(outFormulas.overrunRatio);
+  }
+  return { ok: true, scanned: scanned, updated: updated, columns: calcCols };
 }
 
 function _dc_calculateTaskDerivedPatch_(taskId, beforeRecord, cleanPatch) {
