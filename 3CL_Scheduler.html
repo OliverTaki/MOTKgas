@@ -855,6 +855,8 @@ window.app = (function() {
     publishBusy: false,
     publishPhase: '',
     cardTasklessOrderMetaKey: 'taskless_order',
+    cardTasklessOrderMapKey: 'taskless_card_order',
+    tasklessOrderByCardId: {},
     projectTimezoneRaw: '',
     projectTimezoneResolved: '',
     timezoneConfigured: true,
@@ -2254,6 +2256,10 @@ window.app = (function() {
 
   function getCardStableSortNo_(card) {
     const c = card || {};
+    const cardId = String(c.id || '').trim();
+    const mapObj = (state.tasklessOrderByCardId && typeof state.tasklessOrderByCardId === 'object') ? state.tasklessOrderByCardId : {};
+    const mapVal = Number(mapObj[cardId]);
+    if (isFinite(mapVal) && mapVal > 0) return Math.round(mapVal);
     const meta = (c.cardMeta && typeof c.cardMeta === 'object') ? c.cardMeta : {};
     const metaKey = String(state.cardTasklessOrderMetaKey || 'taskless_order').trim() || 'taskless_order';
     const metaVal = Number(meta[metaKey]);
@@ -2263,6 +2269,52 @@ window.app = (function() {
     const idNo = parseCardNumberForSort_(c.id);
     if (isFinite(idNo) && idNo < Number.MAX_SAFE_INTEGER) return idNo;
     return Number.MAX_SAFE_INTEGER;
+  }
+
+  function buildTasklessOrderMapFromCards_() {
+    const items = Object.values(state.cards || {})
+      .filter((c) => {
+        if (!c) return false;
+        const cardId = String(c.id || '').trim();
+        if (!cardId) return false;
+        const taskId = String(c.taskId || '').trim();
+        return !taskId;
+      })
+      .map((c) => ({
+        id: String(c.id || '').trim(),
+        no: parseCardNumberForSort_(c.displayId || c.id),
+        start: Number(c.start || 0)
+      }))
+      .sort((a, b) => {
+        if (a.no !== b.no) return a.no - b.no;
+        if (a.start !== b.start) return a.start - b.start;
+        return String(a.id || '').localeCompare(String(b.id || ''));
+      });
+    const out = {};
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const fallbackOrder = i + 1;
+      const ord = (isFinite(it.no) && it.no < Number.MAX_SAFE_INTEGER) ? Math.round(it.no) : fallbackOrder;
+      out[it.id] = Math.max(1, ord);
+    }
+    return out;
+  }
+
+  function syncTasklessOrderMapFromCards_() {
+    const next = buildTasklessOrderMapFromCards_();
+    const prev = (state.tasklessOrderByCardId && typeof state.tasklessOrderByCardId === 'object') ? state.tasklessOrderByCardId : {};
+    const prevKeys = Object.keys(prev).sort();
+    const nextKeys = Object.keys(next).sort();
+    let changed = prevKeys.length !== nextKeys.length;
+    if (!changed) {
+      for (let i = 0; i < nextKeys.length; i++) {
+        const k = nextKeys[i];
+        if (k !== prevKeys[i]) { changed = true; break; }
+        if (Number(prev[k]) !== Number(next[k])) { changed = true; break; }
+      }
+    }
+    state.tasklessOrderByCardId = next;
+    return changed;
   }
 
   function getTaskEstLengthMin_(task) {
@@ -3040,6 +3092,19 @@ window.app = (function() {
       state.scriptUrlServer = String(data.scriptUrl || '');
       if (state.scriptUrlServer) state.scriptUrl = state.scriptUrlServer;
       state.cardTasklessOrderMetaKey = String(data.cardTasklessOrderMetaKey || 'taskless_order').trim() || 'taskless_order';
+      state.cardTasklessOrderMapKey = String(data.cardTasklessOrderMapKey || 'taskless_card_order').trim() || 'taskless_card_order';
+      state.tasklessOrderByCardId = {};
+      if (state.viewMeta && typeof state.viewMeta === 'object') {
+        const rawTasklessMap = state.viewMeta[state.cardTasklessOrderMapKey];
+        if (rawTasklessMap && typeof rawTasklessMap === 'object') {
+          Object.keys(rawTasklessMap).forEach((k) => {
+            const id = String(k || '').trim();
+            const n = Number(rawTasklessMap[k]);
+            if (!id || !isFinite(n) || n <= 0) return;
+            state.tasklessOrderByCardId[id] = Math.round(n);
+          });
+        }
+      }
       document.documentElement.style.setProperty('--lane-w', `${Math.round(state.laneWidth)}px`);
       document.documentElement.style.setProperty('--asset-col-w', `${Math.round(state.assetColWidth)}px`);
       applyCardColorTheme_();
@@ -3186,13 +3251,6 @@ window.app = (function() {
 
         var memoK = _sch_inferKeyByParts_(c, ['memo']) || _sch_inferKeyByParts_(c, ['note']);
         const cardMetaObj = (c.cardMeta && typeof c.cardMeta === 'object') ? Object.assign({}, c.cardMeta) : {};
-        if (!tid) {
-          const tasklessNo = getCardStableSortNo_({ id: id, displayId: displayId, cardMeta: cardMetaObj });
-          if (isFinite(tasklessNo) && tasklessNo > 0 && tasklessNo < Number.MAX_SAFE_INTEGER) {
-            const metaKey = String(state.cardTasklessOrderMetaKey || 'taskless_order').trim() || 'taskless_order';
-            if (cardMetaObj[metaKey] == null || cardMetaObj[metaKey] === '') cardMetaObj[metaKey] = tasklessNo;
-          }
-        }
 
         state.cards[id] = {
           id: id,
@@ -3207,6 +3265,7 @@ window.app = (function() {
           cardMeta: cardMetaObj
         };
       });
+      if (syncTasklessOrderMapFromCards_()) markViewDirty_();
       warnLegacySlotOffsetOnce_();
       refreshAssetUsageState_();
 
@@ -3387,6 +3446,8 @@ window.app = (function() {
           taskless: normalizeHexColor_(state.cardColors && state.cardColors.taskless, CARD_COLOR_DEFAULTS.taskless)
         }
       };
+      syncTasklessOrderMapFromCards_();
+      meta[String(state.cardTasklessOrderMapKey || 'taskless_card_order')] = Object.assign({}, state.tasklessOrderByCardId || {});
       var payload = JSON.stringify({ schedId: state.schedId, type: 'view_meta', value: meta });
       google.script.run
         .withSuccessHandler(function() {

@@ -5811,6 +5811,12 @@ function sv_scheduler_load_v2() {
       'card.taskless.order_key',
       'card_taskless_order_key'
     ]) || 'taskless_order';
+    var cardTasklessOrderMapKey = pickMetaValue_(projectMeta, [
+      'sched.lite.taskless.order_map_key',
+      'sched_lite_taskless_order_map_key',
+      'card.taskless.order_map_key',
+      'card_taskless_order_map_key'
+    ]) || 'taskless_card_order';
 
     var config = { originDate: '', slotMin: 30, workHours: 8 };
 
@@ -6042,6 +6048,7 @@ function sv_scheduler_load_v2() {
       projectTimezoneResolved: String(projectTimezoneResolved || ''),
       timezoneConfigured: !!timezoneConfigured,
       cardTasklessOrderMetaKey: String(cardTasklessOrderMetaKey || 'taskless_order'),
+      cardTasklessOrderMapKey: String(cardTasklessOrderMapKey || 'taskless_card_order'),
       scriptUrl: ScriptApp.getService().getUrl(),
       diag: { log: log.join(' | ') }
     };
