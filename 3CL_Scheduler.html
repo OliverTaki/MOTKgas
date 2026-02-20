@@ -5322,9 +5322,6 @@ window.app = (function() {
       const sortInCell_ = (a, b) => {
         const ta = getTaskByIdSafe_(a && a.taskId);
         const tb = getTaskByIdSafe_(b && b.taskId);
-        const hasTaskA = !!ta;
-        const hasTaskB = !!tb;
-        if (hasTaskA !== hasTaskB) return hasTaskA ? -1 : 1;
         const parseOrder_ = (task, card) => {
           const raw = task ? (
             task.taskOrder ||
