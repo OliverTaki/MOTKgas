@@ -4448,67 +4448,16 @@ function _dc_calculateTaskDerivedPatch_(taskId, beforeRecord, cleanPatch) {
   var tz = _dc_resolveTimezone_(meta);
   var schedCfg = _dc_getActiveSchedConfig_();
   var dayMinutes = Math.max(60, Math.round((Number(schedCfg.workHours) || 8) * 60));
-
-  var shotId = _dc_firstEntityId_(merged[f.shotLink], 'sh');
-  var frames24 = 0;
-  if (shotId && f.shotFrames24) {
-    try {
-      var shotRecord = sv_getRecord('shot', shotId) || {};
-      frames24 = Number(shotRecord[f.shotFrames24] || 0);
-      if (!isFinite(frames24) || frames24 < 0) frames24 = 0;
-    } catch (_) {
-      frames24 = 0;
-    }
+  // fi_0072 / fi_0074 / fi_0077 are formula-managed; avoid value writes here to prevent double recalculation.
+  var estMinutes = Math.max(1, Math.round(_dc_toNumber_(merged[f.estLength], 0)));
+  if (!isFinite(estMinutes) || estMinutes <= 0) {
+    estMinutes = Math.max(1, Math.round(_dc_toNumber_(beforeRecord && beforeRecord[f.estLength], 60)));
   }
-
-  var fps = _dc_toNumber_(merged[f.shootFps], 24);
-  if (!isFinite(fps) || fps <= 0) fps = 24;
-  var shootingFrames = Math.max(0, Math.round(frames24 * (fps / 24)));
-  if (!(shootingFrames > 0)) {
-    shootingFrames = Math.max(0, Math.round(_dc_toNumber_(merged[f.shootFrames], 0)));
-  }
-  patchOut[f.shootFrames] = String(shootingFrames);
-
-  var travelCount = _dc_toNumber_(merged[f.travelChars], 0);
-  var noTravelCount = _dc_toNumber_(merged[f.noTravelChars], 0);
-  var stillCount = _dc_toNumber_(merged[f.stillShot], 0);
-  var cameraMove = _dc_toBool_(merged[f.cameraMove]);
-
-  var travelCoef = _dc_pickTierValue_(
-    travelCount,
-    _dc_metaNum_(meta, ['movie.travel.chars_1', 'movie_travel_chars_1'], 1),
-    _dc_metaNum_(meta, ['movie.travel.chars_2', 'movie_travel_chars_2'], 1.5),
-    _dc_metaNum_(meta, ['movie.travel.chars_3plus', 'movie_travel_chars_3plus'], 3)
-  );
-  var noTravelCoef = _dc_pickTierValue_(
-    noTravelCount,
-    _dc_metaNum_(meta, ['movie.no_travel.chars_1', 'movie_no_travel_chars_1'], 0.5),
-    _dc_metaNum_(meta, ['movie.no_travel.chars_2', 'movie_no_travel_chars_2'], 0.8),
-    _dc_metaNum_(meta, ['movie.no_travel.chars_3plus', 'movie_no_travel_chars_3plus'], 1)
-  );
-  var stillCoef = (Number(stillCount) >= 2)
-    ? _dc_metaNum_(meta, ['still.chars_2plus', 'still_chars_2plus'], 45)
-    : ((Number(stillCount) >= 1) ? _dc_metaNum_(meta, ['still.chars_1', 'still_chars_1'], 30) : 0);
-  var cameraBonus = cameraMove ? _dc_metaNum_(meta, ['movie.camera_movement_bonus', 'camera_movement_bonus'], 1) : 0;
-  var animationLevel = travelCoef + noTravelCoef + stillCoef + cameraBonus;
-  if (!isFinite(animationLevel) || animationLevel <= 0) animationLevel = 1;
-
-  var difficultyRaw = f.difficulty ? merged[f.difficulty] : '';
-  var difficulty = _dc_toNumber_(difficultyRaw, 1);
-  if (!isFinite(difficulty) || difficulty <= 0) difficulty = 1;
-  var estMinutes = _dc_evalEstRuleMinutes_(meta, {
-    shooting_frames: shootingFrames,
-    animation_level: animationLevel,
-    difficulty_factor: difficulty,
-    est_minutes: 0
-  });
-  patchOut[f.estLength] = String(estMinutes);
 
   var statusBefore = String(srcBefore[f.status] || '').trim().toLowerCase();
   var statusAfter = String(merged[f.status] || '').trim().toLowerCase();
   var nowIsoTz = _dc_nowIsoInTimezone_(tz);
   var spentCurrent = String(merged[f.spentLength] || '').trim();
-  var finishedCurrent = String(merged[f.finished] || '').trim();
 
   if (statusAfter === 'completed') {
     var startDateText = _dc_normalizeDateOnly_(merged[f.startDate], tz);
@@ -4522,17 +4471,11 @@ function _dc_calculateTaskDerivedPatch_(taskId, beforeRecord, cleanPatch) {
     }
     if (!isFinite(spentMinutes) || spentMinutes <= 0) spentMinutes = estMinutes;
     spentMinutes = Math.max(1, Math.round(spentMinutes));
-
-    var estDays = Math.max(1, Math.ceil(estMinutes / dayMinutes));
-    spentDays = Math.max(1, Math.ceil(spentMinutes / dayMinutes));
-    var overrunPct = Math.round((spentDays / estDays) * 1000) / 10;
     patchOut[f.finished] = String(finishedDateText || '');
     patchOut[f.spentLength] = String(spentMinutes);
-    patchOut[f.overrunRatio] = String(overrunPct);
   } else if (statusBefore === 'completed') {
     patchOut[f.finished] = '';
     patchOut[f.spentLength] = '';
-    patchOut[f.overrunRatio] = '';
   }
 
   return patchOut;
@@ -7460,31 +7403,11 @@ function sv_task_recalculate_v1(reqPayload) {
     var formulaBackfill = { ok: false, reason: 'SKIPPED' };
     try { formulaBackfill = _dc_backfillTaskEstFormulas_(); } catch (_) {}
 
-    var processed = 0;
-    var updated = 0;
-    var skipped = 0;
+    var processed = Number(formulaBackfill && formulaBackfill.scanned) || 0;
+    var updated = Number(formulaBackfill && formulaBackfill.updated) || 0;
+    var skipped = Math.max(0, processed - updated);
     var failed = 0;
     var failedTaskIds = [];
-    for (var r = 0; r < rows.length; r++) {
-      var row = rows[r] || [];
-      var taskId = String(row[idxId] || '').trim();
-      if (!taskId) continue;
-      if (Object.keys(onlyTaskIds).length && !onlyTaskIds[taskId]) continue;
-      var status = idxStatus >= 0 ? String(row[idxStatus] || '').trim().toLowerCase() : '';
-      if (!includeCompleted && status === 'completed') {
-        skipped++;
-        continue;
-      }
-      processed++;
-      try {
-        var res = sv_setRecord_v2('task', taskId, {}, { __skipUndoLog: true, __skipLock: true, actor: 'task_recalculate_v1' }) || {};
-        if (res && res.ok && !res.noop) updated++;
-        else skipped++;
-      } catch (e) {
-        failed++;
-        failedTaskIds.push(taskId);
-      }
-    }
     return JSON.stringify({
       ok: true,
       formulaBackfill: formulaBackfill,
