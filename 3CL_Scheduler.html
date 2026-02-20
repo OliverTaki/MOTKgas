@@ -583,6 +583,7 @@
     <button id="btn-undo" class="btn" title="Undo last scheduler change">Undo</button>
     <button id="btn-insp" class="btn">Insp</button>
     <button id="btn-settings" class="btn" title="Settings">Settings</button>
+    <button id="btn-sched-index" class="btn" title="Open schedule index">Index</button>
     <button id="btn-publish" class="btn" title="Publish schedule to Tasks">Publish</button>
   </div>
 
@@ -841,6 +842,7 @@ window.app = (function() {
     suppressCanvasPickUntil: 0,
     requestedSchedId: '',
     requestedSchedApplied: false,
+    requestedViewMode: '',
     undoBusy: false,
     undoPhase: '',
     undoOptions: [],
@@ -875,8 +877,20 @@ window.app = (function() {
       return '';
     }
   };
+  const readRequestedViewMode_ = () => {
+    try {
+      var usp = new URLSearchParams(location.search || '');
+      var raw = String(usp.get('viewMode') || usp.get('vm') || '').trim().toLowerCase();
+      if (raw === 'lite') return 'lite';
+      if (raw === 'grid') return 'grid';
+      return '';
+    } catch (_) {
+      return '';
+    }
+  };
   state.requestedSchedId = readRequestedSchedId_();
   state.requestedSchedApplied = !state.requestedSchedId;
+  state.requestedViewMode = readRequestedViewMode_();
   const INSPECTOR_FIELDS_MODE_KEY = 'motk:scheduler:inspectorFieldsMode';
   try {
     const mode = localStorage.getItem(INSPECTOR_FIELDS_MODE_KEY);
@@ -2933,6 +2947,7 @@ window.app = (function() {
         state.endPreset = normalizePresetKey_(state.viewMeta.endPreset || 'custom');
         state.viewDriver = String(state.viewMeta.viewDriver || '').trim().toLowerCase() === 'end' ? 'end' : 'range';
         state.viewMode = String(state.viewMeta.viewMode || '').trim().toLowerCase() === 'lite' ? 'lite' : 'grid';
+        if (state.requestedViewMode === 'lite' || state.requestedViewMode === 'grid') state.viewMode = state.requestedViewMode;
         state.cardDisplayMain = normalizeCardDisplayField_(state.viewMeta.cardDisplayMain, 'shot_code');
         state.cardDisplaySub = normalizeCardDisplayField_(state.viewMeta.cardDisplaySub, 'task_name');
         state.tasklessDisplayMain = normalizeCardDisplayField_(state.viewMeta.tasklessDisplayMain, 'card_memo');
@@ -4274,7 +4289,6 @@ window.app = (function() {
                     silentStatus: true,
                     onDone: () => {
                       utils.saveStatus('saved', msg);
-                      try { alert(msg); } catch (_) {}
                     }
                   });
                   return;
@@ -4311,6 +4325,13 @@ window.app = (function() {
           setBlockingOverlay_(false);
         }
       });
+    },
+    openSchedIndex: () => {
+      try {
+        const base = String(state.scriptUrlServer || state.scriptUrl || (location.origin + location.pathname));
+        const href = String(base).replace(/\?.*$/, '') + '?p=table&e=scheds';
+        (window.top || window).location.href = href;
+      } catch (_) {}
     },
     commit: (id, type, opts = {}) => {
       if (state.undoBusy) {
@@ -5840,6 +5861,15 @@ window.app = (function() {
       const displayId = (c.displayId != null && c.displayId !== '') ? String(c.displayId) : utils.getDisplayId(c.id);
       cardNo.textContent = `CARD NO. ${displayId}`;
       headerMeta.appendChild(cardNo);
+      const taskForHeader = c.taskId ? (getTaskById_(c.taskId) || {}) : null;
+      if (taskForHeader && Object.keys(taskForHeader).length) {
+        const ordVal = getTaskOrderValue_(taskForHeader);
+        const ordTag = document.createElement('div');
+        ordTag.className = 'info-tag';
+        ordTag.style.cssText = 'display:inline-block; font-size:10px; margin-bottom:2px; color:#e5e7eb; border-color:#4b5563; flex:0 0 auto;';
+        ordTag.textContent = `ORDER ${isFinite(ordVal) && ordVal < Number.MAX_SAFE_INTEGER ? ordVal : '-'}`;
+        headerMeta.appendChild(ordTag);
+      }
       if (cardViewTop.subText) {
         const subTag = document.createElement('div');
         subTag.className = 'info-tag';
@@ -7093,6 +7123,7 @@ window.app = (function() {
       closeToolbarMenus_();
       setSettingsModalOpen_(true);
     });
+    safeAdd('btn-sched-index', 'click', actions.openSchedIndex);
     safeAdd('btn-tz-guard-reload', 'click', () => actions.load({ forceNetwork: true }));
     safeAdd('btn-publish', 'click', actions.publish);
     safeAdd('btn-settings-close', 'click', () => setSettingsModalOpen_(false));

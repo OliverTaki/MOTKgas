@@ -176,10 +176,15 @@ var __SCRIPT_URL_EXEC__ = String(ScriptApp.getService().getUrl() || '').trim();
         else if (id === 'tasks') { href = base + '?p=table&e=tasks'; page = page || 'Tasks'; entity = entity || 'task'; }
         else if (id === 'members') { href = base + '?p=table&e=members'; page = page || 'ProjectMembers'; entity = entity || 'member'; }
         else if (id === 'users') { href = base + '?p=table&e=users'; page = page || 'Users'; entity = entity || 'user'; }
-        else if (id === 'schedule') { href = base + '?p=table&e=scheds'; page = page || 'Schedules'; entity = entity || 'sched'; }
+        else if (id === 'schedule') { href = base + '?p=schedule&viewMode=lite'; page = page || 'Schedule'; entity = entity || 'sched'; }
         else { href = makeHref(id); }
       } else {
         href = makeHref(href);
+      }
+      if (id === 'schedule') {
+        href = base + '?p=schedule&viewMode=lite';
+        page = page || 'Schedule';
+        if (!entity) entity = 'sched';
       }
       return { id: id, label: label, href: href, enabled: enabled, page: page, entity: entity, target: target };
     }
@@ -189,7 +194,7 @@ var __SCRIPT_URL_EXEC__ = String(ScriptApp.getService().getUrl() || '').trim();
       { id: 'tasks', label: 'Tasks', href: base + '?p=table&e=tasks', page: 'Tasks', entity: 'task', enabled: true },
       { id: 'members', label: 'Members', href: base + '?p=table&e=members', page: 'ProjectMembers', entity: 'member', enabled: true },
       { id: 'users', label: 'Users', href: base + '?p=table&e=users', page: 'Users', entity: 'user', enabled: true },
-      { id: 'schedule', label: 'Schedule', href: base + '?p=table&e=scheds', page: 'Schedules', entity: 'sched', enabled: true }
+      { id: 'schedule', label: 'Schedule', href: base + '?p=schedule&viewMode=lite', page: 'Schedule', entity: 'sched', enabled: true }
     ];
     try {
       var ss = SpreadsheetApp.getActiveSpreadsheet();
