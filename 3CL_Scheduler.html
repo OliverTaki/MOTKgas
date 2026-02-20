@@ -854,6 +854,7 @@ window.app = (function() {
     snapPhase: '',
     publishBusy: false,
     publishPhase: '',
+    cardTasklessOrderMetaKey: 'taskless_order',
     projectTimezoneRaw: '',
     projectTimezoneResolved: '',
     timezoneConfigured: true,
@@ -2231,6 +2232,39 @@ window.app = (function() {
     return Math.max(1, Math.round(n));
   }
 
+  function parseCardNumberForSort_(value) {
+    const raw = String(value == null ? '' : value).trim();
+    if (!raw) return Number.MAX_SAFE_INTEGER;
+    if (/^\d+$/.test(raw)) {
+      const nDirect = Number(raw);
+      if (isFinite(nDirect) && nDirect > 0) return Math.round(nDirect);
+    }
+    const tail = raw.match(/(\d+)$/);
+    if (tail && tail[1]) {
+      const nTail = Number(tail[1]);
+      if (isFinite(nTail) && nTail > 0) return Math.round(nTail);
+    }
+    const any = raw.match(/(\d+)/);
+    if (any && any[1]) {
+      const nAny = Number(any[1]);
+      if (isFinite(nAny) && nAny > 0) return Math.round(nAny);
+    }
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  function getCardStableSortNo_(card) {
+    const c = card || {};
+    const meta = (c.cardMeta && typeof c.cardMeta === 'object') ? c.cardMeta : {};
+    const metaKey = String(state.cardTasklessOrderMetaKey || 'taskless_order').trim() || 'taskless_order';
+    const metaVal = Number(meta[metaKey]);
+    if (isFinite(metaVal) && metaVal > 0) return Math.round(metaVal);
+    const dispNo = parseCardNumberForSort_(c.displayId);
+    if (isFinite(dispNo) && dispNo < Number.MAX_SAFE_INTEGER) return dispNo;
+    const idNo = parseCardNumberForSort_(c.id);
+    if (isFinite(idNo) && idNo < Number.MAX_SAFE_INTEGER) return idNo;
+    return Number.MAX_SAFE_INTEGER;
+  }
+
   function getTaskEstLengthMin_(task) {
     const n = taskNumberValue_(task, TASK_FIDS.estLength, ['estLength', 'est_length'], NaN);
     if (!isFinite(n) || n <= 0) return 60;
@@ -3005,6 +3039,7 @@ window.app = (function() {
       }
       state.scriptUrlServer = String(data.scriptUrl || '');
       if (state.scriptUrlServer) state.scriptUrl = state.scriptUrlServer;
+      state.cardTasklessOrderMetaKey = String(data.cardTasklessOrderMetaKey || 'taskless_order').trim() || 'taskless_order';
       document.documentElement.style.setProperty('--lane-w', `${Math.round(state.laneWidth)}px`);
       document.documentElement.style.setProperty('--asset-col-w', `${Math.round(state.assetColWidth)}px`);
       applyCardColorTheme_();
@@ -3150,6 +3185,15 @@ window.app = (function() {
         displayId = String(rawDisplayId || '').trim();
 
         var memoK = _sch_inferKeyByParts_(c, ['memo']) || _sch_inferKeyByParts_(c, ['note']);
+        const cardMetaObj = (c.cardMeta && typeof c.cardMeta === 'object') ? Object.assign({}, c.cardMeta) : {};
+        if (!tid) {
+          const tasklessNo = getCardStableSortNo_({ id: id, displayId: displayId, cardMeta: cardMetaObj });
+          if (isFinite(tasklessNo) && tasklessNo > 0 && tasklessNo < Number.MAX_SAFE_INTEGER) {
+            const metaKey = String(state.cardTasklessOrderMetaKey || 'taskless_order').trim() || 'taskless_order';
+            if (cardMetaObj[metaKey] == null || cardMetaObj[metaKey] === '') cardMetaObj[metaKey] = tasklessNo;
+          }
+        }
+
         state.cards[id] = {
           id: id,
           displayId: displayId,
@@ -3160,7 +3204,7 @@ window.app = (function() {
           end: start + Math.max(1, dur) - 1,
           memo: c.memo || c.cardMemo || (memoK ? c[memoK] : '') || '',
           status: t.status || '',
-          cardMeta: c.cardMeta || {}
+          cardMeta: cardMetaObj
         };
       });
       warnLegacySlotOffsetOnce_();
@@ -5322,27 +5366,20 @@ window.app = (function() {
       const sortInCell_ = (a, b) => {
         const ta = getTaskByIdSafe_(a && a.taskId);
         const tb = getTaskByIdSafe_(b && b.taskId);
-        const parseOrder_ = (task, card) => {
-          const raw = task ? (
-            task.taskOrder ||
-            task.order ||
-            taskRawValue_(task, TASK_FIDS.taskOrder, ['taskOrder', 'task Order', 'task_order', 'order'])
-          ) : '';
-          const n = Number(String(raw || '').replace(/[^\d.-]/g, ''));
-          if (isFinite(n) && n > 0) return Math.round(n);
-          const cNo = Number(String((card && (card.displayId || card.id)) || '').replace(/\D+/g, ''));
-          if (isFinite(cNo) && cNo > 0) return cNo;
-          return Number.MAX_SAFE_INTEGER;
-        };
-        const oa = parseOrder_(ta || null, a || null);
-        const ob = parseOrder_(tb || null, b || null);
-        if (oa !== ob) return oa - ob;
+        const oa = getTaskOrderValue_(ta || {});
+        const ob = getTaskOrderValue_(tb || {});
+        const hasOrderA = !!ta && isFinite(oa) && oa < Number.MAX_SAFE_INTEGER;
+        const hasOrderB = !!tb && isFinite(ob) && ob < Number.MAX_SAFE_INTEGER;
+        if (hasOrderA !== hasOrderB) return hasOrderA ? -1 : 1;
+        if (hasOrderA && hasOrderB && oa !== ob) return oa - ob;
+
+        const cna = getCardStableSortNo_(a || {});
+        const cnb = getCardStableSortNo_(b || {});
+        if (cna !== cnb) return cna - cnb;
+
         const sa = Number(a && a.start || 0);
         const sb = Number(b && b.start || 0);
         if (sa !== sb) return sa - sb;
-        const aNo = Number(String((a && (a.displayId || a.id)) || '').replace(/\D+/g, ''));
-        const bNo = Number(String((b && (b.displayId || b.id)) || '').replace(/\D+/g, ''));
-        if (isFinite(aNo) && isFinite(bNo) && aNo !== bNo) return aNo - bNo;
         return String(a && a.id || '').localeCompare(String(b && b.id || ''));
       };
 

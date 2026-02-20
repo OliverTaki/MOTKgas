@@ -5608,6 +5608,24 @@ function sv_scheduler_load_v2() {
       }
       return '';
     };
+    var resolveFieldFidByMetaOrSchema_ = function(entity, canonicalFieldName, metaKeys, metaObj) {
+      var fid = '';
+      var raw = pickMetaValue_(metaObj || {}, Array.isArray(metaKeys) ? metaKeys : []);
+      if (raw) {
+        var candidate = String(raw).trim();
+        if (candidate) {
+          try {
+            var fm = schemaGetFieldMetaByFid(candidate);
+            if (fm && _schemaNormalizeEntity_(fm.entity) === _schemaNormalizeEntity_(entity)) return candidate;
+          } catch (_) {}
+          if (!fid && /^fi_\d+$/i.test(candidate)) fid = candidate;
+        }
+      }
+      if (!fid) {
+        try { fid = schemaGetFidByFieldName(entity, canonicalFieldName) || ''; } catch (_) { fid = ''; }
+      }
+      return String(fid || '').trim();
+    };
     var normalizeTaskDate_ = function(v) {
       return toLocalDateText_(v);
     };
@@ -5745,6 +5763,55 @@ function sv_scheduler_load_v2() {
       return out;
     };
 
+    var projectMeta = {};
+    try {
+      var metaSheet = ss.getSheetByName('project_meta');
+      if (metaSheet && typeof _sv_readProjectMeta_ === 'function') {
+        projectMeta = _sv_readProjectMeta_(metaSheet) || {};
+      }
+    } catch (_) {}
+
+    var fidSchedActive = resolveFieldFidByMetaOrSchema_('sched', 'active', [
+      'fieldmap.sched.active',
+      'fieldmap_sched_active'
+    ], projectMeta);
+    var fidSchedId = resolveFieldFidByMetaOrSchema_('sched', 'schedId', [
+      'fieldmap.sched.id',
+      'fieldmap_sched_id',
+      'colkey.scheds.sched_id',
+      'colkey_scheds_sched_id'
+    ], projectMeta);
+    var fidSchedOriginDate = resolveFieldFidByMetaOrSchema_('sched', 'originDate', [
+      'fieldmap.sched.origin_date',
+      'fieldmap_sched_origin_date'
+    ], projectMeta);
+    var fidSchedSlotMin = resolveFieldFidByMetaOrSchema_('sched', 'slotMin', [
+      'fieldmap.sched.slot_min',
+      'fieldmap_sched_slot_min'
+    ], projectMeta);
+    var fidSchedWorkHours = resolveFieldFidByMetaOrSchema_('sched', 'workHours', [
+      'fieldmap.sched.work_hours',
+      'fieldmap_sched_work_hours'
+    ], projectMeta);
+    var fidSchedName = resolveFieldFidByMetaOrSchema_('sched', 'schedName', [
+      'fieldmap.sched.name',
+      'fieldmap_sched_name'
+    ], projectMeta);
+    var fidSchedViewMeta = resolveFieldFidByMetaOrSchema_('sched', 'view_meta', [
+      'fieldmap.sched.view_meta',
+      'fieldmap_sched_view_meta'
+    ], projectMeta);
+    var fidCardViewMeta = resolveFieldFidByMetaOrSchema_('card', 'card_view_meta', [
+      'fieldmap.card.view_meta',
+      'fieldmap_card_view_meta'
+    ], projectMeta);
+    var cardTasklessOrderMetaKey = pickMetaValue_(projectMeta, [
+      'sched.lite.taskless.order_key',
+      'sched_lite_taskless_order_key',
+      'card.taskless.order_key',
+      'card_taskless_order_key'
+    ]) || 'taskless_order';
+
     var config = { originDate: '', slotMin: 30, workHours: 8 };
 
     var activeID = 'sched_0001';
@@ -5757,19 +5824,19 @@ function sv_scheduler_load_v2() {
       var sData = schedsSheet.getDataRange().getValues();
       var sHeaders = sData[1] || [];
       var sSysHeaders = sData[0] || [];
-      var cActive = schemaGetColIndexByFid(sSysHeaders, schemaGetFidByFieldName('sched', 'active'));
+      var cActive = schemaGetColIndexByFid(sSysHeaders, fidSchedActive);
       if (cActive < 0) cActive = _getColIdx_v2(sHeaders, ['active']);
-      var cId = schemaGetColIndexByFid(sSysHeaders, schemaGetFidByFieldName('sched', 'schedId'));
+      var cId = schemaGetColIndexByFid(sSysHeaders, fidSchedId);
       if (cId < 0) cId = _getColIdx_v2(sHeaders, ['schedId', 'id']);
-      var cOrigin = schemaGetColIndexByFid(sSysHeaders, schemaGetFidByFieldName('sched', 'originDate'));
+      var cOrigin = schemaGetColIndexByFid(sSysHeaders, fidSchedOriginDate);
       if (cOrigin < 0) cOrigin = _getColIdx_v2(sHeaders, ['originDate']);
-      var cSlot = schemaGetColIndexByFid(sSysHeaders, schemaGetFidByFieldName('sched', 'slotMin'));
+      var cSlot = schemaGetColIndexByFid(sSysHeaders, fidSchedSlotMin);
       if (cSlot < 0) cSlot = _getColIdx_v2(sHeaders, ['slotMin']);
-      var cWork = schemaGetColIndexByFid(sSysHeaders, schemaGetFidByFieldName('sched', 'workHours'));
+      var cWork = schemaGetColIndexByFid(sSysHeaders, fidSchedWorkHours);
       if (cWork < 0) cWork = _getColIdx_v2(sHeaders, ['workHours']);
-      var cName = schemaGetColIndexByFid(sSysHeaders, schemaGetFidByFieldName('sched', 'schedName'));
+      var cName = schemaGetColIndexByFid(sSysHeaders, fidSchedName);
       if (cName < 0) cName = _getColIdx_v2(sHeaders, ['schedName']);
-      var cViewMeta = schemaGetColIndexByFid(sSysHeaders, schemaGetFidByFieldName('sched', 'view_meta'));
+      var cViewMeta = schemaGetColIndexByFid(sSysHeaders, fidSchedViewMeta);
       if (cViewMeta < 0) cViewMeta = _getColIdx_v2(sHeaders, ['view_meta']);
 
       for (var i = 2; i < sData.length; i++) {
@@ -5797,13 +5864,6 @@ function sv_scheduler_load_v2() {
     }
 
     var tasksRaw = loadSheet('Tasks');
-    var projectMeta = {};
-    try {
-      var metaSheet = ss.getSheetByName('project_meta');
-      if (metaSheet && typeof _sv_readProjectMeta_ === 'function') {
-        projectMeta = _sv_readProjectMeta_(metaSheet) || {};
-      }
-    } catch (_) {}
     var projectTimezoneRaw = pickMetaValue_(projectMeta, ['Timezone', 'timezone']);
     var projectTimezoneResolved = '';
     try { projectTimezoneResolved = _dc_resolveTimezone_(projectMeta); } catch (_) { projectTimezoneResolved = ''; }
@@ -5920,9 +5980,7 @@ function sv_scheduler_load_v2() {
       if (cData && cData.length >= 2) {
         var cIds = cData[0] || [];
         var cHeaders = cData[1] || [];
-        var cardMetaFid = '';
-        try { cardMetaFid = schemaGetFidByFieldName('card', 'card_view_meta'); } catch (_) { cardMetaFid = ''; }
-        var cCardMeta = schemaGetColIndexByFid(cIds, cardMetaFid);
+        var cCardMeta = schemaGetColIndexByFid(cIds, fidCardViewMeta);
         if (cCardMeta < 0) cCardMeta = cHeaders.indexOf('card_view_meta');
 
         var colKeyMap = [];
@@ -5983,6 +6041,7 @@ function sv_scheduler_load_v2() {
       projectTimezone: String(projectTimezoneRaw || ''),
       projectTimezoneResolved: String(projectTimezoneResolved || ''),
       timezoneConfigured: !!timezoneConfigured,
+      cardTasklessOrderMetaKey: String(cardTasklessOrderMetaKey || 'taskless_order'),
       scriptUrl: ScriptApp.getService().getUrl(),
       diag: { log: log.join(' | ') }
     };
