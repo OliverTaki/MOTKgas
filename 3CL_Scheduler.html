@@ -5322,6 +5322,9 @@ window.app = (function() {
       const sortInCell_ = (a, b) => {
         const ta = getTaskByIdSafe_(a && a.taskId);
         const tb = getTaskByIdSafe_(b && b.taskId);
+        const hasTaskA = !!ta;
+        const hasTaskB = !!tb;
+        if (hasTaskA !== hasTaskB) return hasTaskA ? -1 : 1;
         const parseOrder_ = (task, card) => {
           const raw = task ? (
             task.taskOrder ||
@@ -5331,7 +5334,7 @@ window.app = (function() {
           const n = Number(String(raw || '').replace(/[^\d.-]/g, ''));
           if (isFinite(n) && n > 0) return Math.round(n);
           const cNo = Number(String((card && (card.displayId || card.id)) || '').replace(/\D+/g, ''));
-          if (isFinite(cNo) && cNo > 0) return (1000000 + cNo);
+          if (isFinite(cNo) && cNo > 0) return cNo;
           return Number.MAX_SAFE_INTEGER;
         };
         const oa = parseOrder_(ta || null, a || null);
