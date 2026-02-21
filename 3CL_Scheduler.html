@@ -24,6 +24,20 @@
     }
     body { background: var(--bg-app); color: var(--text-main); font-family: sans-serif; height: 100vh; overflow: hidden; margin:0; user-select:none; }
     #app-root { display: flex; flex-direction: column; height: 100%; }
+    body.schedview-only #config-info,
+    body.schedview-only #btn-view,
+    body.schedview-only #btn-lanes,
+    body.schedview-only #btn-undo,
+    body.schedview-only #btn-insp,
+    body.schedview-only #btn-settings,
+    body.schedview-only #btn-publish,
+    body.schedview-only #inspector-resizer,
+    body.schedview-only #inspector,
+    body.schedview-only #settings-modal,
+    body.schedview-only #undo-modal,
+    body.schedview-only #remove-card-modal {
+      display: none !important;
+    }
 
     /* Toolbar */
     #toolbar { height: 48px; background: var(--bg-header); border-bottom: 1px solid var(--border-color); display: flex; align-items: center; padding: 0 12px; gap: 10px; flex-shrink: 0; }
@@ -870,7 +884,17 @@ window.app = (function() {
     commitInflight: null,
     commitSeq: 0,
     disableBatchCommit: false,
-    inspEdit: { active: false, cardId: null, fields: {}, dirty: {}, commitLock: false, isTyping: false, isEditingStart: false, isEditingEnd: false, needsResyncAfterEdit: false, refs: {}, timers: {} }
+    inspEdit: { active: false, cardId: null, fields: {}, dirty: {}, commitLock: false, isTyping: false, isEditingStart: false, isEditingEnd: false, needsResyncAfterEdit: false, refs: {}, timers: {} },
+    routePage: '',
+    schedViewOnly: false
+  };
+  const readRoutePage_ = () => {
+    try {
+      var usp = new URLSearchParams(location.search || '');
+      return String(usp.get('p') || usp.get('page') || '').trim().toLowerCase();
+    } catch (_) {
+      return '';
+    }
   };
   const readRequestedSchedId_ = () => {
     try {
@@ -895,7 +919,11 @@ window.app = (function() {
   };
   state.requestedSchedId = readRequestedSchedId_();
   state.requestedSchedApplied = !state.requestedSchedId;
+  state.routePage = readRoutePage_();
+  state.schedViewOnly = state.routePage === 'schedview';
   state.requestedViewMode = readRequestedViewMode_();
+  if (state.schedViewOnly) state.requestedViewMode = 'lite';
+  if (state.schedViewOnly && document.body) document.body.classList.add('schedview-only');
   const INSPECTOR_FIELDS_MODE_KEY = 'motk:scheduler:inspectorFieldsMode';
   try {
     const mode = localStorage.getItem(INSPECTOR_FIELDS_MODE_KEY);
@@ -3036,6 +3064,7 @@ window.app = (function() {
         state.viewDriver = String(state.viewMeta.viewDriver || '').trim().toLowerCase() === 'end' ? 'end' : 'range';
         state.viewMode = String(state.viewMeta.viewMode || '').trim().toLowerCase() === 'lite' ? 'lite' : 'grid';
         if (state.requestedViewMode === 'lite' || state.requestedViewMode === 'grid') state.viewMode = state.requestedViewMode;
+        if (state.schedViewOnly) state.viewMode = 'lite';
         state.cardDisplayMain = normalizeCardDisplayField_(state.viewMeta.cardDisplayMain, 'shot_code');
         state.cardDisplaySub = normalizeCardDisplayField_(state.viewMeta.cardDisplaySub, 'task_name');
         state.tasklessDisplayMain = normalizeCardDisplayField_(state.viewMeta.tasklessDisplayMain, 'card_memo');
@@ -4950,6 +4979,13 @@ window.app = (function() {
       markLaneDirty_();
     },
     setViewMode: (rawMode) => {
+      if (state.schedViewOnly) {
+        if (state.viewMode !== 'lite') {
+          state.viewMode = 'lite';
+          render.all();
+        }
+        return;
+      }
       const next = String(rawMode || '').trim().toLowerCase() === 'lite' ? 'lite' : 'grid';
       if (state.viewMode === next) return;
       state.viewMode = next;
@@ -5054,6 +5090,41 @@ window.app = (function() {
       actions.selectCard(id);
     }
   };
+
+  (function applySchedViewOnlyActionGuard_() {
+    if (!state.schedViewOnly) return;
+    const blockedActions = {
+      undoLast: true,
+      publish: true,
+      commit: true,
+      moveCard: true,
+      moveCardBlock: true,
+      toggleLane: true,
+      moveLane: true,
+      setLaneWidth: true,
+      setAssetColWidth: true,
+      deleteCard: true,
+      autoCreate: true,
+      newCard: true,
+      saveViewSettings: true,
+      saveLaneSettings: true,
+      renameSchedFromSettings: true,
+      takeSnapshotFromUndoMenu: true,
+      renameSelectedSnapshot: true,
+      undoToSelected: true,
+      closeSelectedGap: true,
+      removeCardFromLane: true
+    };
+    Object.keys(blockedActions).forEach((name) => {
+      if (typeof actions[name] !== 'function') return;
+      const fn = actions[name];
+      actions[name] = function blockedInSchedView_() {
+        utils.saveStatus('error', 'SchedView is read-only');
+        return;
+      };
+      actions[name].__wrappedFrom = fn;
+    });
+  })();
 
   (function applyTimezoneActionGuard_() {
     const allow = { load: true };
@@ -6735,6 +6806,12 @@ window.app = (function() {
   }
 
   function dragStart(e, card, el) {
+    if (state.schedViewOnly) {
+      e.preventDefault();
+      e.stopPropagation();
+      actions.selectCard(card && card.id);
+      return;
+    }
     if (state.viewMode === 'lite') {
       e.preventDefault();
       e.stopPropagation();
@@ -6783,6 +6860,7 @@ window.app = (function() {
   }
 
   function dragMove(e) {
+    if (state.schedViewOnly) return;
     if (state.timezoneBlocked) return;
     if (!drag || state.undoBusy) return;
     const dy = e.clientY - drag.startY;
@@ -6853,6 +6931,11 @@ window.app = (function() {
     document.removeEventListener('mousemove', dragMove);
     document.removeEventListener('mouseup', dragEnd);
     if (!drag) return;
+    if (state.schedViewOnly) {
+      render.grid();
+      drag = null;
+      return;
+    }
     if (state.timezoneBlocked) {
       render.grid();
       drag = null;
@@ -6943,6 +7026,7 @@ window.app = (function() {
 
   function handleCanvasDrop_(e) {
     e.preventDefault();
+    if (state.schedViewOnly) return;
     if (state.viewMode === 'lite') return;
     if (state.timezoneBlocked) return;
     if (state.undoBusy) return;
@@ -7244,11 +7328,13 @@ window.app = (function() {
     safeAdd('grid-canvas', 'dragover', (e) => { e.preventDefault(); });
     safeAdd('grid-canvas', 'drop', handleCanvasDrop_);
     safeAdd('grid-canvas', 'mousedown', (e) => {
+      if (state.schedViewOnly) return;
       if (state.undoBusy) return;
       if (e.button !== 0) return;
       pickGapFromCanvasEvent_(e);
     });
     safeAdd('grid-canvas', 'click', (e) => {
+      if (state.schedViewOnly) return;
       if (state.undoBusy) return;
       if (e.button !== 0) return;
       pickGapFromCanvasEvent_(e);
@@ -7311,6 +7397,10 @@ window.app = (function() {
     initInspectorResizer_();
     const insp = document.getElementById('inspector');
     if (insp) setInspectorClosed_(insp.classList.contains('closed'));
+    if (state.schedViewOnly) {
+      document.body.classList.add('schedview-only');
+      setInspectorClosed_(true);
+    }
   }
 
   return { actions, ui, state, render, bindEvents };
