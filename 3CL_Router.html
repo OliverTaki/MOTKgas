@@ -92,7 +92,7 @@
       Router.buildScheduleUrl = function (schedId) {
         var base = Router.baseUrl();
         var url = new URL(base);
-        url.searchParams.set('p', 'schedule');
+        url.searchParams.set('p', 'schedview');
         if (schedId) url.searchParams.set('schedId', String(schedId));
         return url.toString();
       };

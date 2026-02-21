@@ -883,6 +883,8 @@ window.app = (function() {
   const readRequestedViewMode_ = () => {
     try {
       var usp = new URLSearchParams(location.search || '');
+      var route = String(usp.get('p') || usp.get('page') || '').trim().toLowerCase();
+      if (route === 'schedview') return 'lite';
       var raw = String(usp.get('viewMode') || usp.get('vm') || '').trim().toLowerCase();
       if (raw === 'lite') return 'lite';
       if (raw === 'grid') return 'grid';

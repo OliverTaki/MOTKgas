@@ -16,6 +16,7 @@ var PAGE_TEMPLATE_MAP = {
   'users': '3CL_Shell',
   'dashboard': '3CL_Shell',
   'schedule': '3CL_Scheduler',
+  'schedview': '3CL_SchedView',
   'settings': '3CL_Settings',
   'index': '3CL_Shell',
   'table': '3CL_Shell',
@@ -67,6 +68,9 @@ function _normalizePageAndEntity_(page, entity) {
   }
   if (pageRaw === 'schedule') {
     return { page: 'Schedule', entity: normEntity(entRaw || 'shot') };
+  }
+  if (pageRaw === 'schedview') {
+    return { page: 'SchedView', entity: 'sched' };
   }
   if (pageRaw === 'table') {
     var entKey = normEntity(entRaw || 'shot');
