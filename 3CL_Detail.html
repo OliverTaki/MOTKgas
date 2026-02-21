@@ -54,6 +54,18 @@
       var page = String(it.page || '').trim();
       var entity = String(it.entity || '').trim();
       var target = String(it.target || '').trim();
+      var pageNorm = String(page || '').trim().toLowerCase();
+      var labelNorm = String(label || '').trim().toLowerCase();
+      var hrefNormRaw = String(href || '').trim().toLowerCase();
+      var isScheduleLike = (
+        id === 'schedule' ||
+        pageNorm === 'schedule' ||
+        pageNorm === 'schedview' ||
+        labelNorm === 'schedule' ||
+        /[?&]p=schedule(?:&|$)/i.test(hrefNormRaw) ||
+        /[?&]p=schedview(?:&|$)/i.test(hrefNormRaw) ||
+        /[?&]page=schedule(?:&|$)/i.test(hrefNormRaw)
+      );
       if (!href) {
         if (id === 'shots') { href = base + '?p=table&e=shots'; page = page || 'Shots'; entity = entity || 'shot'; }
         else if (id === 'assets') { href = base + '?p=table&e=assets'; page = page || 'Assets'; entity = entity || 'asset'; }
@@ -65,8 +77,10 @@
       } else {
         href = makeHref(href);
       }
-      if (id === 'schedule') {
+      if (isScheduleLike) {
+        id = 'schedule';
         href = base + '?p=schedview';
+        page = page || 'SchedView';
         target = '_blank';
       }
       return { id: id, label: label, href: href, enabled: enabled, page: page, entity: entity, target: target };
