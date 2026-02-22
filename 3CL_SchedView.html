@@ -1,1 +1,827 @@
-<?!= include('3CL_Scheduler'); ?>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MOTK SchedView</title>
+  <style>
+    :root {
+      --bg-app: #0e0e10;
+      --bg-header: #121214;
+      --bg-panel: #17181c;
+      --bg-cell: #13141a;
+      --border: #2a2d35;
+      --text-main: #e5e7eb;
+      --text-dim: #9ca3af;
+      --accent: #2563eb;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --err: #ef4444;
+      --lane-w: 148px;
+      --day-h: 88px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: var(--bg-app); color: var(--text-main); font-family: sans-serif; }
+    #app { height: 100%; display: flex; flex-direction: column; }
+    #toolbar {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-header);
+      flex-shrink: 0;
+    }
+    .brand a { color: #fff; text-decoration: none; font-weight: 900; font-size: 13px; }
+    .brand span { color: var(--accent); }
+    .btn {
+      background: #23252d;
+      border: 1px solid #3a3e49;
+      color: #e5e7eb;
+      padding: 5px 10px;
+      font-size: 11px;
+      border-radius: 5px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn:hover { background: #323844; }
+    .inp {
+      background: #0e1116;
+      border: 1px solid #3a3e49;
+      color: #fff;
+      border-radius: 5px;
+      font-size: 11px;
+      padding: 5px 8px;
+    }
+    .tag {
+      border: 1px solid #323744;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 10px;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+    #status {
+      font-size: 11px;
+      margin-left: 6px;
+      min-width: 160px;
+      max-width: 44vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #status.saving { color: var(--warn); }
+    #status.saved { color: var(--ok); }
+    #status.error { color: var(--err); }
+
+    #main {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      overflow: hidden;
+    }
+    #grid-wrap {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+    }
+    #lane-header-scroll {
+      height: 36px;
+      display: flex;
+      overflow: hidden;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-panel);
+      flex-shrink: 0;
+    }
+    #year-corner {
+      width: 62px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent);
+      background: #101117;
+      position: sticky;
+      left: 0;
+      z-index: 5;
+    }
+    #lane-headers { display: flex; }
+    .lane-head {
+      width: var(--lane-w);
+      flex-shrink: 0;
+      border-right: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 8px;
+      font-size: 11px;
+      color: #d1d5db;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #grid-scroll {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      overflow: auto;
+      position: relative;
+      background: #0f1015;
+    }
+    #date-axis {
+      width: 62px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--border);
+      background: #101117;
+      position: sticky;
+      left: 0;
+      z-index: 4;
+      min-height: 100%;
+    }
+    .date-cell {
+      height: var(--day-h);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      font-size: 10px;
+      color: var(--text-dim);
+      background: #101117;
+    }
+    .date-cell.today { background: rgba(37, 99, 235, 0.14); color: #eef2ff; }
+    .date-cell .main { font-size: 13px; font-weight: 700; line-height: 1.05; color: #e5e7eb; }
+    .date-cell .sub { font-size: 10px; line-height: 1.1; }
+
+    #canvas {
+      position: relative;
+      min-height: 100%;
+      background: #0f1015;
+    }
+    .cell {
+      position: absolute;
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-cell);
+      overflow: hidden;
+      padding: 4px;
+    }
+    .token {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 3px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      font-size: 10px;
+      line-height: 1.2;
+      padding: 2px 4px;
+      background: rgba(37, 99, 235, 0.30);
+      color: #e5e7eb;
+      min-height: 18px;
+      cursor: default;
+    }
+    .token.taskless { background: rgba(71, 85, 105, 0.45); }
+    .token.status-not_started { background: rgba(29, 78, 216, 0.35); }
+    .token.status-in_progress { background: rgba(124, 58, 237, 0.35); }
+    .token.status-review { background: rgba(217, 119, 6, 0.35); }
+    .token.status-approved { background: rgba(15, 118, 110, 0.35); }
+    .token.status-completed { background: rgba(22, 101, 52, 0.35); }
+    .tk-order {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 16px;
+      height: 14px;
+      border-radius: 3px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #cbd5e1;
+      background: rgba(17, 24, 39, 0.55);
+      font-size: 9px;
+      font-weight: 700;
+      padding: 0 2px;
+      flex-shrink: 0;
+    }
+    .tk-main {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1 1 auto;
+    }
+    .tk-arrow {
+      font-size: 10px;
+      color: #c7d2fe;
+      flex-shrink: 0;
+    }
+    .token.more {
+      background: rgba(17, 24, 39, 0.55);
+      color: #cbd5e1;
+      justify-content: center;
+    }
+    #empty {
+      display: none;
+      padding: 16px;
+      color: #9ca3af;
+      font-size: 12px;
+    }
+    #empty.show { display: block; }
+
+    @media (max-width: 980px) {
+      :root { --lane-w: 128px; --day-h: 78px; }
+      #status { max-width: 34vw; }
+      .tag.hide-sm { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="toolbar">
+    <div class="brand"><a id="brand-link" href="#">MOTK <span>SCHEDVIEW</span></a></div>
+    <select id="sched-switch" class="inp" style="min-width:150px;"></select>
+    <div class="tag hide-sm" id="tag-origin">Origin: -</div>
+    <div class="tag hide-sm" id="tag-slot">Slot: -</div>
+    <div class="tag hide-sm" id="tag-work">Work: -</div>
+    <div class="tag hide-sm" id="tag-tz">TZ: -</div>
+    <div style="flex:1;"></div>
+    <button id="btn-edit" class="btn" type="button">Edit Mode</button>
+    <button id="btn-index" class="btn" type="button">Sched Index</button>
+    <button id="btn-reload" class="btn" type="button">Reload</button>
+    <div id="status"></div>
+  </div>
+
+  <div id="main">
+    <div id="grid-wrap">
+      <div id="lane-header-scroll">
+        <div id="year-corner">----</div>
+        <div id="lane-headers"></div>
+      </div>
+      <div id="grid-scroll">
+        <div id="date-axis"></div>
+        <div id="canvas"></div>
+      </div>
+      <div id="empty">No cards to display.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+window.app = (function() {
+  const state = {
+    scriptUrl: '',
+    schedId: 'sched_0001',
+    schedName: 'Schedule',
+    allScheds: [],
+    tasks: [],
+    tasksById: {},
+    cards: [],
+    lanes: [],
+    config: {
+      originDate: null,
+      slotMin: 30,
+      workHours: 8
+    },
+    dayCount: 14,
+    startDate: null,
+    cardTasklessOrderMetaKey: 'taskless_order',
+    cardTasklessOrderMapKey: 'taskless_card_order',
+    tasklessOrderMap: {},
+    viewMeta: {},
+    loading: false
+  };
+
+  const els = {
+    brandLink: document.getElementById('brand-link'),
+    schedSwitch: document.getElementById('sched-switch'),
+    laneHeaders: document.getElementById('lane-headers'),
+    yearCorner: document.getElementById('year-corner'),
+    dateAxis: document.getElementById('date-axis'),
+    canvas: document.getElementById('canvas'),
+    gridScroll: document.getElementById('grid-scroll'),
+    laneHeaderScroll: document.getElementById('lane-header-scroll'),
+    status: document.getElementById('status'),
+    empty: document.getElementById('empty'),
+    tagOrigin: document.getElementById('tag-origin'),
+    tagSlot: document.getElementById('tag-slot'),
+    tagWork: document.getElementById('tag-work'),
+    tagTz: document.getElementById('tag-tz')
+  };
+
+  const status = (kind, msg) => {
+    if (!els.status) return;
+    els.status.className = kind || '';
+    els.status.textContent = String(msg || '');
+  };
+
+  const norm = (v) => String(v === null || v === undefined ? '' : v).trim();
+  const normLower = (v) => norm(v).toLowerCase();
+  const toNum = (v, fb) => {
+    const n = Number(v);
+    return isFinite(n) ? n : fb;
+  };
+  const clampInt = (v, min, fb) => {
+    const n = Math.round(Number(v));
+    if (!isFinite(n)) return fb;
+    return Math.max(min, n);
+  };
+  const parseYmd = (v) => {
+    const s = norm(v);
+    if (!s) return null;
+    const m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+    if (!m) return null;
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
+    if (isNaN(d.getTime())) return null;
+    return d;
+  };
+  const parseDateLoose = (v) => {
+    if (v instanceof Date && !isNaN(v.getTime())) return new Date(v.getFullYear(), v.getMonth(), v.getDate(), 0, 0, 0, 0);
+    let d = parseYmd(v);
+    if (d) return d;
+    const t = new Date(v);
+    if (!isNaN(t.getTime())) return new Date(t.getFullYear(), t.getMonth(), t.getDate(), 0, 0, 0, 0);
+    return null;
+  };
+  const ymd = (d) => {
+    if (!(d instanceof Date) || isNaN(d.getTime())) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  const ymdSlash = (d) => ymd(d).replace(/-/g, '/');
+  const addDays = (d, days) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + days, 0, 0, 0, 0);
+  const dayDiff = (a, b) => Math.floor((new Date(a.getFullYear(), a.getMonth(), a.getDate()) - new Date(b.getFullYear(), b.getMonth(), b.getDate())) / 86400000);
+  const weekday = (d) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
+  const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const slotsPerDay = () => {
+    const slot = Math.max(1, clampInt(state.config.slotMin, 1, 30));
+    const workMin = Math.max(slot, clampInt(state.config.workHours, 1, 8) * 60);
+    return Math.max(1, Math.round(workMin / slot));
+  };
+  const slotToDateVal = (slot, kind) => {
+    const origin = state.config.originDate || new Date();
+    const spd = slotsPerDay();
+    const safe = Math.max(1, clampInt(slot, 1, 1));
+    const idx = safe - 1;
+    const dayOffset = Math.floor(idx / spd);
+    let inDay = (idx % spd) + 1;
+    if (kind === 'end') {
+      const plusOne = safe + 1;
+      const endIdx = plusOne - 1;
+      const eDay = Math.floor(endIdx / spd);
+      inDay = (endIdx % spd) + 1;
+      return { date: addDays(origin, eDay), slot: inDay };
+    }
+    return { date: addDays(origin, dayOffset), slot: inDay };
+  };
+  const inferKeyByParts = (obj, parts) => {
+    if (!obj || typeof obj !== 'object') return '';
+    const keys = Object.keys(obj);
+    for (let i = 0; i < keys.length; i++) {
+      const nk = normLower(keys[i]);
+      let ok = true;
+      for (let p = 0; p < parts.length; p++) {
+        if (nk.indexOf(parts[p]) < 0) { ok = false; break; }
+      }
+      if (ok) return keys[i];
+    }
+    return '';
+  };
+  const inferIdKey = (obj, regex) => {
+    if (!obj || typeof obj !== 'object') return '';
+    const keys = Object.keys(obj);
+    for (let i = 0; i < keys.length; i++) {
+      const v = norm(obj[keys[i]]);
+      if (!v) continue;
+      if (regex && regex.test(v)) return keys[i];
+    }
+    return '';
+  };
+  const normalizeStatus = (v) => {
+    const raw = normLower(v).replace(/\s+/g, '_');
+    if (!raw) return '';
+    if (raw === 'inprogress') return 'in_progress';
+    if (raw === 'notstarted') return 'not_started';
+    if (raw === 'done') return 'completed';
+    return raw;
+  };
+  const parseOrder = (v) => {
+    const n = Math.round(Number(v));
+    return isFinite(n) && n > 0 ? n : Number.MAX_SAFE_INTEGER;
+  };
+  const displayOrderNum = (card) => {
+    const s = norm(card.displayId || card.id || '');
+    const m = s.match(/\d+/);
+    if (!m) return Number.MAX_SAFE_INTEGER;
+    const n = Number(m[0]);
+    return isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+  };
+  const getTaskOrder = (card) => {
+    const t = state.tasksById[String(card.taskId || '')];
+    if (!t) return Number.MAX_SAFE_INTEGER;
+    return parseOrder(t.taskOrder || t.order || '');
+  };
+  const getTasklessOrder = (card) => {
+    const n = parseOrder(card.tasklessOrder);
+    return n;
+  };
+  const getLaneLabel = (laneId) => {
+    const key = norm(laneId) || 'unassigned';
+    const lane = state.lanes.find((l) => norm(l.id) === key);
+    return lane ? lane.label : key;
+  };
+  const getTaskById = (taskId) => state.tasksById[norm(taskId)] || null;
+  const getMainLabel = (card) => {
+    const t = getTaskById(card.taskId);
+    if (t) {
+      if (norm(t.shotCode)) return norm(t.shotCode);
+      if (norm(t.name)) return norm(t.name);
+      return norm(t.id || card.taskId || card.id || '');
+    }
+    if (norm(card.memo)) return norm(card.memo);
+    return norm(card.displayId || card.id || '');
+  };
+
+  const initFromPayload = (payload) => {
+    state.scriptUrl = norm(payload.scriptUrl || (location.origin + location.pathname));
+    state.schedId = norm(payload.schedConfig && payload.schedConfig.activeSchedId) || state.schedId;
+    state.schedName = norm(payload.schedConfig && payload.schedConfig.schedName) || state.schedName;
+    state.allScheds = Array.isArray(payload.schedConfig && payload.schedConfig.allScheds) ? payload.schedConfig.allScheds : [];
+    state.viewMeta = (payload.schedConfig && payload.schedConfig.view_meta && typeof payload.schedConfig.view_meta === 'object')
+      ? payload.schedConfig.view_meta : {};
+    state.cardTasklessOrderMetaKey = norm(payload.cardTasklessOrderMetaKey) || 'taskless_order';
+    state.cardTasklessOrderMapKey = norm(payload.cardTasklessOrderMapKey) || 'taskless_card_order';
+
+    const cfg = payload.config || {};
+    state.config.slotMin = Math.max(1, clampInt(cfg.slotMin, 1, 30));
+    state.config.workHours = Math.max(1, clampInt(cfg.workHours, 1, 8));
+    state.config.originDate = parseDateLoose(cfg.originDate) || new Date();
+    state.config.originDate.setHours(0, 0, 0, 0);
+
+    const rawTasklessMap = state.viewMeta[state.cardTasklessOrderMapKey];
+    state.tasklessOrderMap = {};
+    if (rawTasklessMap && typeof rawTasklessMap === 'object') {
+      Object.keys(rawTasklessMap).forEach((k) => {
+        const id = norm(k);
+        if (!id) return;
+        const n = parseOrder(rawTasklessMap[k]);
+        if (n < Number.MAX_SAFE_INTEGER) state.tasklessOrderMap[id] = n;
+      });
+    }
+
+    const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
+    state.tasks = tasks.map((t) => {
+      const tid = norm(t.taskId || t.id);
+      return {
+        id: tid,
+        name: norm(t.name),
+        status: normalizeStatus(t.status),
+        assignee: norm(t.assignee),
+        planStart: norm(t.planStartIso || t.planStart),
+        planEnd: norm(t.planEndIso || t.planEnd),
+        shotCode: norm(t.shotCode),
+        taskOrder: norm(t.taskOrder || t.order)
+      };
+    }).filter((t) => !!t.id);
+    state.tasksById = {};
+    state.tasks.forEach((t) => { state.tasksById[t.id] = t; });
+
+    const memberRows = Array.isArray(payload.members) ? payload.members : [];
+    const memberNameById = {};
+    const lanes = [];
+    memberRows.forEach((m) => {
+      const idKey = inferIdKey(m, /^pm_/i) || inferKeyByParts(m, ['member', 'id']) || inferKeyByParts(m, ['id']);
+      const nameKey = inferKeyByParts(m, ['role']) || inferKeyByParts(m, ['name']);
+      const mid = norm(idKey ? m[idKey] : '');
+      const label = norm(nameKey ? m[nameKey] : mid);
+      if (!mid) return;
+      if (!memberNameById[mid]) {
+        memberNameById[mid] = label || mid;
+        lanes.push({ id: mid, label: memberNameById[mid] });
+      }
+    });
+
+    const rawCards = Array.isArray(payload.cards) ? payload.cards : [];
+    state.cards = rawCards.map((c, i) => {
+      const idKey = inferIdKey(c, /^c_/i);
+      const cardNoKey = inferKeyByParts(c, ['card', 'number']) || inferKeyByParts(c, ['card', 'no']);
+      const taskKey = inferIdKey(c, /^tk_/i) || inferKeyByParts(c, ['task', 'id']) || inferKeyByParts(c, ['task']);
+      const laneKey = inferKeyByParts(c, ['lane']) || inferKeyByParts(c, ['assignee']) || inferKeyByParts(c, ['member']);
+      const startKey = inferKeyByParts(c, ['start', 'slot']) || inferKeyByParts(c, ['start']);
+      const endKey = inferKeyByParts(c, ['end', 'slot']) || inferKeyByParts(c, ['end']);
+      const lenKey = inferKeyByParts(c, ['length']) || inferKeyByParts(c, ['duration']) || inferKeyByParts(c, ['len']);
+      const memoKey = inferKeyByParts(c, ['memo']) || inferKeyByParts(c, ['note']);
+      const rawId = norm((idKey ? c[idKey] : '') || c.cardId || c.id || c.cardNo || `c_${i}`);
+      const taskId = norm((taskKey ? c[taskKey] : '') || c.taskId || c.taskLink || '');
+      const t = getTaskById(taskId) || null;
+      let laneId = norm((laneKey ? c[laneKey] : '') || c.laneVal || c.lane || '');
+      if (!laneId && t && norm(t.assignee)) laneId = norm(t.assignee);
+      if (!laneId) laneId = 'unassigned';
+      let start = clampInt((startKey ? c[startKey] : c.startSlot || c.start), 1, 1);
+      let end = clampInt((endKey ? c[endKey] : c.endSlot || c.end), 1, NaN);
+      let lenMin = toNum((lenKey ? c[lenKey] : c.lengthMin || c.len), NaN);
+      if (!isFinite(lenMin) || lenMin <= 0) lenMin = state.config.slotMin;
+      const lenSlots = Math.max(1, Math.ceil(lenMin / state.config.slotMin));
+      if (!isFinite(end) || end < start) end = start + lenSlots - 1;
+      const cardMeta = (c.cardMeta && typeof c.cardMeta === 'object') ? c.cardMeta : {};
+      const displayId = norm((cardNoKey ? c[cardNoKey] : '') || c.displayId || c.cardNo || rawId);
+
+      let tasklessOrder = Number.MAX_SAFE_INTEGER;
+      const mapOrder = parseOrder(state.tasklessOrderMap[rawId]);
+      if (mapOrder < tasklessOrder) tasklessOrder = mapOrder;
+      const metaOrder = parseOrder(cardMeta[state.cardTasklessOrderMetaKey]);
+      if (metaOrder < tasklessOrder) tasklessOrder = metaOrder;
+
+      if (!lanes.some((l) => norm(l.id) === laneId) && laneId !== 'unassigned') {
+        lanes.push({ id: laneId, label: memberNameById[laneId] || laneId });
+      }
+      return {
+        id: rawId,
+        displayId: displayId,
+        taskId: taskId,
+        laneId: laneId,
+        start: start,
+        end: end,
+        memo: norm((memoKey ? c[memoKey] : '') || c.memo || c.cardMemo || ''),
+        status: normalizeStatus((t && t.status) || ''),
+        tasklessOrder: tasklessOrder
+      };
+    }).filter((c) => !!c.id);
+
+    if (state.cards.some((c) => norm(c.laneId) === 'unassigned')) {
+      if (!lanes.some((l) => norm(l.id) === 'unassigned')) lanes.push({ id: 'unassigned', label: 'Unassigned' });
+    }
+    state.lanes = lanes;
+
+    let minDate = null;
+    let maxDate = null;
+    state.cards.forEach((c) => {
+      const s = slotToDateVal(c.start, 'start').date;
+      const e = slotToDateVal(c.end, 'end').date;
+      if (!minDate || s < minDate) minDate = s;
+      if (!maxDate || e > maxDate) maxDate = e;
+    });
+    const vmStart = parseDateLoose(state.viewMeta.startDate);
+    const vmEnd = parseDateLoose(state.viewMeta.endDate);
+    const vmCount = clampInt(state.viewMeta.dayCount, 1, NaN);
+    state.startDate = vmStart || minDate || new Date();
+    state.startDate.setHours(0, 0, 0, 0);
+    if (isFinite(vmCount)) {
+      state.dayCount = vmCount;
+    } else if (vmEnd) {
+      state.dayCount = Math.max(1, dayDiff(vmEnd, state.startDate) + 1);
+    } else if (minDate && maxDate) {
+      state.dayCount = Math.max(7, dayDiff(maxDate, state.startDate) + 1);
+    } else {
+      state.dayCount = 14;
+    }
+    state.dayCount = Math.max(1, Math.min(730, state.dayCount));
+
+    if (els.brandLink) {
+      els.brandLink.href = state.scriptUrl;
+      els.brandLink.target = '_top';
+    }
+    if (els.tagOrigin) els.tagOrigin.textContent = `Origin: ${ymdSlash(state.config.originDate)}`;
+    if (els.tagSlot) els.tagSlot.textContent = `Slot: ${state.config.slotMin}m`;
+    if (els.tagWork) els.tagWork.textContent = `Work: ${state.config.workHours}h`;
+    if (els.tagTz) {
+      const tz = norm(payload.projectTimezone) || 'UNSET';
+      els.tagTz.textContent = `TZ: ${tz}`;
+      els.tagTz.style.color = tz === 'UNSET' ? '#f87171' : '';
+      els.tagTz.style.borderColor = tz === 'UNSET' ? '#f87171' : '';
+    }
+  };
+
+  const renderSchedSwitch = () => {
+    if (!els.schedSwitch) return;
+    els.schedSwitch.innerHTML = '';
+    const list = (state.allScheds && state.allScheds.length) ? state.allScheds : [{ id: state.schedId, name: state.schedName }];
+    list.forEach((s) => {
+      const id = norm(s && s.id);
+      if (!id) return;
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = norm(s && s.name) || id;
+      if (id === norm(state.schedId)) opt.selected = true;
+      els.schedSwitch.appendChild(opt);
+    });
+  };
+
+  const buildDayVals = () => {
+    const out = [];
+    for (let i = 0; i < state.dayCount; i++) {
+      out.push(addDays(state.startDate, i));
+    }
+    return out;
+  };
+
+  const sortInCell = (a, b) => {
+    const ao = Math.min(getTaskOrder(a), getTasklessOrder(a));
+    const bo = Math.min(getTaskOrder(b), getTasklessOrder(b));
+    if (ao !== bo) return ao - bo;
+    const as = toNum(a.start, 1), bs = toNum(b.start, 1);
+    if (as !== bs) return as - bs;
+    const ae = toNum(a.end, as), be = toNum(b.end, bs);
+    if (ae !== be) return ae - be;
+    const ad = displayOrderNum(a), bd = displayOrderNum(b);
+    if (ad !== bd) return ad - bd;
+    return norm(a.id).localeCompare(norm(b.id));
+  };
+
+  const render = () => {
+    renderSchedSwitch();
+    const lanes = state.lanes.slice();
+    const dayVals = buildDayVals();
+    if (!lanes.length || !dayVals.length) {
+      els.empty.classList.add('show');
+      els.laneHeaders.innerHTML = '';
+      els.dateAxis.innerHTML = '';
+      els.canvas.innerHTML = '';
+      return;
+    }
+    els.empty.classList.remove('show');
+
+    els.yearCorner.textContent = String(dayVals[0].getFullYear());
+    els.laneHeaders.innerHTML = '';
+    lanes.forEach((l) => {
+      const d = document.createElement('div');
+      d.className = 'lane-head';
+      d.textContent = norm(l.label) || norm(l.id);
+      d.title = d.textContent;
+      els.laneHeaders.appendChild(d);
+    });
+
+    els.dateAxis.innerHTML = '';
+    const today = ymd(new Date());
+    dayVals.forEach((d) => {
+      const n = document.createElement('div');
+      n.className = 'date-cell' + (ymd(d) === today ? ' today' : '');
+      n.innerHTML = `<div class="main">${d.getMonth() + 1}/${d.getDate()}</div><div class="sub">(${weekday(d)})</div>`;
+      els.dateAxis.appendChild(n);
+    });
+
+    const laneW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--lane-w')) || 148;
+    const dayH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--day-h')) || 88;
+    els.canvas.style.width = (lanes.length * laneW) + 'px';
+    els.canvas.style.height = (dayVals.length * dayH) + 'px';
+    els.canvas.innerHTML = '';
+
+    const bucket = {};
+    const keyOf = (laneId, dayIdx) => `${laneId}__${dayIdx}`;
+    state.cards.forEach((c) => {
+      const laneId = norm(c.laneId) || 'unassigned';
+      const sDate = slotToDateVal(c.start, 'start').date;
+      const eDate = slotToDateVal(c.end, 'end').date;
+      for (let di = 0; di < dayVals.length; di++) {
+        const d = dayVals[di];
+        if (d < sDate || d > eDate) continue;
+        const k = keyOf(laneId, di);
+        if (!bucket[k]) bucket[k] = [];
+        bucket[k].push(c);
+      }
+    });
+
+    for (let li = 0; li < lanes.length; li++) {
+      const lane = lanes[li];
+      for (let di = 0; di < dayVals.length; di++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.style.left = (li * laneW) + 'px';
+        cell.style.top = (di * dayH) + 'px';
+        cell.style.width = laneW + 'px';
+        cell.style.height = dayH + 'px';
+
+        const items = (bucket[keyOf(norm(lane.id), di)] || []).slice().sort(sortInCell);
+        const maxTokens = 4;
+        const overflow = Math.max(0, items.length - maxTokens);
+        const shown = overflow > 0 ? (maxTokens - 1) : items.length;
+
+        for (let i = 0; i < shown; i++) {
+          const c = items[i];
+          const t = getTaskById(c.taskId);
+          const statusCls = normalizeStatus(c.status || (t && t.status) || '');
+          const isTaskless = !t;
+          const taskOrder = parseOrder(t ? (t.taskOrder || '') : '');
+          const orderForBadge = taskOrder < Number.MAX_SAFE_INTEGER ? taskOrder : (parseOrder(c.tasklessOrder) < Number.MAX_SAFE_INTEGER ? parseOrder(c.tasklessOrder) : '-');
+          const s = slotToDateVal(c.start, 'start');
+          const e = slotToDateVal(c.end, 'end');
+          const curDay = ymd(dayVals[di]);
+          const arrow = (ymd(s.date) !== ymd(e.date))
+            ? (curDay === ymd(s.date) ? '→' : (curDay === ymd(e.date) ? '←' : '↔'))
+            : '';
+          const token = document.createElement('div');
+          token.className = 'token ' + (statusCls ? ('status-' + statusCls) : '') + (isTaskless ? ' taskless' : '');
+          token.innerHTML =
+            `<span class="tk-order">${escapeHtml(String(orderForBadge))}</span>` +
+            `<span class="tk-main">${escapeHtml(getMainLabel(c))}</span>` +
+            (arrow ? `<span class="tk-arrow">${arrow}</span>` : '');
+          const titleParts = [];
+          titleParts.push(`Card: ${norm(c.displayId || c.id)}`);
+          titleParts.push(`Lane: ${getLaneLabel(c.laneId)}`);
+          if (t) {
+            titleParts.push(`Task: ${norm(t.id)} ${norm(t.name)}`);
+            titleParts.push(`Status: ${norm(t.status) || '-'}`);
+            titleParts.push(`Order: ${parseOrder(t.taskOrder) < Number.MAX_SAFE_INTEGER ? t.taskOrder : '-'}`);
+          } else {
+            titleParts.push(`Task: (none)`);
+            const tlOrder = parseOrder(c.tasklessOrder);
+            titleParts.push(`TasklessOrder: ${tlOrder < Number.MAX_SAFE_INTEGER ? tlOrder : '-'}`);
+          }
+          titleParts.push(`Start: ${ymdSlash(s.date)} / slot ${s.slot}`);
+          titleParts.push(`End: ${ymdSlash(e.date)} / slot ${e.slot}`);
+          if (norm(c.memo)) titleParts.push(`Memo: ${norm(c.memo)}`);
+          token.title = titleParts.join('\n');
+          cell.appendChild(token);
+        }
+        if (overflow > 0) {
+          const more = document.createElement('div');
+          more.className = 'token more';
+          more.textContent = `+${overflow} more`;
+          cell.appendChild(more);
+        }
+
+        els.canvas.appendChild(cell);
+      }
+    }
+  };
+
+  const actions = {
+    load: () => {
+      if (state.loading) return;
+      state.loading = true;
+      status('saving', 'Loading...');
+      google.script.run
+        .withSuccessHandler((raw) => {
+          state.loading = false;
+          let res = raw;
+          if (typeof raw === 'string') {
+            try { res = JSON.parse(raw); } catch (_) { res = { ok: false, error: { message: 'Invalid response' } }; }
+          }
+          if (!res || !res.ok) {
+            status('error', String((res && res.error && (res.error.message || res.error)) || 'Load failed'));
+            return;
+          }
+          initFromPayload(res);
+          render();
+          status('saved', `Loaded ${state.cards.length} cards / ${state.tasks.length} tasks`);
+        })
+        .withFailureHandler((err) => {
+          state.loading = false;
+          status('error', String(err && (err.message || err) || 'Load failed'));
+        })
+        .sv_scheduler_load_v2();
+    },
+    switchSched: (sid) => {
+      const next = norm(sid);
+      if (!next || next === norm(state.schedId)) return;
+      status('saving', 'Switching schedule...');
+      google.script.run
+        .withSuccessHandler(() => actions.load())
+        .withFailureHandler((err) => status('error', String(err && (err.message || err) || 'Switch failed')))
+        .sv_scheduler_switch_active(next);
+    },
+    openEdit: () => {
+      const base = norm(state.scriptUrl || (location.origin + location.pathname)).replace(/\?.*$/, '');
+      const sid = encodeURIComponent(norm(state.schedId || ''));
+      (window.top || window).location.href = `${base}?p=schedule&schedId=${sid}`;
+    },
+    openIndex: () => {
+      const base = norm(state.scriptUrl || (location.origin + location.pathname)).replace(/\?.*$/, '');
+      (window.top || window).location.href = `${base}?p=table&e=scheds`;
+    }
+  };
+
+  const bind = () => {
+    if (els.schedSwitch) {
+      els.schedSwitch.addEventListener('change', (e) => actions.switchSched(e.target.value));
+    }
+    const btnEdit = document.getElementById('btn-edit');
+    if (btnEdit) btnEdit.addEventListener('click', actions.openEdit);
+    const btnIndex = document.getElementById('btn-index');
+    if (btnIndex) btnIndex.addEventListener('click', actions.openIndex);
+    const btnReload = document.getElementById('btn-reload');
+    if (btnReload) btnReload.addEventListener('click', () => actions.load());
+    if (els.gridScroll && els.laneHeaderScroll) {
+      els.gridScroll.addEventListener('scroll', () => {
+        els.laneHeaderScroll.scrollLeft = els.gridScroll.scrollLeft;
+      });
+    }
+  };
+
+  return { actions, bind };
+})();
+
+document.addEventListener('DOMContentLoaded', () => {
+  window.app.bind();
+  window.app.actions.load();
+});
+</script>
+</body>
+</html>
