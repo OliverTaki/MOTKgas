@@ -3450,12 +3450,41 @@ window.app = (function() {
       syncTasklessOrderMapFromCards_();
       meta[String(state.cardTasklessOrderMapKey || 'taskless_card_order')] = Object.assign({}, state.tasklessOrderByCardId || {});
       var payload = JSON.stringify({ schedId: state.schedId, type: 'view_meta', value: meta });
+      var tasklessCards = Object.values(state.cards || {})
+        .filter(function (c) { return !String(c && c.taskId || '').trim(); })
+        .map(function (c) {
+          return {
+            id: String(c && c.id || ''),
+            displayId: String(c && c.displayId || ''),
+            lane: String(c && c.laneId || ''),
+            start: Math.max(1, Math.round(Number(c && c.start || 1))),
+            end: Math.max(1, Math.round(Number(c && c.end || 1))),
+            memo: String(c && c.memo || ''),
+            order: Math.max(1, Math.round(Number((state.tasklessOrderByCardId || {})[String(c && c.id || '')] || 1)))
+          };
+        });
+      var cardViewMetaValue = {
+        taskless_order_key: String(state.cardTasklessOrderMetaKey || 'taskless_order'),
+        taskless_order_map_key: String(state.cardTasklessOrderMapKey || 'taskless_card_order'),
+        taskless_card_order: Object.assign({}, state.tasklessOrderByCardId || {}),
+        taskless_cards: tasklessCards,
+        updatedAt: new Date().toISOString()
+      };
+      var payloadCardViewMeta = JSON.stringify({ schedId: state.schedId, type: 'card_view_meta', value: cardViewMetaValue });
       google.script.run
         .withSuccessHandler(function() {
-          state.viewDirty = false;
-          state.laneDirty = false;
-          updateViewLaneSaveButtons_();
-          utils.saveStatus('saved', (scope === 'lane') ? 'Lane Saved' : (scope === 'view' ? 'View Saved' : 'Saved'));
+          google.script.run
+            .withSuccessHandler(function () {
+              state.viewDirty = false;
+              state.laneDirty = false;
+              updateViewLaneSaveButtons_();
+              utils.saveStatus('saved', (scope === 'lane') ? 'Lane Saved' : (scope === 'view' ? 'View Saved' : 'Saved'));
+            })
+            .withFailureHandler(function (err2) {
+              console.error('[MOTK][Scheduler] save card_view_meta failed', err2);
+              utils.saveStatus('error', 'Save Error (card_view_meta)');
+            })
+            .sv_scheduler_save_meta_v2(payloadCardViewMeta);
         })
         .withFailureHandler(function(err) {
           console.error('[MOTK][Scheduler] saveViewMeta failed', err);

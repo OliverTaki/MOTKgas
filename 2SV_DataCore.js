@@ -5805,6 +5805,10 @@ function sv_scheduler_load_v2() {
       'fieldmap.sched.view_meta',
       'fieldmap_sched_view_meta'
     ], projectMeta);
+    var fidSchedCardViewMeta = resolveFieldFidByMetaOrSchema_('sched', 'card_view_meta', [
+      'fieldmap.sched.card_view_meta',
+      'fieldmap_sched_card_view_meta'
+    ], projectMeta);
     var fidCardViewMeta = resolveFieldFidByMetaOrSchema_('card', 'card_view_meta', [
       'fieldmap.card.view_meta',
       'fieldmap_card_view_meta'
@@ -5827,6 +5831,7 @@ function sv_scheduler_load_v2() {
     var activeID = 'sched_0001';
     var schedName = 'Schedule';
     var viewMeta = {};
+    var schedCardViewMeta = {};
     var allScheds = [];
     var schedsSheet = ss.getSheetByName('Scheds');
     if (schedsSheet) {
@@ -5848,6 +5853,8 @@ function sv_scheduler_load_v2() {
       if (cName < 0) cName = _getColIdx_v2(sHeaders, ['schedName']);
       var cViewMeta = schemaGetColIndexByFid(sSysHeaders, fidSchedViewMeta);
       if (cViewMeta < 0) cViewMeta = _getColIdx_v2(sHeaders, ['view_meta']);
+      var cCardViewMeta = schemaGetColIndexByFid(sSysHeaders, fidSchedCardViewMeta);
+      if (cCardViewMeta < 0) cCardViewMeta = _getColIdx_v2(sHeaders, ['card_view_meta']);
 
       for (var i = 2; i < sData.length; i++) {
         var row = sData[i];
@@ -5863,6 +5870,9 @@ function sv_scheduler_load_v2() {
           if (cViewMeta > -1 && row[cViewMeta]) {
             try { viewMeta = JSON.parse(row[cViewMeta]); } catch (e) {}
           }
+          if (cCardViewMeta > -1 && row[cCardViewMeta]) {
+            try { schedCardViewMeta = JSON.parse(row[cCardViewMeta]); } catch (e2) {}
+          }
         }
       }
 
@@ -5874,6 +5884,8 @@ function sv_scheduler_load_v2() {
     }
 
     var tasksRaw = loadSheet('Tasks');
+    var taskFieldDefs = [];
+    var taskFieldsByTaskId = {};
     var projectTimezoneRaw = pickMetaValue_(projectMeta, ['Timezone', 'timezone']);
     var projectTimezoneResolved = '';
     try { projectTimezoneResolved = _dc_resolveTimezone_(projectMeta); } catch (_) { projectTimezoneResolved = ''; }
@@ -5899,8 +5911,28 @@ function sv_scheduler_load_v2() {
         if (tVals && tVals.length >= 3) {
           var tIds = tVals[0] || [];
           var tHeaders = tVals[1] || [];
+          var taskFieldDefsTmp = [];
           var cTaskId = schemaGetColIndexByFid(tIds, schemaGetIdFid('task'));
           if (cTaskId < 0) cTaskId = _getColIdx_v2(tHeaders, ['Task ID', 'taskId', 'id']);
+          for (var tc = 0; tc < tHeaders.length; tc++) {
+            var tfid = String(tIds[tc] || '').trim();
+            if (!tfid) continue;
+            var tmeta = null;
+            try { tmeta = schemaGetFieldMetaByFid(tfid); } catch (_) { tmeta = null; }
+            if (!tmeta || _schemaNormalizeEntity_(tmeta.entity) !== 'task') continue;
+            var tlabel = String(tmeta.label || tmeta.field_name || tmeta.column_name || tHeaders[tc] || tfid);
+            var ttype = String(tmeta.type || '').trim() || 'text';
+            var teditable = (tmeta.editable !== false);
+            var toptions = Array.isArray(tmeta.options) ? tmeta.options.slice() : [];
+            taskFieldDefsTmp.push({
+              fid: tfid,
+              label: tlabel,
+              type: ttype,
+              editable: !!teditable,
+              options: toptions,
+              _idx: tc
+            });
+          }
           var cShot = -1;
           if (shotLinkFid) cShot = schemaGetColIndexByFid(tIds, shotLinkFid);
           if (cShot < 0) cShot = _getColIdx_v2(tHeaders, ['Shot Link', 'shot_link', 'shotId', 'shot id']);
@@ -5911,12 +5943,29 @@ function sv_scheduler_load_v2() {
             var tRow = tVals[tr] || [];
             var tid = String(cTaskId >= 0 ? tRow[cTaskId] : '').trim();
             if (!tid) continue;
+            var fieldMap = {};
+            for (var td = 0; td < taskFieldDefsTmp.length; td++) {
+              var def = taskFieldDefsTmp[td];
+              var rawVal = (def && isFinite(def._idx)) ? tRow[def._idx] : '';
+              if (rawVal instanceof Date) rawVal = Utilities.formatDate(rawVal, spreadsheetTimeZone, 'yyyy-MM-dd');
+              fieldMap[String(def.fid || '')] = rawVal;
+            }
+            taskFieldsByTaskId[tid] = fieldMap;
             var sid = String(cShot >= 0 ? tRow[cShot] : '').trim();
             if (sid) taskShotByTaskId[tid] = sid;
             var rawAsset = cAsset >= 0 ? tRow[cAsset] : '';
             var assetIds = parseEntityIds_(rawAsset, 'as');
             if (assetIds.length) taskAssetIdsByTaskId[tid] = assetIds;
           }
+          taskFieldDefs = taskFieldDefsTmp.map(function (d) {
+            return {
+              fid: d.fid,
+              label: d.label,
+              type: d.type,
+              editable: !!d.editable,
+              options: Array.isArray(d.options) ? d.options : []
+            };
+          });
         }
       } catch (_) {}
     }
@@ -5980,6 +6029,10 @@ function sv_scheduler_load_v2() {
       } catch (_) {}
     }
     var tasks = normalizeSchedulerTasks_(tasksRaw, taskShotByTaskId, shotCodeByShotId, taskAssetIdsByTaskId);
+    for (var ti = 0; ti < tasks.length; ti++) {
+      var _tid = String(tasks[ti].taskId || tasks[ti].id || '').trim();
+      tasks[ti].fields = (_tid && taskFieldsByTaskId[_tid]) ? taskFieldsByTaskId[_tid] : {};
+    }
     var members = loadSheet('ProjectMembers');
 
     var cards = [];
@@ -6043,8 +6096,10 @@ function sv_scheduler_load_v2() {
         activeSchedId: activeID,
         schedName: schedName,
         allScheds: allScheds,
-        view_meta: viewMeta
+        view_meta: viewMeta,
+        card_view_meta: schedCardViewMeta
       },
+      taskFieldDefs: taskFieldDefs,
       assetCapacityById: assetCapacityById,
       assetNameById: assetNameById,
       assetCapacityDefault: overlapCapacityDefault,
@@ -6115,6 +6170,12 @@ function sv_scheduler_save_meta_v2(jsonPayload) {
       var fidView = schemaGetFidByFieldName('sched', 'view_meta');
       cTarget = schemaGetColIndexByFid(sysHeaders, fidView);
       if (cTarget < 0) cTarget = headers.indexOf('view_meta');
+    }
+    if (cTarget < 0 && req.type === 'card_view_meta') {
+      var fidCardView = '';
+      try { fidCardView = schemaGetFidByFieldName('sched', 'card_view_meta'); } catch (_) { fidCardView = ''; }
+      if (fidCardView) cTarget = schemaGetColIndexByFid(sysHeaders, fidCardView);
+      if (cTarget < 0) cTarget = headers.indexOf('card_view_meta');
     }
     if (cTarget < 0) return JSON.stringify({ ok: false, error: 'Column not found: ' + req.type });
 
