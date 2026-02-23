@@ -5389,6 +5389,8 @@ function sv_schedule_publish_v1(req) {
       lane: laneRaw,
       startDate: startDateText,
       endDate: endDateText,
+      sortStartSlot: Math.max(1, Math.round(Number(raw.startSlot != null ? raw.startSlot : raw.start || 1))),
+      sortEndSlot: Math.max(1, Math.round(Number(raw.endSlot != null ? raw.endSlot : raw.end || raw.start || 1))),
       memo: ''
     };
   }
@@ -5407,6 +5409,8 @@ function sv_schedule_publish_v1(req) {
     item.lane = lane;
     item.startDate = Utilities.formatDate(sDate, Session.getScriptTimeZone(), 'yyyy-MM-dd');
     item.endDate = Utilities.formatDate(eDate, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    item.sortStartSlot = Math.max(1, Math.round(Number(item.sortStartSlot || 1)));
+    item.sortEndSlot = Math.max(1, Math.round(Number(item.sortEndSlot || item.sortStartSlot || 1)));
     if (!laneBuckets[lane]) laneBuckets[lane] = [];
     laneBuckets[lane].push(item);
     return true;
@@ -5447,6 +5451,8 @@ function sv_schedule_publish_v1(req) {
       lane: String(tlessRaw.lane || tlessRaw.laneId || '').trim(),
       startDate: String(tlessRaw.startDate || '').trim(),
       endDate: String(tlessRaw.endDate || tlessRaw.startDate || '').trim(),
+      sortStartSlot: Math.max(1, Math.round(Number(tlessRaw.startSlot || 1))),
+      sortEndSlot: Math.max(1, Math.round(Number(tlessRaw.endSlot || tlessRaw.startSlot || 1))),
       memo: String(tlessRaw.memo || '')
     };
     if (!pushLaneItem_(tlessItem)) skippedInvalid++;
@@ -5458,6 +5464,12 @@ function sv_schedule_publish_v1(req) {
   var compareItem_ = function (a, b) {
     if (a.startDate !== b.startDate) return a.startDate < b.startDate ? -1 : 1;
     if (a.endDate !== b.endDate) return a.endDate < b.endDate ? -1 : 1;
+    var aStart = Number(a.sortStartSlot || Number.MAX_SAFE_INTEGER);
+    var bStart = Number(b.sortStartSlot || Number.MAX_SAFE_INTEGER);
+    if (aStart !== bStart) return aStart - bStart;
+    var aEnd = Number(a.sortEndSlot || Number.MAX_SAFE_INTEGER);
+    var bEnd = Number(b.sortEndSlot || Number.MAX_SAFE_INTEGER);
+    if (aEnd !== bEnd) return aEnd - bEnd;
     return String(a.key || '').localeCompare(String(b.key || ''));
   };
   for (var lk = 0; lk < laneKeys.length; lk++) {

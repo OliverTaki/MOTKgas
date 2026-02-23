@@ -2346,6 +2346,8 @@ window.app = (function() {
         taskId: taskId,
         startDate: startDate,
         endDate: endDate,
+        sortStartSlot: Math.max(1, Math.round(Number(c.start || 1))),
+        sortEndSlot: Math.max(1, Math.round(Number(c.end || c.start || 1))),
         sortKeyId: taskId || cardId
       };
       if (!laneBuckets[lane]) laneBuckets[lane] = [];
@@ -2355,6 +2357,12 @@ window.app = (function() {
     const compareItem_ = (a, b) => {
       if (a.startDate !== b.startDate) return a.startDate < b.startDate ? -1 : 1;
       if (a.endDate !== b.endDate) return a.endDate < b.endDate ? -1 : 1;
+      const aStart = Number(a.sortStartSlot || Number.MAX_SAFE_INTEGER);
+      const bStart = Number(b.sortStartSlot || Number.MAX_SAFE_INTEGER);
+      if (aStart !== bStart) return aStart - bStart;
+      const aEnd = Number(a.sortEndSlot || Number.MAX_SAFE_INTEGER);
+      const bEnd = Number(b.sortEndSlot || Number.MAX_SAFE_INTEGER);
+      if (aEnd !== bEnd) return aEnd - bEnd;
       return String(a.sortKeyId || '').localeCompare(String(b.sortKeyId || ''));
     };
 
@@ -2393,6 +2401,8 @@ window.app = (function() {
           lane: String(c && c.laneId || ''),
           startDate: String(startVal.dateVal || ''),
           endDate: String(endVal.dateVal || ''),
+          startSlot: Math.max(1, Math.round(Number(c && c.start || 1))),
+          endSlot: Math.max(1, Math.round(Number(c && c.end || c && c.start || 1))),
           taskOrder: Math.max(1, orderNum),
           memo: String(c && c.memo || '')
         };
@@ -6026,7 +6036,7 @@ window.app = (function() {
       ordTag.className = 'info-tag';
       ordTag.style.cssText = 'display:inline-block; font-size:10px; margin-bottom:2px; color:#e5e7eb; border-color:#4b5563; flex:0 0 auto;';
       const ordVal = Number((publishPreviewOrder.byCardId || {})[String(c.id || '')]);
-      ordTag.textContent = `ORDER ${isFinite(ordVal) && ordVal > 0 ? ordVal : '-'}`;
+      ordTag.textContent = `CARD ORDER ${isFinite(ordVal) && ordVal > 0 ? ordVal : '-'}`;
       headerMeta.appendChild(ordTag);
       if (cardViewTop.subText) {
         const subTag = document.createElement('div');
@@ -6342,13 +6352,6 @@ window.app = (function() {
         edit.refs.taskOrder = taskOrder;
         addField('task Order', taskOrder);
 
-        const taskOrderPreview = document.createElement('input');
-        taskOrderPreview.className = 'inp';
-        taskOrderPreview.readOnly = true;
-        const taskOrderPreviewVal = Number((publishPreviewOrder.byCardId || {})[String(c.id || '')]);
-        taskOrderPreview.value = isFinite(taskOrderPreviewVal) && taskOrderPreviewVal > 0 ? String(taskOrderPreviewVal) : '';
-        edit.refs.taskOrderPreview = taskOrderPreview;
-        addField('Publish Order (preview)', taskOrderPreview);
       }
 
       const gStart = document.createElement('div');
@@ -6610,6 +6613,14 @@ window.app = (function() {
       edit.refs.lenBox = lenBox;
       addField('Length', lenBox);
 
+      const cardOrder = document.createElement('input');
+      cardOrder.className = 'inp';
+      cardOrder.readOnly = true;
+      const cardOrdVal = Number((publishPreviewOrder.byCardId || {})[String(c.id || '')]);
+      cardOrder.value = isFinite(cardOrdVal) && cardOrdVal > 0 ? String(cardOrdVal) : '';
+      edit.refs.cardOrder = cardOrder;
+      addField('Card Order', cardOrder);
+
       const selLane = document.createElement('select'); selLane.className='inp';
       store.getLanes().forEach(l => {
         const o = document.createElement('option'); o.value = l.id; o.textContent = l.label;
@@ -6724,10 +6735,10 @@ window.app = (function() {
         edit.refs.taskOverrun.value = isFinite(overrunNum) ? String(overrunNum) : '';
       }
       if (edit.refs.taskOrder) edit.refs.taskOrder.value = String(taskRawValue_(t, TASK_FIDS.taskOrder, ['taskOrder', 'order']) || '');
-      if (edit.refs.taskOrderPreview) {
+      if (edit.refs.cardOrder) {
         const preview = buildPublishOrderPreview_();
         const ord = Number((preview.byCardId || {})[String(c.id || '')]);
-        edit.refs.taskOrderPreview.value = isFinite(ord) && ord > 0 ? String(ord) : '';
+        edit.refs.cardOrder.value = isFinite(ord) && ord > 0 ? String(ord) : '';
       }
       if (edit.refs.metaStart) edit.refs.metaStart.textContent = `rawSlot: ${utils.normalizeSlot(c.start, 'start').rawSlot}`;
       if (edit.refs.metaEnd) edit.refs.metaEnd.textContent = `rawSlot: ${utils.normalizeSlot(c.end, 'end').rawSlot}`;
