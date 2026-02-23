@@ -2319,15 +2319,72 @@ window.app = (function() {
     return changed;
   }
 
+  function buildPublishOrderPreview_() {
+    const laneBuckets = {};
+    const byCardId = {};
+    const byTaskId = {};
+    const byTasklessCardId = {};
+    Object.values(state.cards || {}).forEach((c) => {
+      if (!c) return;
+      const cardId = String(c.id || '').trim();
+      const lane = String(c.laneId || '').trim();
+      if (!cardId || !lane) return;
+      const startVal = utils.slotToDateVal(Number(c.start || 1), 'start') || {};
+      const endVal = utils.slotToDateVal(Number(c.end || 1), 'end') || {};
+      const startDate = String(startVal.dateVal || '').trim();
+      const endDate = String(endVal.dateVal || '').trim();
+      if (!startDate || !endDate) return;
+      const taskId = String(c.taskId || '').trim();
+      if (taskId) {
+        const task = getTaskByIdSafe_(taskId);
+        const status = normalizeTaskStatus_(taskRawValue_(task || {}, TASK_FIDS.status, ['status']));
+        if (status === 'completed') return;
+      }
+      const item = {
+        lane: lane,
+        cardId: cardId,
+        taskId: taskId,
+        startDate: startDate,
+        endDate: endDate,
+        sortKeyId: taskId || cardId
+      };
+      if (!laneBuckets[lane]) laneBuckets[lane] = [];
+      laneBuckets[lane].push(item);
+    });
+
+    const compareItem_ = (a, b) => {
+      if (a.startDate !== b.startDate) return a.startDate < b.startDate ? -1 : 1;
+      if (a.endDate !== b.endDate) return a.endDate < b.endDate ? -1 : 1;
+      return String(a.sortKeyId || '').localeCompare(String(b.sortKeyId || ''));
+    };
+
+    Object.keys(laneBuckets).sort().forEach((lane) => {
+      const items = laneBuckets[lane] || [];
+      items.sort(compareItem_);
+      items.forEach((item, idx) => {
+        const ord = idx + 1;
+        byCardId[item.cardId] = ord;
+        if (item.taskId) byTaskId[item.taskId] = ord;
+        else byTasklessCardId[item.cardId] = ord;
+      });
+    });
+
+    return {
+      byCardId: byCardId,
+      byTaskId: byTaskId,
+      byTasklessCardId: byTasklessCardId
+    };
+  }
+
   function buildTasklessPublishCardsFromState_() {
-    syncTasklessOrderMapFromCards_();
+    const preview = buildPublishOrderPreview_();
     return Object.values(state.cards || {})
       .filter((c) => !String(c && c.taskId || '').trim())
       .map((c) => {
         const id = String(c && c.id || '').trim();
         const startVal = utils.slotToDateVal(Number(c && c.start || 1), 'start') || {};
         const endVal = utils.slotToDateVal(Number(c && c.end || 1), 'end') || {};
-        const explicitOrder = Number((state.tasklessOrderByCardId || {})[id]);
+        const explicitOrder = Number((preview.byTasklessCardId || {})[id]);
         const fallbackOrder = getCardStableSortNo_(c);
         const orderNum = (isFinite(explicitOrder) && explicitOrder > 0) ? Math.round(explicitOrder)
           : ((isFinite(fallbackOrder) && fallbackOrder < Number.MAX_SAFE_INTEGER) ? Math.round(fallbackOrder) : 1);
@@ -5409,6 +5466,7 @@ window.app = (function() {
       const dayVals = state.workDayMap.map((d) => formatYmd_(d));
       const laneIndexById = {};
       lanes.forEach((l, idx) => { laneIndexById[String(l.id || '')] = idx; });
+      const publishPreviewOrder = buildPublishOrderPreview_();
 
       const bucket = {};
       const keyOf_ = (laneId, dayIdx) => String(laneId || '') + '|' + String(dayIdx);
@@ -5431,12 +5489,10 @@ window.app = (function() {
       });
 
       const sortInCell_ = (a, b) => {
-        const ta = getTaskByIdSafe_(a && a.taskId);
-        const tb = getTaskByIdSafe_(b && b.taskId);
-        const oa = getTaskOrderValue_(ta || {});
-        const ob = getTaskOrderValue_(tb || {});
-        const hasOrderA = !!ta && isFinite(oa) && oa < Number.MAX_SAFE_INTEGER;
-        const hasOrderB = !!tb && isFinite(ob) && ob < Number.MAX_SAFE_INTEGER;
+        const oa = Number((publishPreviewOrder.byCardId || {})[String(a && a.id || '')]);
+        const ob = Number((publishPreviewOrder.byCardId || {})[String(b && b.id || '')]);
+        const hasOrderA = isFinite(oa) && oa > 0;
+        const hasOrderB = isFinite(ob) && ob > 0;
         if (hasOrderA !== hasOrderB) return hasOrderA ? -1 : 1;
         if (hasOrderA && hasOrderB && oa !== ob) return oa - ob;
 
@@ -5473,7 +5529,7 @@ window.app = (function() {
             const isMulti = isCardInMultiSelection_(c.id);
             const token = document.createElement('div');
             token.className = `lite-token ${status ? ('status-' + status) : ''} ${isTaskless ? 'taskless' : ''} ${isPrimary ? 'selected' : ''} ${isMulti ? 'multi-selected' : ''}`;
-            const taskOrder = getTaskOrderValue_(t || {});
+            const taskOrder = Number((publishPreviewOrder.byCardId || {})[String(c.id || '')]);
             const s = utils.slotToDateVal(Number(c.start || 1), 'start');
             const e = utils.slotToDateVal(Number(c.end || 1), 'end');
             const sVal = String((s && s.dateVal) || '');
@@ -5939,6 +5995,7 @@ window.app = (function() {
       };
       initEdit_();
       const inspectorSessionId = Number(edit.sessionId) || 0;
+      const publishPreviewOrder = buildPublishOrderPreview_();
 
       const getTaskById_ = (id) => state.tasks.find(t => String(t.id || '') === String(id || ''));
       const title = document.createElement('div');
@@ -5965,15 +6022,12 @@ window.app = (function() {
       const displayId = (c.displayId != null && c.displayId !== '') ? String(c.displayId) : utils.getDisplayId(c.id);
       cardNo.textContent = `CARD NO. ${displayId}`;
       headerMeta.appendChild(cardNo);
-      const taskForHeader = c.taskId ? (getTaskById_(c.taskId) || {}) : null;
-      if (taskForHeader && Object.keys(taskForHeader).length) {
-        const ordVal = getTaskOrderValue_(taskForHeader);
-        const ordTag = document.createElement('div');
-        ordTag.className = 'info-tag';
-        ordTag.style.cssText = 'display:inline-block; font-size:10px; margin-bottom:2px; color:#e5e7eb; border-color:#4b5563; flex:0 0 auto;';
-        ordTag.textContent = `ORDER ${isFinite(ordVal) && ordVal < Number.MAX_SAFE_INTEGER ? ordVal : '-'}`;
-        headerMeta.appendChild(ordTag);
-      }
+      const ordTag = document.createElement('div');
+      ordTag.className = 'info-tag';
+      ordTag.style.cssText = 'display:inline-block; font-size:10px; margin-bottom:2px; color:#e5e7eb; border-color:#4b5563; flex:0 0 auto;';
+      const ordVal = Number((publishPreviewOrder.byCardId || {})[String(c.id || '')]);
+      ordTag.textContent = `ORDER ${isFinite(ordVal) && ordVal > 0 ? ordVal : '-'}`;
+      headerMeta.appendChild(ordTag);
       if (cardViewTop.subText) {
         const subTag = document.createElement('div');
         subTag.className = 'info-tag';
@@ -6287,6 +6341,14 @@ window.app = (function() {
         }
         edit.refs.taskOrder = taskOrder;
         addField('task Order', taskOrder);
+
+        const taskOrderPreview = document.createElement('input');
+        taskOrderPreview.className = 'inp';
+        taskOrderPreview.readOnly = true;
+        const taskOrderPreviewVal = Number((publishPreviewOrder.byCardId || {})[String(c.id || '')]);
+        taskOrderPreview.value = isFinite(taskOrderPreviewVal) && taskOrderPreviewVal > 0 ? String(taskOrderPreviewVal) : '';
+        edit.refs.taskOrderPreview = taskOrderPreview;
+        addField('Publish Order (preview)', taskOrderPreview);
       }
 
       const gStart = document.createElement('div');
@@ -6662,6 +6724,11 @@ window.app = (function() {
         edit.refs.taskOverrun.value = isFinite(overrunNum) ? String(overrunNum) : '';
       }
       if (edit.refs.taskOrder) edit.refs.taskOrder.value = String(taskRawValue_(t, TASK_FIDS.taskOrder, ['taskOrder', 'order']) || '');
+      if (edit.refs.taskOrderPreview) {
+        const preview = buildPublishOrderPreview_();
+        const ord = Number((preview.byCardId || {})[String(c.id || '')]);
+        edit.refs.taskOrderPreview.value = isFinite(ord) && ord > 0 ? String(ord) : '';
+      }
       if (edit.refs.metaStart) edit.refs.metaStart.textContent = `rawSlot: ${utils.normalizeSlot(c.start, 'start').rawSlot}`;
       if (edit.refs.metaEnd) edit.refs.metaEnd.textContent = `rawSlot: ${utils.normalizeSlot(c.end, 'end').rawSlot}`;
       if (edit.refs.lenBox) {
