@@ -807,6 +807,7 @@ window.app = (function() {
     viewMode: 'grid',
     workDayMap: [], selection: null, autoPush: true,
     schedId: 'sched_0001', schedName: 'Schedule', scriptUrl: (function(){ try { return location.origin + location.pathname; } catch (_) { return location.pathname || ''; } })(), scriptUrlServer: '', viewMeta: {}, allScheds: [],
+    cardViewMeta: {},
     laneWidth: 65,
     assetColWidth: 65,
     assetColumnVisible: true,
@@ -2318,6 +2319,30 @@ window.app = (function() {
     return changed;
   }
 
+  function buildTasklessPublishCardsFromState_() {
+    syncTasklessOrderMapFromCards_();
+    return Object.values(state.cards || {})
+      .filter((c) => !String(c && c.taskId || '').trim())
+      .map((c) => {
+        const id = String(c && c.id || '').trim();
+        const startVal = utils.slotToDateVal(Number(c && c.start || 1), 'start') || {};
+        const endVal = utils.slotToDateVal(Number(c && c.end || 1), 'end') || {};
+        const explicitOrder = Number((state.tasklessOrderByCardId || {})[id]);
+        const fallbackOrder = getCardStableSortNo_(c);
+        const orderNum = (isFinite(explicitOrder) && explicitOrder > 0) ? Math.round(explicitOrder)
+          : ((isFinite(fallbackOrder) && fallbackOrder < Number.MAX_SAFE_INTEGER) ? Math.round(fallbackOrder) : 1);
+        return {
+          id: id,
+          lane: String(c && c.laneId || ''),
+          startDate: String(startVal.dateVal || ''),
+          endDate: String(endVal.dateVal || ''),
+          taskOrder: Math.max(1, orderNum),
+          memo: String(c && c.memo || '')
+        };
+      })
+      .filter((c) => !!c.id && !!c.lane && !!c.startDate && !!c.endDate);
+  }
+
   function getTaskEstLengthMin_(task) {
     const n = taskNumberValue_(task, TASK_FIDS.estLength, ['estLength', 'est_length'], NaN);
     if (!isFinite(n) || n <= 0) return 60;
@@ -3008,6 +3033,8 @@ window.app = (function() {
 
       state.schedId = (data.schedConfig && data.schedConfig.activeSchedId) ? String(data.schedConfig.activeSchedId) : state.schedId;
       state.viewMeta = (data.schedConfig && data.schedConfig.view_meta) ? data.schedConfig.view_meta : {};
+      state.cardViewMeta = (data.schedConfig && data.schedConfig.card_view_meta && typeof data.schedConfig.card_view_meta === 'object')
+        ? data.schedConfig.card_view_meta : {};
       state.schedName = (data.schedConfig && data.schedConfig.schedName) ? String(data.schedConfig.schedName) : state.schedName;
       state.allScheds = (data.schedConfig && Array.isArray(data.schedConfig.allScheds)) ? data.schedConfig.allScheds : [];
       state.assetCapacityById = (data && data.assetCapacityById && typeof data.assetCapacityById === 'object') ? data.assetCapacityById : {};
@@ -3095,17 +3122,6 @@ window.app = (function() {
       state.cardTasklessOrderMetaKey = String(data.cardTasklessOrderMetaKey || 'taskless_order').trim() || 'taskless_order';
       state.cardTasklessOrderMapKey = String(data.cardTasklessOrderMapKey || 'taskless_card_order').trim() || 'taskless_card_order';
       state.tasklessOrderByCardId = {};
-      if (state.viewMeta && typeof state.viewMeta === 'object') {
-        const rawTasklessMap = state.viewMeta[state.cardTasklessOrderMapKey];
-        if (rawTasklessMap && typeof rawTasklessMap === 'object') {
-          Object.keys(rawTasklessMap).forEach((k) => {
-            const id = String(k || '').trim();
-            const n = Number(rawTasklessMap[k]);
-            if (!id || !isFinite(n) || n <= 0) return;
-            state.tasklessOrderByCardId[id] = Math.round(n);
-          });
-        }
-      }
       document.documentElement.style.setProperty('--lane-w', `${Math.round(state.laneWidth)}px`);
       document.documentElement.style.setProperty('--asset-col-w', `${Math.round(state.assetColWidth)}px`);
       applyCardColorTheme_();
@@ -3447,44 +3463,13 @@ window.app = (function() {
           taskless: normalizeHexColor_(state.cardColors && state.cardColors.taskless, CARD_COLOR_DEFAULTS.taskless)
         }
       };
-      syncTasklessOrderMapFromCards_();
-      meta[String(state.cardTasklessOrderMapKey || 'taskless_card_order')] = Object.assign({}, state.tasklessOrderByCardId || {});
       var payload = JSON.stringify({ schedId: state.schedId, type: 'view_meta', value: meta });
-      var tasklessCards = Object.values(state.cards || {})
-        .filter(function (c) { return !String(c && c.taskId || '').trim(); })
-        .map(function (c) {
-          return {
-            id: String(c && c.id || ''),
-            displayId: String(c && c.displayId || ''),
-            lane: String(c && c.laneId || ''),
-            start: Math.max(1, Math.round(Number(c && c.start || 1))),
-            end: Math.max(1, Math.round(Number(c && c.end || 1))),
-            memo: String(c && c.memo || ''),
-            order: Math.max(1, Math.round(Number((state.tasklessOrderByCardId || {})[String(c && c.id || '')] || 1)))
-          };
-        });
-      var cardViewMetaValue = {
-        taskless_order_key: String(state.cardTasklessOrderMetaKey || 'taskless_order'),
-        taskless_order_map_key: String(state.cardTasklessOrderMapKey || 'taskless_card_order'),
-        taskless_card_order: Object.assign({}, state.tasklessOrderByCardId || {}),
-        taskless_cards: tasklessCards,
-        updatedAt: new Date().toISOString()
-      };
-      var payloadCardViewMeta = JSON.stringify({ schedId: state.schedId, type: 'card_view_meta', value: cardViewMetaValue });
       google.script.run
         .withSuccessHandler(function() {
-          google.script.run
-            .withSuccessHandler(function () {
-              state.viewDirty = false;
-              state.laneDirty = false;
-              updateViewLaneSaveButtons_();
-              utils.saveStatus('saved', (scope === 'lane') ? 'Lane Saved' : (scope === 'view' ? 'View Saved' : 'Saved'));
-            })
-            .withFailureHandler(function (err2) {
-              console.error('[MOTK][Scheduler] save card_view_meta failed', err2);
-              utils.saveStatus('error', 'Save Error (card_view_meta)');
-            })
-            .sv_scheduler_save_meta_v2(payloadCardViewMeta);
+          state.viewDirty = false;
+          state.laneDirty = false;
+          updateViewLaneSaveButtons_();
+          utils.saveStatus('saved', (scope === 'lane') ? 'Lane Saved' : (scope === 'view' ? 'View Saved' : 'Saved'));
         })
         .withFailureHandler(function(err) {
           console.error('[MOTK][Scheduler] saveViewMeta failed', err);
@@ -4396,6 +4381,7 @@ window.app = (function() {
             startDate: (utils.slotToDateVal(Number(c && c.start || 1), 'start') || {}).dateVal || '',
             endDate: (utils.slotToDateVal(Number(c && c.end || 1), 'end') || {}).dateVal || ''
           }));
+          const tasklessCards = buildTasklessPublishCardsFromState_();
           const finish_ = (statusType, msg) => {
             utils.saveStatus(statusType, msg);
             state.publishBusy = false;
@@ -4403,54 +4389,44 @@ window.app = (function() {
             if (btn) btn.disabled = false;
             setBlockingOverlay_(false);
           };
-          const runPublishRpc_ = (attempt) => {
-            google.script.run
-              .withSuccessHandler((resRaw) => {
-                let res = resRaw;
-                if (typeof resRaw === 'string') {
-                  try { res = JSON.parse(resRaw); } catch (_) { res = { ok: false, error: 'Invalid publish response' }; }
-                }
-                if (res && res.ok) {
-                  const updated = Number(res.updated || 0);
-                  const skipped = Number(res.skipped || 0);
-                  const completed = Number(res.skippedCompleted || 0);
-                  const missing = Number(res.skippedMissing || 0);
-                  const invalid = Number(res.skippedInvalid || 0);
-                  const unchanged = Number(res.skippedNoChange || 0);
-                  const msg = `Publish done: updated ${updated} / skipped ${skipped} (completed ${completed}, missing ${missing}, invalid ${invalid}, unchanged ${unchanged})`;
-                  finish_('saved', msg);
-                  actions.load({
-                    forceNetwork: true,
-                    silentStatus: true,
-                    onDone: () => {
-                      utils.saveStatus('saved', msg);
-                    }
-                  });
-                  return;
-                }
-                const errMsg = String((res && (res.error || res.details)) || 'Publish failed');
-                if (attempt < 2) {
-                  utils.saveStatus('saving', `Publishing retry ${attempt + 2}/3...`);
-                  setTimeout(() => runPublishRpc_(attempt + 1), 400 * (attempt + 1));
-                  return;
-                }
-                finish_('error', errMsg);
-              })
-              .withFailureHandler((err) => {
-                if (attempt < 2) {
-                  utils.saveStatus('saving', `Publishing retry ${attempt + 2}/3...`);
-                  setTimeout(() => runPublishRpc_(attempt + 1), 400 * (attempt + 1));
-                  return;
-                }
-                finish_('error', String(err && (err.message || err) || 'Publish failed'));
-              })
-              .sv_schedule_publish_v1({
-                schedId: String(state.schedId || ''),
-                viewSlotMin: Number(config.slotMin || 30),
-                cards: cards
-              });
-          };
-          runPublishRpc_(0);
+          google.script.run
+            .withSuccessHandler((resRaw) => {
+              let res = resRaw;
+              if (typeof resRaw === 'string') {
+                try { res = JSON.parse(resRaw); } catch (_) { res = { ok: false, error: 'Invalid publish response' }; }
+              }
+              if (res && res.ok) {
+                const updated = Number(res.updatedTasks != null ? res.updatedTasks : (res.updated || 0));
+                const updatedTaskless = Number(res.updatedTaskless || 0);
+                const reindexed = Number(res.reindexed || 0);
+                const skipped = Number(res.skipped || 0);
+                const completed = Number(res.skippedCompleted || 0);
+                const missing = Number(res.skippedMissing || 0);
+                const invalid = Number(res.skippedInvalid || 0);
+                const unchanged = Number(res.skippedNoChange || 0);
+                const msg = `Publish done: tasks ${updated}, taskless ${updatedTaskless}, reindexed ${reindexed}, skipped ${skipped} (completed ${completed}, missing ${missing}, invalid ${invalid}, unchanged ${unchanged})`;
+                finish_('saved', msg);
+                actions.load({
+                  forceNetwork: true,
+                  silentStatus: true,
+                  onDone: () => {
+                    utils.saveStatus('saved', msg);
+                  }
+                });
+                return;
+              }
+              const errMsg = String((res && (res.error || res.details)) || 'Publish failed');
+              finish_('error', errMsg);
+            })
+            .withFailureHandler((err) => {
+              finish_('error', String(err && (err.message || err) || 'Publish failed'));
+            })
+            .sv_schedule_publish_v1({
+              schedId: String(state.schedId || ''),
+              viewSlotMin: Number(config.slotMin || 30),
+              cards: cards,
+              tasklessCards: tasklessCards
+            });
         },
         onTimeout: () => {
           utils.saveStatus('error', 'Publish timeout (save queue busy)');

@@ -351,8 +351,6 @@ window.app = (function() {
     dayCount: 14,
     startDate: null,
     selectionTokenId: '',
-    cardTasklessOrderMetaKey: 'taskless_order',
-    cardTasklessOrderMapKey: 'taskless_card_order',
     loading: false
   };
 
@@ -492,7 +490,7 @@ window.app = (function() {
     const safe = Math.max(1, asInt(slot, 1, 1));
     const idx = safe - 1;
     if (kind === 'end') {
-      const endIdx = safe;
+      const endIdx = idx;
       const dayOffset = Math.floor(endIdx / spd);
       const inDay = (endIdx % spd) + 1;
       return { date: addDays(origin, dayOffset), slot: inDay };
@@ -522,8 +520,6 @@ window.app = (function() {
       ? payload.schedConfig.view_meta : {};
     state.cardViewMeta = (payload.schedConfig && payload.schedConfig.card_view_meta && typeof payload.schedConfig.card_view_meta === 'object')
       ? payload.schedConfig.card_view_meta : {};
-    state.cardTasklessOrderMetaKey = norm(payload.cardTasklessOrderMetaKey) || 'taskless_order';
-    state.cardTasklessOrderMapKey = norm(payload.cardTasklessOrderMapKey) || 'taskless_card_order';
     state.laneVisibility = (state.viewMeta && typeof state.viewMeta.laneVisibility === 'object' && state.viewMeta.laneVisibility)
       ? Object.assign({}, state.viewMeta.laneVisibility) : {};
 
@@ -582,6 +578,8 @@ window.app = (function() {
       const s = parseDateLoose(t.planStart);
       const e = parseDateLoose(t.planEnd || t.planStart);
       if (!s || !e) return;
+      const sDate = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+      const eDate = new Date(e.getFullYear(), e.getMonth(), e.getDate());
       const laneId = norm(t.assignee) || 'unassigned';
       if (!lanes.some((l) => norm(l.id) === laneId) && laneId !== 'unassigned') lanes.push({ id: laneId, label: memberNameById[laneId] || laneId });
       tokens.push({
@@ -589,66 +587,41 @@ window.app = (function() {
         type: 'task',
         taskId: t.id,
         laneId: laneId,
-        start: dateToStartSlot(s),
-        end: dateToEndSlot(e),
+        startDate: sDate,
+        endDate: eDate,
+        startDateYmd: toYmd(sDate),
+        endDateYmd: toYmd(eDate),
         status: normalizeStatus(t.status),
+        taskOrder: parseOrder(t.taskOrder),
         displayId: t.id,
         memo: ''
       });
     });
 
-    const tasklessMap = (state.cardViewMeta && typeof state.cardViewMeta[state.cardTasklessOrderMapKey] === 'object')
-      ? state.cardViewMeta[state.cardTasklessOrderMapKey] : {};
     const tasklessCards = Array.isArray(state.cardViewMeta && state.cardViewMeta.taskless_cards) ? state.cardViewMeta.taskless_cards : [];
-    if (tasklessCards.length) {
-      tasklessCards.forEach((c, idx) => {
-        const id = norm(c && c.id) || `taskless:${idx + 1}`;
-        const laneId = norm(c && (c.lane || c.laneId)) || 'unassigned';
-        if (!lanes.some((l) => norm(l.id) === laneId) && laneId !== 'unassigned') lanes.push({ id: laneId, label: memberNameById[laneId] || laneId });
-        const mapOrder = parseOrder(tasklessMap[id]);
-        const ownOrder = parseOrder(c && (c.order || c.taskless_order));
-        const order = Math.min(mapOrder, ownOrder);
-        tokens.push({
-          id: `taskless:${id}`,
-          type: 'taskless',
-          taskId: '',
-          laneId: laneId,
-          start: Math.max(1, asInt(c && c.start, 1, 1)),
-          end: Math.max(1, asInt(c && c.end, 1, Math.max(1, asInt(c && c.start, 1, 1)))),
-          displayId: norm(c && c.displayId) || id,
-          memo: norm(c && c.memo),
-          tasklessOrder: order
-        });
+    tasklessCards.forEach((c, idx) => {
+      const id = norm(c && c.id) || `taskless:${idx + 1}`;
+      const laneId = norm(c && (c.lane || c.laneId)) || 'unassigned';
+      const s = parseDateLoose(c && c.startDate);
+      const e = parseDateLoose((c && c.endDate) || (c && c.startDate));
+      if (!s || !e) return;
+      const sDate = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+      const eDate = new Date(e.getFullYear(), e.getMonth(), e.getDate());
+      if (!lanes.some((l) => norm(l.id) === laneId) && laneId !== 'unassigned') lanes.push({ id: laneId, label: memberNameById[laneId] || laneId });
+      tokens.push({
+        id: `taskless:${id}`,
+        type: 'taskless',
+        taskId: '',
+        laneId: laneId,
+        startDate: sDate,
+        endDate: eDate,
+        startDateYmd: toYmd(sDate),
+        endDateYmd: toYmd(eDate),
+        displayId: norm(c && c.displayId) || id,
+        memo: norm(c && c.memo),
+        tasklessOrder: parseOrder(c && c.taskOrder)
       });
-    } else {
-      const rawCards = Array.isArray(payload.cards) ? payload.cards : [];
-      rawCards.forEach((c, idx) => {
-        const idKey = inferIdKey(c, /^c_/i);
-        const taskKey = inferIdKey(c, /^tk_/i) || inferKeyByParts(c, ['task', 'id']) || inferKeyByParts(c, ['task']);
-        const taskId = norm((taskKey ? c[taskKey] : '') || c.taskId || c.taskLink || '');
-        if (taskId) return;
-        const laneKey = inferKeyByParts(c, ['lane']) || inferKeyByParts(c, ['assignee']) || inferKeyByParts(c, ['member']);
-        const cardNoKey = inferKeyByParts(c, ['card', 'number']) || inferKeyByParts(c, ['card', 'no']);
-        const startKey = inferKeyByParts(c, ['start', 'slot']) || inferKeyByParts(c, ['start']);
-        const endKey = inferKeyByParts(c, ['end', 'slot']) || inferKeyByParts(c, ['end']);
-        const memoKey = inferKeyByParts(c, ['memo']) || inferKeyByParts(c, ['note']);
-        const cid = norm((idKey ? c[idKey] : '') || c.cardId || c.id || `taskless_fb_${idx + 1}`);
-        const laneId = norm((laneKey ? c[laneKey] : '') || c.laneVal || c.lane || 'unassigned') || 'unassigned';
-        if (!lanes.some((l) => norm(l.id) === laneId) && laneId !== 'unassigned') lanes.push({ id: laneId, label: memberNameById[laneId] || laneId });
-        const mapOrder = parseOrder(tasklessMap[cid]);
-        tokens.push({
-          id: `taskless:${cid}`,
-          type: 'taskless',
-          taskId: '',
-          laneId: laneId,
-          start: Math.max(1, asInt(startKey ? c[startKey] : c.start, 1, 1)),
-          end: Math.max(1, asInt(endKey ? c[endKey] : c.end, 1, Math.max(1, asInt(startKey ? c[startKey] : c.start, 1, 1)))),
-          displayId: norm((cardNoKey ? c[cardNoKey] : '') || c.displayId || cid),
-          memo: norm((memoKey ? c[memoKey] : '') || c.memo || ''),
-          tasklessOrder: mapOrder
-        });
-      });
-    }
+    });
 
     if (tokens.some((t) => norm(t.laneId) === 'unassigned') && !lanes.some((l) => norm(l.id) === 'unassigned')) {
       lanes.push({ id: 'unassigned', label: 'Unassigned' });
@@ -675,11 +648,15 @@ window.app = (function() {
     return out;
   };
   const sortInCell = (a, b) => {
-    const ao = a.type === 'task' ? parseOrder((getTaskById(a.taskId) || {}).taskOrder) : parseOrder(a.tasklessOrder);
-    const bo = b.type === 'task' ? parseOrder((getTaskById(b.taskId) || {}).taskOrder) : parseOrder(b.tasklessOrder);
+    const ao = a.type === 'task' ? parseOrder(a.taskOrder) : parseOrder(a.tasklessOrder);
+    const bo = b.type === 'task' ? parseOrder(b.taskOrder) : parseOrder(b.tasklessOrder);
     if (ao !== bo) return ao - bo;
-    if (a.start !== b.start) return a.start - b.start;
-    if (a.end !== b.end) return a.end - b.end;
+    const as = a.startDateYmd || '';
+    const bs = b.startDateYmd || '';
+    if (as !== bs) return as < bs ? -1 : 1;
+    const ae = a.endDateYmd || '';
+    const be = b.endDateYmd || '';
+    if (ae !== be) return ae < be ? -1 : 1;
     return norm(a.id).localeCompare(norm(b.id));
   };
 
@@ -734,8 +711,10 @@ window.app = (function() {
       els.inspContent.innerHTML = 'Select a token.';
       return;
     }
-    const s = slotToDate(tok.start, 'start');
-    const e = slotToDate(tok.end, 'end');
+    const sDate = parseDateLoose(tok.startDate) || null;
+    const eDate = parseDateLoose(tok.endDate) || sDate;
+    const sYmd = sDate ? toYmdSlash(sDate) : '-';
+    const eYmd = eDate ? toYmdSlash(eDate) : '-';
     if (tok.type === 'taskless') {
       els.inspContent.innerHTML = '';
       const block = document.createElement('div');
@@ -749,8 +728,8 @@ window.app = (function() {
       els.inspContent.appendChild(g1);
       const g2 = document.createElement('div');
       g2.className = 'row2';
-      g2.innerHTML = `<div class="inp-group"><label>Start</label><input class="inp" readonly value="${esc(toYmdSlash(s.date) + ' / slot ' + s.slot)}"></div>` +
-        `<div class="inp-group"><label>End</label><input class="inp" readonly value="${esc(toYmdSlash(e.date) + ' / slot ' + e.slot)}"></div>`;
+      g2.innerHTML = `<div class="inp-group"><label>Start</label><input class="inp" readonly value="${esc(sYmd)}"></div>` +
+        `<div class="inp-group"><label>End</label><input class="inp" readonly value="${esc(eYmd)}"></div>`;
       els.inspContent.appendChild(g2);
       const memo = document.createElement('div');
       memo.className = 'inp-group';
@@ -770,7 +749,7 @@ window.app = (function() {
     head.innerHTML =
       `<div class="inp-group"><label>Task ID</label><input readonly value="${esc(task.id)}"></div>` +
       `<div class="inp-group"><label>Task Name</label><input readonly value="${esc(task.name)}"></div>` +
-      `<div class="meta">Lane: ${esc(laneLabel(tok.laneId))} / ${esc(toYmdSlash(s.date))} - ${esc(toYmdSlash(e.date))}</div>`;
+      `<div class="meta">Lane: ${esc(laneLabel(tok.laneId))} / ${esc(sYmd)} - ${esc(eYmd)}</div>`;
     els.inspContent.appendChild(head);
 
     state.taskFieldDefs.forEach((def) => {
@@ -866,8 +845,9 @@ window.app = (function() {
     const keyOf = (laneId, dayIdx) => `${laneId}__${dayIdx}`;
     state.cards.forEach((c) => {
       const laneId = norm(c.laneId) || 'unassigned';
-      const sDate = slotToDate(c.start, 'start').date;
-      const eDate = slotToDate(c.end, 'end').date;
+      const sDate = parseDateLoose(c.startDate);
+      const eDate = parseDateLoose(c.endDate || c.startDate);
+      if (!sDate || !eDate) return;
       for (let di = 0; di < dayVals.length; di++) {
         const d = dayVals[di];
         if (d < sDate || d > eDate) continue;
@@ -896,12 +876,15 @@ window.app = (function() {
           const t = getTaskById(c.taskId);
           const statusCls = normalizeStatus(c.status || (t && t.status) || '');
           const isTaskless = c.type === 'taskless';
-          const taskOrder = t ? parseOrder(t.taskOrder) : Number.MAX_SAFE_INTEGER;
+          const taskOrder = t ? parseOrder(c.taskOrder) : Number.MAX_SAFE_INTEGER;
           const orderBadge = taskOrder < Number.MAX_SAFE_INTEGER ? taskOrder : (parseOrder(c.tasklessOrder) < Number.MAX_SAFE_INTEGER ? parseOrder(c.tasklessOrder) : '-');
-          const sd = slotToDate(c.start, 'start');
-          const ed = slotToDate(c.end, 'end');
+          const sd = parseDateLoose(c.startDate);
+          const ed = parseDateLoose(c.endDate || c.startDate);
+          if (!sd || !ed) continue;
           const curDay = toYmd(dayVals[di]);
-          const arrow = (toYmd(sd.date) !== toYmd(ed.date)) ? (curDay === toYmd(sd.date) ? '→' : (curDay === toYmd(ed.date) ? '←' : '↔')) : '';
+          const sdYmd = toYmd(sd);
+          const edYmd = toYmd(ed);
+          const arrow = (sdYmd !== edYmd) ? (curDay === sdYmd ? '→' : (curDay === edYmd ? '←' : '↔')) : '';
           const mainTxt = isTaskless ? (norm(c.memo) || norm(c.displayId || c.id)) : (norm((t && t.shotCode) || (t && t.name) || (t && t.id) || c.taskId));
           const token = document.createElement('div');
           token.className = 'token ' + (statusCls ? ('status-' + statusCls) : '') + (isTaskless ? ' taskless' : '') + (norm(state.selectionTokenId) === norm(c.id) ? ' selected' : '');

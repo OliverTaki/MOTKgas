@@ -5154,7 +5154,17 @@ function sv_schedule_listTasks_v1(opts) {
 function sv_schedule_publish_v1(req) {
   req = req || {};
   var cards = Array.isArray(req.cards) ? req.cards : [];
-  if (!cards.length) return { ok: true, updated: 0, skipped: 0, updatedTaskIds: [] };
+  var tasklessCardsReq = Array.isArray(req.tasklessCards) ? req.tasklessCards : [];
+  if (!cards.length && !tasklessCardsReq.length) return {
+    ok: true,
+    updated: 0,
+    updatedTasks: 0,
+    updatedTaskless: 0,
+    reindexed: 0,
+    skipped: 0,
+    updatedTaskIds: [],
+    errors: []
+  };
   var scheduleId = String(req.schedId || '').trim();
   var publishCfg = {
     originDate: null,
@@ -5166,6 +5176,8 @@ function sv_schedule_publish_v1(req) {
   if (!ss) throw new Error('Scheduler: active spreadsheet not found');
 
   var schedSheet = _findSheetByCandidates_(['scheds', 'Scheds', 'SCHEDS']);
+  var schedTargetRow = -1;
+  var idxSchedCardViewMeta = -1;
   if (schedSheet) {
     var sVals = schedSheet.getDataRange().getValues();
     if (sVals && sVals.length >= 3) {
@@ -5184,6 +5196,7 @@ function sv_schedule_publish_v1(req) {
       var idxSchedOrigin = resolveSchedCol_('originDate', ['originDate']);
       var idxSchedSlot = resolveSchedCol_('slotMin', ['slotMin']);
       var idxSchedWork = resolveSchedCol_('workHours', ['workHours']);
+      idxSchedCardViewMeta = resolveSchedCol_('card_view_meta', ['card_view_meta']);
 
       var targetSchedRow = null;
       if (idxSchedId >= 0 && scheduleId) {
@@ -5191,6 +5204,7 @@ function sv_schedule_publish_v1(req) {
           var sid = String(sVals[sr][idxSchedId] || '').trim();
           if (sid && sid === scheduleId) {
             targetSchedRow = sVals[sr];
+            schedTargetRow = sr + 1;
             break;
           }
         }
@@ -5200,11 +5214,15 @@ function sv_schedule_publish_v1(req) {
           var activeRaw = String(sVals[sa][idxSchedActive] || '').trim().toLowerCase();
           if (activeRaw === 'true' || activeRaw === '1' || activeRaw === 'yes') {
             targetSchedRow = sVals[sa];
+            schedTargetRow = sa + 1;
             break;
           }
         }
       }
-      if (!targetSchedRow && sVals.length > 2) targetSchedRow = sVals[2];
+      if (!targetSchedRow && sVals.length > 2) {
+        targetSchedRow = sVals[2];
+        schedTargetRow = 3;
+      }
 
       var toSheetDate_ = function (value) {
         if (value === null || value === undefined || value === '') return null;
@@ -5241,41 +5259,21 @@ function sv_schedule_publish_v1(req) {
       }
     }
   }
-  if (!(publishCfg.originDate instanceof Date) || isNaN(publishCfg.originDate.getTime())) {
-    return { ok: false, error: 'Publish aborted: schedule originDate is missing/invalid.' };
+  var slotsPerDay = 0;
+  var originBaseDate = null;
+  if (publishCfg.originDate instanceof Date && !isNaN(publishCfg.originDate.getTime())) {
+    slotsPerDay = Math.max(1, Math.round((Number(publishCfg.workHours) * 60) / Math.max(1, Number(publishCfg.slotMin) || 1)));
+    originBaseDate = new Date(publishCfg.originDate.getFullYear(), publishCfg.originDate.getMonth(), publishCfg.originDate.getDate());
   }
-  var slotsPerDay = Math.max(1, Math.round((Number(publishCfg.workHours) * 60) / Math.max(1, Number(publishCfg.slotMin) || 1)));
-  var originBaseDate = new Date(publishCfg.originDate.getFullYear(), publishCfg.originDate.getMonth(), publishCfg.originDate.getDate());
-  var shiftWorkdays_ = function (baseDate, dayIdx) {
-    var d = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
-    if (!dayIdx) return d;
-    var step = dayIdx > 0 ? 1 : -1;
-    var remain = Math.abs(dayIdx);
-    while (remain > 0) {
-      d.setDate(d.getDate() + step);
-      var dow = d.getDay();
-      if (dow !== 0 && dow !== 6) remain -= 1;
-    }
-    return d;
-  };
-  var adjustWeekend_ = function (d, kind) {
-    var out = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    var step = (kind === 'end') ? -1 : 1;
-    while (out.getDay() === 0 || out.getDay() === 6) {
-      out.setDate(out.getDate() + step);
-    }
-    return out;
-  };
-  var slotToPublishDate_ = function (slot, kind) {
-    var raw = Number(slot);
-    if (!isFinite(raw)) return null;
-    raw = Math.max(1, Math.round(raw));
-    var dayIdx = Math.floor((raw - 1) / slotsPerDay);
-    var d = shiftWorkdays_(originBaseDate, dayIdx);
-    d = adjustWeekend_(d, kind || 'neutral');
-    d.setHours(12, 0, 0, 0);
-    return d;
-  };
+  if (!schedSheet) {
+    return { ok: false, error: 'Publish aborted: Scheds sheet not found.' };
+  }
+  if (idxSchedCardViewMeta < 0) {
+    return { ok: false, error: 'Publish aborted: card_view_meta column is missing in Scheds.' };
+  }
+  if (schedTargetRow < 3) {
+    return { ok: false, error: 'Publish aborted: target schedule row not found in Scheds.' };
+  }
 
   var sh = _findSheetByCandidates_(['task', 'Tasks', 'TASK']);
   if (!sh) throw new Error('Scheduler: task sheet not found');
@@ -5315,6 +5313,45 @@ function sv_schedule_publish_v1(req) {
     if (rowId) rowIndexById[rowId] = i;
   }
 
+  var shiftWorkdays_ = function (baseDate, dayIdx) {
+    var d = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
+    if (!dayIdx) return d;
+    var step = dayIdx > 0 ? 1 : -1;
+    var remain = Math.abs(dayIdx);
+    while (remain > 0) {
+      d.setDate(d.getDate() + step);
+      var dow = d.getDay();
+      if (dow !== 0 && dow !== 6) remain -= 1;
+    }
+    return d;
+  };
+  var slotToDateYmd_ = function (slot) {
+    if (!(originBaseDate instanceof Date) || !isFinite(slotsPerDay) || slotsPerDay <= 0) return '';
+    var raw = Number(slot);
+    if (!isFinite(raw)) return '';
+    raw = Math.max(1, Math.round(raw));
+    var dayIdx = Math.floor((raw - 1) / slotsPerDay);
+    var d = shiftWorkdays_(originBaseDate, dayIdx);
+    if (!d || isNaN(d.getTime())) return '';
+    return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  };
+  var parseYmdDate_ = function (value) {
+    if (value instanceof Date && !isNaN(value.getTime())) {
+      return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 12, 0, 0, 0);
+    }
+    var raw = String(value || '').trim();
+    if (!raw) return null;
+    var m = raw.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+    if (!m) return null;
+    var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0);
+    if (isNaN(d.getTime())) return null;
+    return d;
+  };
+  var toYmd_ = function (value) {
+    var d = parseYmdDate_(value);
+    if (!d) return '';
+    return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  };
   var comparableCell_ = function (v) {
     if (v == null || v === '') return '';
     if (v instanceof Date && !isNaN(v.getTime())) {
@@ -5322,59 +5359,9 @@ function sv_schedule_publish_v1(req) {
     }
     return String(v).trim();
   };
-  var laneBuckets = {};
-  for (var iCard = 0; iCard < cards.length; iCard++) {
-    var raw = cards[iCard] || {};
-    var tId = String(raw.taskId || '').trim();
-    if (!tId) continue;
-    var lane = String(raw.laneVal || raw.lane || '').trim();
-    var s = Math.floor(Number(raw.startSlot != null ? raw.startSlot : raw.start));
-    var e = Math.floor(Number(raw.endSlot != null ? raw.endSlot : raw.end));
-    if (!isFinite(s) || !isFinite(e)) continue;
-    if (e < s) e = s;
-    if (!laneBuckets[lane]) laneBuckets[lane] = [];
-    laneBuckets[lane].push({
-      taskId: tId,
-      lane: lane,
-      startSlot: s,
-      endSlot: e,
-      startDate: String(raw.startDate || '').trim(),
-      endDate: String(raw.endDate || '').trim(),
-      cardId: String(raw.cardId || raw.id || '').trim()
-    });
-  }
-
-  var publishByTaskId = {};
-  var laneKeys = Object.keys(laneBuckets);
-  for (var lk = 0; lk < laneKeys.length; lk++) {
-    var laneKey = laneKeys[lk];
-    var items = laneBuckets[laneKey] || [];
-    items.sort(function (a, b) {
-      var da = Number(a.startSlot || 0);
-      var db = Number(b.startSlot || 0);
-      if (da !== db) return da - db;
-      var ea = Number(a.endSlot || 0);
-      var eb = Number(b.endSlot || 0);
-      if (ea !== eb) return ea - eb;
-      return String(a.cardId || '').localeCompare(String(b.cardId || ''));
-    });
-    for (var li = 0; li < items.length; li++) {
-      var item = items[li];
-      if (!publishByTaskId[item.taskId]) {
-        publishByTaskId[item.taskId] = {
-          taskId: item.taskId,
-          lane: item.lane,
-          startSlot: item.startSlot,
-          endSlot: item.endSlot,
-          startDate: item.startDate,
-          endDate: item.endDate,
-          order: li + 1
-        };
-      }
-    }
-  }
-
-  var updated = 0;
+  var updatedTasks = 0;
+  var updatedTaskless = 0;
+  var reindexed = 0;
   var skipped = 0;
   var skippedCompleted = 0;
   var skippedMissing = 0;
@@ -5382,37 +5369,138 @@ function sv_schedule_publish_v1(req) {
   var skippedNoChange = 0;
   var changed = false;
   var updatedTaskIds = [];
-  var parseYmdDate_ = function (s, kind) {
-    var raw = String(s || '').trim();
-    if (!raw) return null;
-    var m = raw.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
-    if (!m) return null;
-    var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-    if (isNaN(d.getTime())) return null;
-    d = adjustWeekend_(d, kind || 'neutral');
-    d.setHours(12, 0, 0, 0);
-    return d;
+  var errors = [];
+
+  var taskInputById = {};
+  for (var iCard = 0; iCard < cards.length; iCard++) {
+    var raw = cards[iCard] || {};
+    var taskIdRaw = String(raw.taskId || '').trim();
+    if (!taskIdRaw) continue;
+    if (taskInputById[taskIdRaw]) continue;
+    var laneRaw = String(raw.laneVal || raw.lane || '').trim();
+    var startDateText = toYmd_(raw.startDate);
+    var endDateText = toYmd_(raw.endDate);
+    if (!startDateText) startDateText = slotToDateYmd_(raw.startSlot != null ? raw.startSlot : raw.start);
+    if (!endDateText) endDateText = slotToDateYmd_(raw.endSlot != null ? raw.endSlot : raw.end);
+    taskInputById[taskIdRaw] = {
+      kind: 'task',
+      key: taskIdRaw,
+      taskId: taskIdRaw,
+      lane: laneRaw,
+      startDate: startDateText,
+      endDate: endDateText,
+      memo: ''
+    };
+  }
+
+  var laneBuckets = {};
+  var pushLaneItem_ = function (item) {
+    var lane = String(item.lane || '').trim();
+    if (!lane) return false;
+    var sTxt = toYmd_(item.startDate);
+    var eTxt = toYmd_(item.endDate || item.startDate);
+    if (!sTxt || !eTxt) return false;
+    var sDate = parseYmdDate_(sTxt);
+    var eDate = parseYmdDate_(eTxt);
+    if (!sDate || !eDate) return false;
+    if (eDate.getTime() < sDate.getTime()) eDate = new Date(sDate.getTime());
+    item.lane = lane;
+    item.startDate = Utilities.formatDate(sDate, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    item.endDate = Utilities.formatDate(eDate, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    if (!laneBuckets[lane]) laneBuckets[lane] = [];
+    laneBuckets[lane].push(item);
+    return true;
   };
+
+  var taskIds = Object.keys(taskInputById);
+  for (var t = 0; t < taskIds.length; t++) {
+    var taskId = taskIds[t];
+    var itemTask = taskInputById[taskId];
+    if (!taskId || !(taskId in rowIndexById)) {
+      skippedMissing++;
+      continue;
+    }
+    var taskRow = data[rowIndexById[taskId]];
+    var taskStatus = idxStatus >= 0 ? String(taskRow[idxStatus] || '').trim().toLowerCase() : '';
+    if (taskStatus === 'completed') {
+      skippedCompleted++;
+      continue;
+    }
+    if (!pushLaneItem_(itemTask)) {
+      skippedInvalid++;
+    }
+  }
+
+  var seenTaskless = {};
+  for (var ix = 0; ix < tasklessCardsReq.length; ix++) {
+    var tlessRaw = tasklessCardsReq[ix] || {};
+    var tlessId = String(tlessRaw.id || '').trim();
+    if (!tlessId || seenTaskless[tlessId]) {
+      if (!tlessId) skippedInvalid++;
+      continue;
+    }
+    seenTaskless[tlessId] = true;
+    var tlessItem = {
+      kind: 'taskless',
+      key: tlessId,
+      id: tlessId,
+      lane: String(tlessRaw.lane || tlessRaw.laneId || '').trim(),
+      startDate: String(tlessRaw.startDate || '').trim(),
+      endDate: String(tlessRaw.endDate || tlessRaw.startDate || '').trim(),
+      memo: String(tlessRaw.memo || '')
+    };
+    if (!pushLaneItem_(tlessItem)) skippedInvalid++;
+  }
+
+  var publishByTaskId = {};
+  var orderedTaskless = [];
+  var laneKeys = Object.keys(laneBuckets).sort();
+  var compareItem_ = function (a, b) {
+    if (a.startDate !== b.startDate) return a.startDate < b.startDate ? -1 : 1;
+    if (a.endDate !== b.endDate) return a.endDate < b.endDate ? -1 : 1;
+    return String(a.key || '').localeCompare(String(b.key || ''));
+  };
+  for (var lk = 0; lk < laneKeys.length; lk++) {
+    var laneKey = laneKeys[lk];
+    var items = laneBuckets[laneKey] || [];
+    items.sort(compareItem_);
+    for (var li = 0; li < items.length; li++) {
+      var laneItem = items[li];
+      var order = li + 1;
+      reindexed++;
+      if (laneItem.kind === 'task') {
+        publishByTaskId[laneItem.taskId] = {
+          taskId: laneItem.taskId,
+          lane: laneItem.lane,
+          startDate: laneItem.startDate,
+          endDate: laneItem.endDate,
+          order: order
+        };
+      } else {
+        orderedTaskless.push({
+          id: String(laneItem.id || ''),
+          lane: String(laneItem.lane || ''),
+          startDate: String(laneItem.startDate || ''),
+          endDate: String(laneItem.endDate || ''),
+          taskOrder: order,
+          memo: String(laneItem.memo || '')
+        });
+      }
+    }
+  }
+
   var publishTaskIds = Object.keys(publishByTaskId);
   for (var j = 0; j < publishTaskIds.length; j++) {
-    var taskId = publishTaskIds[j];
-    var pub = publishByTaskId[taskId] || {};
-    if (!taskId || !(taskId in rowIndexById)) { skipped++; skippedMissing++; continue; }
-    var rowIdx = rowIndexById[taskId];
+    var taskIdApply = publishTaskIds[j];
+    var pub = publishByTaskId[taskIdApply] || {};
+    if (!taskIdApply || !(taskIdApply in rowIndexById)) { skippedMissing++; continue; }
+    var rowIdx = rowIndexById[taskIdApply];
     var row = data[rowIdx];
-    var status = idxStatus >= 0 ? String(row[idxStatus] || '').trim().toLowerCase() : '';
-    if (status === 'completed') { skipped++; skippedCompleted++; continue; }
 
     var laneVal = String(pub.lane || '').trim();
-    var startSlot = Number(pub.startSlot);
-    var endSlot = Number(pub.endSlot);
-    if (!isFinite(startSlot) || !isFinite(endSlot)) { skipped++; skippedInvalid++; continue; }
-    startSlot = Math.floor(startSlot);
-    endSlot = Math.floor(endSlot);
-    if (endSlot < startSlot) endSlot = startSlot;
-    var startDate = parseYmdDate_(pub.startDate, 'start') || slotToPublishDate_(startSlot, 'start');
-    var endDate = parseYmdDate_(pub.endDate, 'end') || slotToPublishDate_(endSlot, 'end');
-    if (!startDate || !endDate) { skipped++; skippedInvalid++; continue; }
+    var startDate = parseYmdDate_(pub.startDate);
+    var endDate = parseYmdDate_(pub.endDate);
+    if (!laneVal || !startDate || !endDate) { skippedInvalid++; continue; }
     var orderVal = Number(pub.order || 0);
 
     var rowChanged = false;
@@ -5434,10 +5522,9 @@ function sv_schedule_publish_v1(req) {
     }
     if (rowChanged) {
       changed = true;
-      updated++;
-      updatedTaskIds.push(taskId);
+      updatedTasks++;
+      updatedTaskIds.push(taskIdApply);
     } else {
-      skipped++;
       skippedNoChange++;
     }
   }
@@ -5445,15 +5532,27 @@ function sv_schedule_publish_v1(req) {
   if (changed) {
     sh.getRange(dataStartRow, 1, dataCount, lastCol).setValues(data);
   }
+  var nextCardViewMeta = { taskless_cards: orderedTaskless };
+  var nextCardViewMetaJson = JSON.stringify(nextCardViewMeta);
+  var prevCardViewMetaJson = String(schedSheet.getRange(schedTargetRow, idxSchedCardViewMeta + 1).getValue() || '');
+  if (prevCardViewMetaJson !== nextCardViewMetaJson) {
+    schedSheet.getRange(schedTargetRow, idxSchedCardViewMeta + 1).setValue(nextCardViewMetaJson);
+    updatedTaskless = orderedTaskless.length;
+  }
+  skipped = skippedCompleted + skippedMissing + skippedInvalid + skippedNoChange;
   return {
     ok: true,
-    updated: updated,
+    updated: updatedTasks,
+    updatedTasks: updatedTasks,
+    updatedTaskless: updatedTaskless,
+    reindexed: reindexed,
     skipped: skipped,
     skippedCompleted: skippedCompleted,
     skippedMissing: skippedMissing,
     skippedInvalid: skippedInvalid,
     skippedNoChange: skippedNoChange,
-    updatedTaskIds: updatedTaskIds
+    updatedTaskIds: updatedTaskIds,
+    errors: errors
   };
 }
 
