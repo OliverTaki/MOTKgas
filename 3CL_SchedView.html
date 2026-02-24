@@ -86,8 +86,33 @@
     .toolbar-pop .pop-title { font-size: 10px; color: #9aa1ac; margin-bottom: 8px; }
     .toolbar-pop .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
     .toolbar-pop .row label { width: 70px; font-size: 10px; color: #a5adba; }
-    .lane-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 11px; }
-    .lane-row input[type="checkbox"] { accent-color: #38bdf8; }
+    .lane-list {
+      max-height: 360px;
+      overflow: auto;
+      border: 1px solid #2c3340;
+      border-radius: 6px;
+      padding: 6px;
+      background: #14171d;
+    }
+    .lane-row {
+      display: grid;
+      grid-template-columns: 16px minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+      font-size: 11px;
+      color: #e5e7eb;
+    }
+    .lane-row:last-child { margin-bottom: 0; }
+    .lane-row input[type="checkbox"] { accent-color: #38bdf8; margin: 0; }
+    .lane-row .lane-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      line-height: 1.25;
+    }
+    .lane-row.assets .lane-name { color: #93c5fd; font-weight: 700; letter-spacing: 0.03em; }
     #status { font-size: 11px; margin-left: 6px; min-width: 180px; max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #status.saving { color: var(--warn); }
     #status.saved { color: var(--ok); }
@@ -186,6 +211,7 @@
     }
     .token.selected { box-shadow: 0 0 0 1px #67e8f9, inset 0 0 0 1px rgba(255,255,255,0.25); }
     .token.taskless { background: rgba(71, 85, 105, 0.45); }
+    .token.asset { background: rgba(3, 105, 161, 0.42); }
     .token.status-not_started { background: rgba(29, 78, 216, 0.35); }
     .token.status-in_progress { background: rgba(124, 58, 237, 0.35); }
     .token.status-review { background: rgba(217, 119, 6, 0.35); }
@@ -207,6 +233,16 @@
       flex-shrink: 0;
     }
     .tk-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+    .tk-sub {
+      max-width: 48%;
+      color: #cbd5e1;
+      font-size: 9px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 0 1 auto;
+      opacity: 0.92;
+    }
     .tk-arrow { font-size: 10px; color: #c7d2fe; flex-shrink: 0; }
     .token.more { background: rgba(17, 24, 39, 0.55); color: #cbd5e1; justify-content: center; cursor: default; }
     #empty { display: none; padding: 16px; color: #9ca3af; font-size: 12px; }
@@ -398,16 +434,54 @@
             <input id="sv-lane-w" class="inp-dark" type="number" min="40" max="560" step="1">
           </div>
           <div class="inp-group">
-            <label for="sv-lane-empty">Assets width</label>
-            <input id="sv-lane-empty" class="inp-dark" type="number" value="0" disabled>
+            <label for="sv-asset-lane-w">Assets width</label>
+            <input id="sv-asset-lane-w" class="inp-dark" type="number" min="40" max="560" step="1">
           </div>
         </div>
         <div class="inp-group">
           <label for="lane-menu-list">Lane Visibility</label>
-          <div id="lane-menu-list"></div>
+          <div id="lane-menu-list" class="lane-list"></div>
         </div>
         <div class="settings-actions">
           <button id="btn-lane-save" class="btn" type="button">Save Lane</button>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <h4>Task Display</h4>
+        <div class="settings-grid-2">
+          <div class="inp-group">
+            <label for="sv-disp-main">Main (center)</label>
+            <select id="sv-disp-main" class="inp-dark"></select>
+          </div>
+          <div class="inp-group">
+            <label for="sv-disp-sub">Sub (right)</label>
+            <select id="sv-disp-sub" class="inp-dark"></select>
+          </div>
+          <div class="inp-group">
+            <label for="sv-disp-taskless-main">Taskless Main</label>
+            <select id="sv-disp-taskless-main" class="inp-dark"></select>
+          </div>
+          <div class="inp-group">
+            <label for="sv-disp-taskless-sub">Taskless Sub</label>
+            <select id="sv-disp-taskless-sub" class="inp-dark"></select>
+          </div>
+        </div>
+        <div class="settings-inline">
+          <div class="inp-group">
+            <label for="sv-disp-add-field">Add field</label>
+            <select id="sv-disp-add-field" class="inp-dark"></select>
+          </div>
+          <div class="inp-group" style="max-width:140px;">
+            <label for="sv-disp-add-target">Target</label>
+            <select id="sv-disp-add-target" class="inp-dark">
+              <option value="main">Main</option>
+              <option value="sub">Sub</option>
+              <option value="taskless_main">Taskless Main</option>
+              <option value="taskless_sub">Taskless Sub</option>
+            </select>
+          </div>
+          <button id="btn-disp-add-field" class="btn" type="button">+ Add</button>
         </div>
       </section>
     </div>
@@ -432,18 +506,30 @@ window.app = (function() {
     taskFieldDefs: [],
     cards: [],
     lanes: [],
+    assetNameById: {},
     config: { originDate: null, slotMin: 30, workHours: 8 },
     dayCount: 14,
     dayPx: 92,
     laneWidth: 150,
+    assetLaneWidth: 150,
+    assetLaneVisible: true,
     startPreset: 'custom',
     endPreset: 'custom',
     autoPush: true,
     autoCellHeight: false,
+    taskDisplayMain: 'shot_code',
+    taskDisplaySub: 'task_name',
+    tasklessDisplayMain: 'card_memo',
+    tasklessDisplaySub: 'card_order',
+    customDisplayFields: [],
     startDate: null,
     selectionTokenId: '',
+    renderTokens: [],
     loading: false
   };
+
+  const ASSETS_LANE_ID = '__assets__';
+  const ASSETS_LANE_LABEL = 'ASSETS';
 
   const els = {
     brandLink: document.getElementById('brand-link'),
@@ -469,9 +555,17 @@ window.app = (function() {
     inpRange: document.getElementById('sv-range'),
     chkPush: document.getElementById('sv-chk-push'),
     inpLaneW: document.getElementById('sv-lane-w'),
+    inpAssetLaneW: document.getElementById('sv-asset-lane-w'),
     inpZoom: document.getElementById('sv-zoom'),
     inpZoomVal: document.getElementById('sv-zoom-val'),
     chkAutoHeight: document.getElementById('sv-auto-height'),
+    selDispMain: document.getElementById('sv-disp-main'),
+    selDispSub: document.getElementById('sv-disp-sub'),
+    selDispTasklessMain: document.getElementById('sv-disp-taskless-main'),
+    selDispTasklessSub: document.getElementById('sv-disp-taskless-sub'),
+    selDispAddField: document.getElementById('sv-disp-add-field'),
+    selDispAddTarget: document.getElementById('sv-disp-add-target'),
+    btnDispAddField: document.getElementById('btn-disp-add-field'),
     settingsModal: document.getElementById('settings-modal'),
     inspContent: document.getElementById('insp-content')
   };
@@ -530,8 +624,93 @@ window.app = (function() {
     const n = Math.round(Number(v));
     return (isFinite(n) && n > 0) ? n : Number.MAX_SAFE_INTEGER;
   };
+  const parseEntityIds = (value, prefix) => {
+    const out = [];
+    const seen = {};
+    const pfx = String(prefix || '').trim().toLowerCase();
+    const pushOne = (token) => {
+      const s = String(token || '').trim();
+      if (!s) return;
+      const low = s.toLowerCase();
+      if (pfx && !new RegExp('^' + pfx + '_').test(low)) return;
+      if (seen[low]) return;
+      seen[low] = true;
+      out.push(s);
+    };
+    const walk = (v) => {
+      if (v === null || v === undefined || v === '') return;
+      if (Array.isArray(v)) {
+        v.forEach(walk);
+        return;
+      }
+      if (typeof v === 'object') {
+        ['id', 'ids', 'value', 'values', 'list', 'items', 'assetIds', 'asset_ids'].forEach((k) => {
+          if (Object.prototype.hasOwnProperty.call(v, k)) walk(v[k]);
+        });
+        return;
+      }
+      const s = String(v).trim();
+      if (!s) return;
+      if (pfx) {
+        const re = new RegExp(pfx + '_[a-z0-9]+', 'ig');
+        const hits = s.match(re);
+        if (hits && hits.length) {
+          hits.forEach(pushOne);
+          return;
+        }
+      }
+      s.split(/[\s,;|\n\r\t]+/).forEach(pushOne);
+    };
+    walk(value);
+    return out;
+  };
+  const DISPLAY_BASE_OPTIONS = [
+    { value: 'shot_code', label: 'Shot Code' },
+    { value: 'shot_id', label: 'Shot ID' },
+    { value: 'task_name', label: 'Task Name' },
+    { value: 'task_status', label: 'Task Status' },
+    { value: 'task_assignee', label: 'Task Assignee' },
+    { value: 'task_est_length', label: 'Est length (mins)' },
+    { value: 'task_id', label: 'Task ID' },
+    { value: 'task_order', label: 'Task Order' },
+    { value: 'start_date', label: 'Start Date' },
+    { value: 'end_date', label: 'End Date' },
+    { value: 'card_memo', label: 'Taskless Memo' },
+    { value: 'card_id', label: 'Taskless Card ID' },
+    { value: 'card_order', label: 'Taskless Order' },
+    { value: 'card_lane', label: 'Taskless Lane' },
+    { value: 'card_length_days', label: 'Taskless Length (days)' },
+    { value: 'asset_name', label: 'Asset Name' },
+    { value: 'asset_id', label: 'Asset ID' },
+    { value: 'asset_task_count', label: 'Asset Task Count' },
+    { value: 'asset_date', label: 'Asset Day' }
+  ];
+  const DISPLAY_BASE_FIELDS = DISPLAY_BASE_OPTIONS.map((o) => String(o.value || ''));
+  const normalizeDisplayField = (value, fallback) => {
+    const raw = String(value || '').trim();
+    const low = raw.toLowerCase();
+    if (DISPLAY_BASE_FIELDS.indexOf(low) >= 0) return low;
+    if (/^task:/i.test(raw)) return 'task:' + raw.replace(/^task:/i, '');
+    if (/^taskless:/i.test(raw)) return 'taskless:' + raw.replace(/^taskless:/i, '');
+    if (/^asset:/i.test(raw)) return 'asset:' + raw.replace(/^asset:/i, '');
+    return String(fallback || 'task_name');
+  };
+  const formatMinutesLabel = (raw) => {
+    const n = Number(raw);
+    if (isFinite(n) && n > 0) return `${Math.round(n)}mins`;
+    const s = norm(raw);
+    if (!s) return '';
+    if (/mins?$/i.test(s)) return s;
+    const m = s.match(/-?\d+(\.\d+)?/);
+    if (m && isFinite(Number(m[0]))) return `${Math.round(Number(m[0]))}mins`;
+    return s;
+  };
   const getTaskById = (taskId) => state.tasksById[norm(taskId)] || null;
-  const tokenById = (id) => state.cards.find((c) => norm(c.id) === norm(id)) || null;
+  const tokenById = (id) => {
+    const key = norm(id);
+    const pool = Array.isArray(state.renderTokens) && state.renderTokens.length ? state.renderTokens : state.cards;
+    return pool.find((c) => norm(c.id) === key) || null;
+  };
   const cloneDateOrNull_ = (d) => (d instanceof Date && !isNaN(d.getTime())) ? new Date(d.getTime()) : null;
   const applyTaskFieldLocal_ = (taskId, def, nextValue) => {
     const tid = norm(taskId);
@@ -589,8 +768,14 @@ window.app = (function() {
       task.taskOrder = norm(normalized);
       state.cards.forEach((c) => {
         if (norm(c.taskId) !== tid || c.type !== 'task') return;
-        c.taskOrder = parseOrder(task.taskOrder);
+        const ord = parseOrder(task.taskOrder);
+        c.taskOrder = ord;
+        c.displayOrder = ord;
       });
+      return;
+    }
+    if (label === 'asset link' || type === 'asset_link') {
+      task.assetIds = parseEntityIds(normalized, 'as');
     }
   };
 
@@ -613,6 +798,11 @@ window.app = (function() {
     state.laneWidth = clampLaneWidth_(v);
     try { document.documentElement.style.setProperty('--lane-w', `${state.laneWidth}px`); } catch (_) {}
     if (els.inpLaneW) els.inpLaneW.value = String(state.laneWidth);
+  };
+  const clampAssetLaneWidth_ = (v) => Math.max(40, Math.min(560, asInt(v, 40, state.assetLaneWidth || state.laneWidth || 150)));
+  const applyAssetLaneWidth_ = (v) => {
+    state.assetLaneWidth = clampAssetLaneWidth_(v);
+    if (els.inpAssetLaneW) els.inpAssetLaneW.value = String(state.assetLaneWidth);
   };
   const getRangeOptions_ = () => [1, 5, 14, 30, 90, 180, 365, 730];
   const normalizePresetKey_ = (raw) => {
@@ -661,6 +851,7 @@ window.app = (function() {
   };
   const laneLabel = (laneId) => {
     const key = norm(laneId) || 'unassigned';
+    if (key === ASSETS_LANE_ID) return ASSETS_LANE_LABEL;
     const lane = state.lanes.find((l) => norm(l.id) === key);
     return lane ? lane.label : key;
   };
@@ -714,6 +905,8 @@ window.app = (function() {
       ? payload.schedConfig.card_view_meta : {};
     state.laneVisibility = (state.viewMeta && typeof state.viewMeta.laneVisibility === 'object' && state.viewMeta.laneVisibility)
       ? Object.assign({}, state.viewMeta.laneVisibility) : {};
+    state.assetNameById = (payload && payload.assetNameById && typeof payload.assetNameById === 'object')
+      ? Object.assign({}, payload.assetNameById) : {};
 
     const cfg = payload.config || {};
     state.config.slotMin = Math.max(1, asInt(cfg.slotMin, 1, 30));
@@ -729,7 +922,16 @@ window.app = (function() {
     state.autoPush = state.viewMeta.autoPush !== false;
     state.autoCellHeight = state.viewMeta.autoCellHeight === true;
     applyLaneWidth_(state.viewMeta.laneWidth || state.laneWidth || 150);
+    applyAssetLaneWidth_(state.viewMeta.assetLaneWidth || state.assetLaneWidth || state.laneWidth || 150);
     applyDayPx_(state.viewMeta.liteZoomPx || state.dayPx || 92);
+    state.assetLaneVisible = state.laneVisibility[ASSETS_LANE_ID] !== false;
+    state.taskDisplayMain = normalizeDisplayField(state.viewMeta.taskDisplayMain || state.viewMeta.cardDisplayMain, 'shot_code');
+    state.taskDisplaySub = normalizeDisplayField(state.viewMeta.taskDisplaySub || state.viewMeta.cardDisplaySub, 'task_name');
+    state.tasklessDisplayMain = normalizeDisplayField(state.viewMeta.tasklessDisplayMain, 'card_memo');
+    state.tasklessDisplaySub = normalizeDisplayField(state.viewMeta.tasklessDisplaySub, 'card_order');
+    state.customDisplayFields = Array.isArray(state.viewMeta.customDisplayFields)
+      ? state.viewMeta.customDisplayFields.map((v) => normalizeDisplayField(v, '')).filter((v) => /^task:|^taskless:|^asset:/i.test(String(v || '')))
+      : [];
 
     state.taskFieldDefs = Array.isArray(payload.taskFieldDefs) ? payload.taskFieldDefs.map((d) => ({
       fid: norm(d && d.fid),
@@ -738,11 +940,21 @@ window.app = (function() {
       editable: !!(d && d.editable),
       options: Array.isArray(d && d.options) ? d.options.slice() : []
     })).filter((d) => !!d.fid) : [];
+    const assetFieldFids = state.taskFieldDefs
+      .filter((d) => d && (lower(d.type) === 'asset_link' || lower(d.label) === 'asset link'))
+      .map((d) => norm(d.fid))
+      .filter((fid) => !!fid);
 
     const rawTasks = Array.isArray(payload.tasks) ? payload.tasks : [];
     state.tasks = rawTasks.map((t) => {
       const id = norm(t.taskId || t.id);
       const fields = (t && typeof t.fields === 'object' && t.fields) ? t.fields : {};
+      let assetIds = Array.isArray(t && t.assetIds) ? t.assetIds.map((x) => norm(x)).filter((x) => /^as_/i.test(x)) : [];
+      if (!assetIds.length && assetFieldFids.length) {
+        assetFieldFids.forEach((fid) => {
+          if (!assetIds.length) assetIds = parseEntityIds(fields[fid], 'as');
+        });
+      }
       return {
         id: id,
         name: norm(t.name),
@@ -750,7 +962,10 @@ window.app = (function() {
         assignee: norm(t.assignee),
         planStart: norm(t.planStartIso || t.planStart),
         planEnd: norm(t.planEndIso || t.planEnd),
+        shotId: norm(t.shotId),
         shotCode: norm(t.shotCode),
+        estLength: norm(t.estLength),
+        assetIds: assetIds,
         taskOrder: norm(t.taskOrder || t.order),
         fields: fields
       };
@@ -791,6 +1006,7 @@ window.app = (function() {
         endDateYmd: toYmd(eDate),
         status: normalizeStatus(t.status),
         taskOrder: parseOrder(t.taskOrder),
+        displayOrder: parseOrder(t.taskOrder),
         displayId: t.id,
         memo: ''
       });
@@ -817,7 +1033,8 @@ window.app = (function() {
         endDateYmd: toYmd(eDate),
         displayId: norm(c && c.displayId) || id,
         memo: norm(c && c.memo),
-        tasklessOrder: parseOrder(c && c.taskOrder)
+        tasklessOrder: parseOrder(c && c.taskOrder),
+        displayOrder: parseOrder(c && c.taskOrder)
       });
     });
 
@@ -844,16 +1061,33 @@ window.app = (function() {
     }
   };
 
-  const visibleLanes = () => state.lanes.filter((l) => state.laneVisibility[norm(l.id)] !== false);
+  const visibleLanes = () => {
+    const laneList = state.lanes.filter((l) => state.laneVisibility[norm(l.id)] !== false);
+    if (state.assetLaneVisible) laneList.push({ id: ASSETS_LANE_ID, label: ASSETS_LANE_LABEL, isAssets: true });
+    return laneList;
+  };
   const buildDayVals = () => {
     const out = [];
     for (let i = 0; i < state.dayCount; i++) out.push(addDays(state.startDate, i));
     return out;
   };
+  const getTokenOrder_ = (tok) => {
+    if (!tok) return Number.MAX_SAFE_INTEGER;
+    if (isFinite(Number(tok.displayOrder)) && Number(tok.displayOrder) > 0) return Math.round(Number(tok.displayOrder));
+    if (tok.type === 'task') return parseOrder(tok.taskOrder);
+    if (tok.type === 'taskless') return parseOrder(tok.tasklessOrder);
+    if (tok.type === 'asset') return parseOrder(tok.assetOrder);
+    return Number.MAX_SAFE_INTEGER;
+  };
   const sortInCell = (a, b) => {
-    const ao = a.type === 'task' ? parseOrder(a.taskOrder) : parseOrder(a.tasklessOrder);
-    const bo = b.type === 'task' ? parseOrder(b.taskOrder) : parseOrder(b.tasklessOrder);
+    const ao = getTokenOrder_(a);
+    const bo = getTokenOrder_(b);
     if (ao !== bo) return ao - bo;
+    if (a.type === 'asset' || b.type === 'asset') {
+      const an = norm(a && (a.assetName || a.displayId || a.id));
+      const bn = norm(b && (b.assetName || b.displayId || b.id));
+      if (an !== bn) return an.localeCompare(bn);
+    }
     const as = a.startDateYmd || '';
     const bs = b.startDateYmd || '';
     if (as !== bs) return as < bs ? -1 : 1;
@@ -878,9 +1112,137 @@ window.app = (function() {
     });
   };
 
+  const buildAssetLaneTokens = (dayVals) => {
+    if (!state.assetLaneVisible || !Array.isArray(dayVals) || !dayVals.length) return [];
+    const out = [];
+    dayVals.forEach((d) => {
+      const ymd = toYmd(d);
+      const map = {};
+      state.cards.forEach((c) => {
+        if (!c || c.type !== 'task') return;
+        const s = parseDateLoose(c.startDate);
+        const e = parseDateLoose(c.endDate || c.startDate);
+        if (!s || !e || d < s || d > e) return;
+        const t = getTaskById(c.taskId);
+        if (!t) return;
+        const assetIds = Array.isArray(t.assetIds) ? t.assetIds : [];
+        assetIds.forEach((aidRaw) => {
+          const aid = norm(aidRaw);
+          if (!aid) return;
+          if (!map[aid]) map[aid] = { minOrder: Number.MAX_SAFE_INTEGER, taskIds: {} };
+          map[aid].minOrder = Math.min(map[aid].minOrder, getTokenOrder_(c));
+          map[aid].taskIds[norm(t.id)] = true;
+        });
+      });
+      Object.keys(map).forEach((aid) => {
+        const taskIds = Object.keys(map[aid].taskIds || {});
+        out.push({
+          id: `asset:${ymd}:${aid}`,
+          type: 'asset',
+          laneId: ASSETS_LANE_ID,
+          startDate: new Date(d.getFullYear(), d.getMonth(), d.getDate()),
+          endDate: new Date(d.getFullYear(), d.getMonth(), d.getDate()),
+          startDateYmd: ymd,
+          endDateYmd: ymd,
+          assetId: aid,
+          assetName: norm(state.assetNameById && state.assetNameById[aid]) || aid,
+          assetTaskCount: taskIds.length,
+          linkedTaskIds: taskIds,
+          assetOrder: map[aid].minOrder,
+          displayOrder: map[aid].minOrder,
+          displayId: aid
+        });
+      });
+    });
+    return out;
+  };
+
+  const buildDisplayOptions = () => {
+    const options = DISPLAY_BASE_OPTIONS.slice();
+    const seen = {};
+    options.forEach((o) => { seen[String(o.value || '')] = true; });
+    const pushOpt = (value, label) => {
+      const v = normalizeDisplayField(value, '');
+      if (!v || seen[v]) return;
+      seen[v] = true;
+      options.push({ value: v, label: String(label || v) });
+    };
+    (state.customDisplayFields || []).forEach((v) => pushOpt(v, String(v || '').replace(':', ': ')));
+    state.taskFieldDefs.forEach((def) => {
+      if (!def || !def.fid) return;
+      pushOpt('task:' + def.fid, `Task: ${def.label || def.fid}`);
+    });
+    state.tasks.slice(0, 200).forEach((t) => {
+      if (!t || typeof t !== 'object') return;
+      Object.keys(t).forEach((k) => {
+        if (k === 'fields') return;
+        const v = t[k];
+        if (v && typeof v === 'object') return;
+        pushOpt('task:' + k, `Task: ${k}`);
+      });
+    });
+    return options;
+  };
+
+  const syncDisplaySelectors_ = () => {
+    const sels = [els.selDispMain, els.selDispSub, els.selDispTasklessMain, els.selDispTasklessSub].filter(Boolean);
+    if (!sels.length) return;
+    const options = buildDisplayOptions();
+    const renderTo = (sel, selected, fallback) => {
+      if (!sel) return;
+      const normalized = normalizeDisplayField(selected, fallback);
+      sel.innerHTML = '';
+      options.forEach((opt) => {
+        const o = document.createElement('option');
+        o.value = opt.value;
+        o.textContent = opt.label;
+        sel.appendChild(o);
+      });
+      const values = options.map((o) => String(o.value || ''));
+      sel.value = values.indexOf(normalized) >= 0 ? normalized : fallback;
+    };
+    renderTo(els.selDispMain, state.taskDisplayMain, 'shot_code');
+    renderTo(els.selDispSub, state.taskDisplaySub, 'task_name');
+    renderTo(els.selDispTasklessMain, state.tasklessDisplayMain, 'card_memo');
+    renderTo(els.selDispTasklessSub, state.tasklessDisplaySub, 'card_order');
+    state.taskDisplayMain = normalizeDisplayField(els.selDispMain ? els.selDispMain.value : state.taskDisplayMain, 'shot_code');
+    state.taskDisplaySub = normalizeDisplayField(els.selDispSub ? els.selDispSub.value : state.taskDisplaySub, 'task_name');
+    state.tasklessDisplayMain = normalizeDisplayField(els.selDispTasklessMain ? els.selDispTasklessMain.value : state.tasklessDisplayMain, 'card_memo');
+    state.tasklessDisplaySub = normalizeDisplayField(els.selDispTasklessSub ? els.selDispTasklessSub.value : state.tasklessDisplaySub, 'card_order');
+
+    if (els.selDispAddField) {
+      const prev = norm(els.selDispAddField.value);
+      els.selDispAddField.innerHTML = '';
+      options.forEach((opt) => {
+        const o = document.createElement('option');
+        o.value = opt.value;
+        o.textContent = opt.label;
+        els.selDispAddField.appendChild(o);
+      });
+      if (prev && options.some((opt) => norm(opt.value) === prev)) els.selDispAddField.value = prev;
+    }
+  };
+
   const renderLaneMenu = () => {
     if (!els.laneMenuList) return;
     els.laneMenuList.innerHTML = '';
+    const assetsRow = document.createElement('div');
+    assetsRow.className = 'lane-row assets';
+    const assetsChk = document.createElement('input');
+    assetsChk.type = 'checkbox';
+    assetsChk.checked = !!state.assetLaneVisible;
+    assetsChk.addEventListener('change', () => {
+      state.assetLaneVisible = !!assetsChk.checked;
+      state.laneVisibility[ASSETS_LANE_ID] = state.assetLaneVisible;
+      render();
+    });
+    const assetsTxt = document.createElement('span');
+    assetsTxt.className = 'lane-name';
+    assetsTxt.textContent = ASSETS_LANE_LABEL;
+    assetsRow.appendChild(assetsChk);
+    assetsRow.appendChild(assetsTxt);
+    els.laneMenuList.appendChild(assetsRow);
+
     state.lanes.forEach((lane) => {
       const id = norm(lane.id);
       const row = document.createElement('div');
@@ -893,6 +1255,7 @@ window.app = (function() {
         render();
       });
       const txt = document.createElement('span');
+      txt.className = 'lane-name';
       txt.textContent = norm(lane.label) || id;
       row.appendChild(chk);
       row.appendChild(txt);
@@ -913,7 +1276,85 @@ window.app = (function() {
     }
     if (els.chkPush) els.chkPush.checked = !!state.autoPush;
     if (els.inpLaneW) els.inpLaneW.value = String(state.laneWidth || 150);
+    if (els.inpAssetLaneW) els.inpAssetLaneW.value = String(state.assetLaneWidth || state.laneWidth || 150);
     if (els.chkAutoHeight) els.chkAutoHeight.checked = !!state.autoCellHeight;
+    syncDisplaySelectors_();
+  };
+
+  const resolveTaskDisplayByField_ = (tok, task, fieldKey) => {
+    const key = normalizeDisplayField(fieldKey, 'task_name');
+    if (/^task:/i.test(key)) {
+      const dyn = key.replace(/^task:/i, '');
+      if (!task) return '';
+      if (task.fields && Object.prototype.hasOwnProperty.call(task.fields, dyn)) return String(task.fields[dyn] == null ? '' : task.fields[dyn]).trim();
+      return String(task[dyn] == null ? '' : task[dyn]).trim();
+    }
+    if (!task) return '';
+    if (key === 'shot_code') return norm(task.shotCode);
+    if (key === 'shot_id') return norm(task.shotId);
+    if (key === 'task_name') return norm(task.name);
+    if (key === 'task_status') return norm(task.status);
+    if (key === 'task_assignee') return laneLabel(task.assignee);
+    if (key === 'task_est_length') return formatMinutesLabel(task.estLength || (task.fields && task.fields.fi_0074));
+    if (key === 'task_id') return norm(task.id);
+    if (key === 'task_order') return String(getTokenOrder_(tok) < Number.MAX_SAFE_INTEGER ? getTokenOrder_(tok) : '');
+    if (key === 'start_date') return norm(tok.startDateYmd || toYmd(tok.startDate));
+    if (key === 'end_date') return norm(tok.endDateYmd || toYmd(tok.endDate));
+    return '';
+  };
+
+  const resolveTasklessDisplayByField_ = (tok, fieldKey) => {
+    const key = normalizeDisplayField(fieldKey, 'card_memo');
+    if (/^taskless:/i.test(key)) {
+      const dyn = key.replace(/^taskless:/i, '');
+      return String(tok && tok[dyn] == null ? '' : tok[dyn]).trim();
+    }
+    if (key === 'card_memo') return norm(tok && tok.memo);
+    if (key === 'card_id') return norm(tok && (tok.displayId || tok.id));
+    if (key === 'card_order') return String(getTokenOrder_(tok) < Number.MAX_SAFE_INTEGER ? getTokenOrder_(tok) : '');
+    if (key === 'card_lane') return laneLabel(tok && tok.laneId);
+    if (key === 'start_date') return norm(tok && (tok.startDateYmd || toYmd(tok.startDate)));
+    if (key === 'end_date') return norm(tok && (tok.endDateYmd || toYmd(tok.endDate)));
+    if (key === 'card_length_days') {
+      const s = parseDateLoose(tok && tok.startDate);
+      const e = parseDateLoose(tok && (tok.endDate || tok.startDate));
+      if (!s || !e) return '';
+      return String(Math.max(1, dayDiff(e, s) + 1));
+    }
+    return '';
+  };
+
+  const resolveAssetDisplayByField_ = (tok, fieldKey) => {
+    const key = normalizeDisplayField(fieldKey, 'asset_name');
+    if (/^asset:/i.test(key)) {
+      const dyn = key.replace(/^asset:/i, '');
+      return String(tok && tok[dyn] == null ? '' : tok[dyn]).trim();
+    }
+    if (key === 'asset_name') return norm(tok && tok.assetName);
+    if (key === 'asset_id') return norm(tok && tok.assetId);
+    if (key === 'asset_task_count') return String(Math.max(0, asInt(tok && tok.assetTaskCount, 0, 0)));
+    if (key === 'asset_date') return norm(tok && tok.startDateYmd);
+    if (key === 'task_order' || key === 'card_order') return String(getTokenOrder_(tok) < Number.MAX_SAFE_INTEGER ? getTokenOrder_(tok) : '');
+    return '';
+  };
+
+  const getTokenDisplayModel_ = (tok) => {
+    const ord = getTokenOrder_(tok);
+    const orderText = ord < Number.MAX_SAFE_INTEGER ? String(ord) : '-';
+    if (tok && tok.type === 'taskless') {
+      const main = resolveTasklessDisplayByField_(tok, state.tasklessDisplayMain || 'card_memo') || resolveTasklessDisplayByField_(tok, 'card_memo') || norm(tok.displayId || tok.id);
+      const sub = resolveTasklessDisplayByField_(tok, state.tasklessDisplaySub || 'card_order');
+      return { orderText: orderText, mainText: main, subText: sub };
+    }
+    if (tok && tok.type === 'asset') {
+      const main = resolveAssetDisplayByField_(tok, state.taskDisplayMain || 'asset_name') || resolveAssetDisplayByField_(tok, 'asset_name') || norm(tok.assetId);
+      const sub = resolveAssetDisplayByField_(tok, state.taskDisplaySub || 'asset_task_count');
+      return { orderText: orderText, mainText: main, subText: sub };
+    }
+    const task = getTaskById(tok && tok.taskId);
+    const main = resolveTaskDisplayByField_(tok, task, state.taskDisplayMain || 'shot_code') || resolveTaskDisplayByField_(tok, task, 'shot_code') || resolveTaskDisplayByField_(tok, task, 'task_name') || norm((task && task.id) || tok.taskId);
+    const sub = resolveTaskDisplayByField_(tok, task, state.taskDisplaySub || 'task_name');
+    return { orderText: orderText, mainText: main, subText: sub };
   };
 
   const renderInspector = () => {
@@ -927,6 +1368,29 @@ window.app = (function() {
     const eDate = parseDateLoose(tok.endDate) || sDate;
     const sYmd = sDate ? toYmdSlash(sDate) : '-';
     const eYmd = eDate ? toYmdSlash(eDate) : '-';
+    if (tok.type === 'asset') {
+      els.inspContent.innerHTML = '';
+      const idBlock = document.createElement('div');
+      idBlock.className = 'inp-group';
+      idBlock.innerHTML = `<label>Asset</label><input class="inp" readonly value="${esc(norm(tok.assetName || tok.assetId))}">`;
+      els.inspContent.appendChild(idBlock);
+      const g1 = document.createElement('div');
+      g1.className = 'row2';
+      g1.innerHTML = `<div class="inp-group"><label>Asset ID</label><input class="inp" readonly value="${esc(norm(tok.assetId))}"></div>` +
+        `<div class="inp-group"><label>Order</label><input class="inp" readonly value="${esc(String(getTokenOrder_(tok) < Number.MAX_SAFE_INTEGER ? getTokenOrder_(tok) : '-'))}"></div>`;
+      els.inspContent.appendChild(g1);
+      const g2 = document.createElement('div');
+      g2.className = 'row2';
+      g2.innerHTML = `<div class="inp-group"><label>Date</label><input class="inp" readonly value="${esc(sYmd)}"></div>` +
+        `<div class="inp-group"><label>Linked Tasks</label><input class="inp" readonly value="${esc(String(Math.max(0, asInt(tok.assetTaskCount, 0, 0))))}"></div>`;
+      els.inspContent.appendChild(g2);
+      const linked = Array.isArray(tok.linkedTaskIds) ? tok.linkedTaskIds.join(', ') : '';
+      const detail = document.createElement('div');
+      detail.className = 'inp-group';
+      detail.innerHTML = `<label>Task IDs</label><textarea readonly>${esc(linked)}</textarea>`;
+      els.inspContent.appendChild(detail);
+      return;
+    }
     if (tok.type === 'taskless') {
       els.inspContent.innerHTML = '';
       const block = document.createElement('div');
@@ -936,7 +1400,7 @@ window.app = (function() {
       const g1 = document.createElement('div');
       g1.className = 'row2';
       g1.innerHTML = `<div class="inp-group"><label>Lane</label><input class="inp" readonly value="${esc(laneLabel(tok.laneId))}"></div>` +
-        `<div class="inp-group"><label>Order</label><input class="inp" readonly value="${esc(String(parseOrder(tok.tasklessOrder) < Number.MAX_SAFE_INTEGER ? tok.tasklessOrder : '-'))}"></div>`;
+        `<div class="inp-group"><label>Order</label><input class="inp" readonly value="${esc(String(getTokenOrder_(tok) < Number.MAX_SAFE_INTEGER ? getTokenOrder_(tok) : '-'))}"></div>`;
       els.inspContent.appendChild(g1);
       const g2 = document.createElement('div');
       g2.className = 'row2';
@@ -1014,6 +1478,7 @@ window.app = (function() {
     const lanes = visibleLanes();
     const dayVals = buildDayVals();
     if (!lanes.length || !dayVals.length) {
+      state.renderTokens = [];
       if (els.empty) els.empty.classList.add('show');
       if (els.laneHeaders) els.laneHeaders.innerHTML = '';
       if (els.dateAxis) els.dateAxis.innerHTML = '';
@@ -1021,25 +1486,41 @@ window.app = (function() {
       renderInspector();
       return;
     }
+
+    const renderTokens = state.cards.slice().concat(buildAssetLaneTokens(dayVals));
+    state.renderTokens = renderTokens;
+    if (state.selectionTokenId && !tokenById(state.selectionTokenId)) state.selectionTokenId = '';
+
     if (els.empty) els.empty.classList.remove('show');
+
+    const laneLayouts = [];
+    let laneLeft = 0;
+    lanes.forEach((lane) => {
+      const laneId = norm(lane && lane.id);
+      const width = laneId === ASSETS_LANE_ID
+        ? Math.max(40, Math.round(Number(state.assetLaneWidth) || Number(state.laneWidth) || 150))
+        : Math.max(40, Math.round(Number(state.laneWidth) || 150));
+      laneLayouts.push({ lane: lane, id: laneId, width: width, left: laneLeft });
+      laneLeft += width;
+    });
 
     if (els.yearCorner) els.yearCorner.textContent = String(dayVals[0].getFullYear());
     if (els.laneHeaders) {
       els.laneHeaders.innerHTML = '';
-      lanes.forEach((l) => {
+      laneLayouts.forEach((layout) => {
         const d = document.createElement('div');
         d.className = 'lane-head';
-        d.textContent = norm(l.label) || norm(l.id);
+        d.style.width = `${layout.width}px`;
+        d.textContent = norm(layout.lane && layout.lane.label) || norm(layout.id);
         d.title = d.textContent;
         els.laneHeaders.appendChild(d);
       });
     }
 
-    const laneW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--lane-w')) || state.laneWidth || 150;
     const dayHBase = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--day-h')) || state.dayPx || 92;
     const bucket = {};
     const keyOf = (laneId, dayIdx) => `${laneId}__${dayIdx}`;
-    state.cards.forEach((c) => {
+    renderTokens.forEach((c) => {
       const laneId = norm(c.laneId) || 'unassigned';
       const sDate = parseDateLoose(c.startDate);
       const eDate = parseDateLoose(c.endDate || c.startDate);
@@ -1060,8 +1541,8 @@ window.app = (function() {
       let h = dayHBase;
       if (state.autoCellHeight) {
         let maxCnt = 0;
-        for (let li = 0; li < lanes.length; li++) {
-          const k = keyOf(norm(lanes[li].id), di);
+        for (let li = 0; li < laneLayouts.length; li++) {
+          const k = keyOf(norm(laneLayouts[li].id), di);
           const cnt = (bucket[k] || []).length;
           if (cnt > maxCnt) maxCnt = cnt;
         }
@@ -1085,19 +1566,19 @@ window.app = (function() {
       });
     }
     if (els.canvas) {
-      els.canvas.style.width = (lanes.length * laneW) + 'px';
+      els.canvas.style.width = laneLeft + 'px';
       els.canvas.style.height = `${Math.max(1, cumulativeTop)}px`;
       els.canvas.innerHTML = '';
     }
 
-    for (let li = 0; li < lanes.length; li++) {
-      const lane = lanes[li];
+    for (let li = 0; li < laneLayouts.length; li++) {
+      const lane = laneLayouts[li];
       for (let di = 0; di < dayVals.length; di++) {
         const cell = document.createElement('div');
         cell.className = 'cell';
-        cell.style.left = (li * laneW) + 'px';
+        cell.style.left = `${lane.left}px`;
         cell.style.top = `${Math.max(0, dayOffsets[di] || 0)}px`;
-        cell.style.width = laneW + 'px';
+        cell.style.width = `${lane.width}px`;
         cell.style.height = `${Math.max(1, dayHeights[di] || dayHBase)}px`;
 
         const items = (bucket[keyOf(norm(lane.id), di)] || []).slice().sort(sortInCell);
@@ -1107,25 +1588,28 @@ window.app = (function() {
         for (let i = 0; i < shown; i++) {
           const c = items[i];
           const t = getTaskById(c.taskId);
-          const statusCls = normalizeStatus(c.status || (t && t.status) || '');
+          const statusCls = c.type === 'task' ? normalizeStatus(c.status || (t && t.status) || '') : '';
           const isTaskless = c.type === 'taskless';
-          const taskOrder = t ? parseOrder(c.taskOrder) : Number.MAX_SAFE_INTEGER;
-          const orderBadge = taskOrder < Number.MAX_SAFE_INTEGER ? taskOrder : (parseOrder(c.tasklessOrder) < Number.MAX_SAFE_INTEGER ? parseOrder(c.tasklessOrder) : '-');
+          const isAsset = c.type === 'asset';
+          const display = getTokenDisplayModel_(c);
           const sd = parseDateLoose(c.startDate);
           const ed = parseDateLoose(c.endDate || c.startDate);
           if (!sd || !ed) continue;
           const curDay = toYmd(dayVals[di]);
           const sdYmd = toYmd(sd);
           const edYmd = toYmd(ed);
-          const arrow = (sdYmd !== edYmd) ? (curDay === sdYmd ? '→' : (curDay === edYmd ? '←' : '↔')) : '';
-          const mainTxt = isTaskless ? (norm(c.memo) || norm(c.displayId || c.id)) : (norm((t && t.shotCode) || (t && t.name) || (t && t.id) || c.taskId));
+          const arrow = (!isAsset && sdYmd !== edYmd) ? (curDay === sdYmd ? '→' : (curDay === edYmd ? '←' : '↔')) : '';
           const token = document.createElement('div');
-          token.className = 'token ' + (statusCls ? ('status-' + statusCls) : '') + (isTaskless ? ' taskless' : '') + (norm(state.selectionTokenId) === norm(c.id) ? ' selected' : '');
+          token.className = 'token ' + (statusCls ? ('status-' + statusCls) : '') + (isTaskless ? ' taskless' : '') + (isAsset ? ' asset' : '') + (norm(state.selectionTokenId) === norm(c.id) ? ' selected' : '');
           token.innerHTML =
-            `<span class="tk-order">${esc(String(orderBadge))}</span>` +
-            `<span class="tk-main">${esc(mainTxt)}</span>` +
+            `<span class="tk-order">${esc(String(display.orderText || '-'))}</span>` +
+            `<span class="tk-main">${esc(display.mainText || '')}</span>` +
+            (display.subText ? `<span class="tk-sub">${esc(display.subText)}</span>` : '') +
             (arrow ? `<span class="tk-arrow">${arrow}</span>` : '');
-          token.title = (isTaskless ? `Taskless ${norm(c.displayId || c.id)}` : `Task ${norm(c.taskId)}`) + `\nLane: ${laneLabel(c.laneId)}`;
+          token.title = (
+            isAsset ? `Asset ${norm(c.assetName || c.assetId)}` :
+            (isTaskless ? `Taskless ${norm(c.displayId || c.id)}` : `Task ${norm(c.taskId)}`)
+          ) + `\nLane: ${laneLabel(c.laneId)}`;
           token.addEventListener('click', (ev) => {
             ev.stopPropagation();
             state.selectionTokenId = c.id;
@@ -1240,6 +1724,7 @@ window.app = (function() {
     saveView: () => {
       const visMap = {};
       state.lanes.forEach((l) => { visMap[norm(l.id)] = state.laneVisibility[norm(l.id)] !== false; });
+      visMap[ASSETS_LANE_ID] = !!state.assetLaneVisible;
       const meta = Object.assign({}, state.viewMeta || {}, {
         startDate: toYmd(state.startDate),
         dayCount: state.dayCount,
@@ -1250,6 +1735,14 @@ window.app = (function() {
         autoCellHeight: !!state.autoCellHeight,
         laneVisibility: visMap,
         laneWidth: state.laneWidth,
+        assetLaneWidth: state.assetLaneWidth,
+        taskDisplayMain: normalizeDisplayField(state.taskDisplayMain, 'shot_code'),
+        taskDisplaySub: normalizeDisplayField(state.taskDisplaySub, 'task_name'),
+        tasklessDisplayMain: normalizeDisplayField(state.tasklessDisplayMain, 'card_memo'),
+        tasklessDisplaySub: normalizeDisplayField(state.tasklessDisplaySub, 'card_order'),
+        customDisplayFields: (state.customDisplayFields || [])
+          .map((v) => normalizeDisplayField(v, ''))
+          .filter((v) => /^task:|^taskless:|^asset:/i.test(String(v || ''))),
         viewMode: 'lite',
         liteZoomPx: state.dayPx
       });
@@ -1261,6 +1754,36 @@ window.app = (function() {
     },
     saveSettings: () => actions.saveView(),
     saveLane: () => actions.saveView(),
+    setTaskDisplayField: (slotType, fieldKey) => {
+      const slot = norm(slotType);
+      const fallback = slot === 'main'
+        ? 'shot_code'
+        : (slot === 'sub'
+          ? 'task_name'
+          : (slot === 'taskless_main' ? 'card_memo' : 'card_order'));
+      const normalized = normalizeDisplayField(fieldKey, fallback);
+      if (slot === 'main') state.taskDisplayMain = normalized;
+      else if (slot === 'sub') state.taskDisplaySub = normalized;
+      else if (slot === 'taskless_main') state.tasklessDisplayMain = normalized;
+      else if (slot === 'taskless_sub') state.tasklessDisplaySub = normalized;
+      render();
+    },
+    addDisplayField: () => {
+      const addSel = els.selDispAddField;
+      const targetSel = els.selDispAddTarget;
+      if (!addSel || !targetSel) return;
+      const normalized = normalizeDisplayField(addSel.value, '');
+      if (!normalized) return;
+      if (
+        DISPLAY_BASE_FIELDS.indexOf(normalized) < 0 &&
+        !/^task:|^taskless:|^asset:/i.test(normalized)
+      ) return;
+      if (DISPLAY_BASE_FIELDS.indexOf(normalized) < 0 && !state.customDisplayFields.some((v) => norm(v) === normalized)) {
+        state.customDisplayFields.push(normalized);
+      }
+      actions.setTaskDisplayField(targetSel.value, normalized);
+      syncDisplaySelectors_();
+    },
     patchTaskField: (taskId, def, nextValue) => {
       const tid = norm(taskId);
       const fid = norm(def && def.fid);
@@ -1280,6 +1803,7 @@ window.app = (function() {
           laneId: c.laneId,
           status: c.status,
           taskOrder: c.taskOrder,
+          displayOrder: c.displayOrder,
           startDate: cloneDateOrNull_(c.startDate),
           endDate: cloneDateOrNull_(c.endDate),
           startDateYmd: c.startDateYmd,
@@ -1309,6 +1833,7 @@ window.app = (function() {
               c.laneId = p.laneId;
               c.status = p.status;
               c.taskOrder = p.taskOrder;
+              c.displayOrder = p.displayOrder;
               c.startDate = cloneDateOrNull_(p.startDate);
               c.endDate = cloneDateOrNull_(p.endDate);
               c.startDateYmd = p.startDateYmd;
@@ -1333,6 +1858,7 @@ window.app = (function() {
             c.laneId = p.laneId;
             c.status = p.status;
             c.taskOrder = p.taskOrder;
+            c.displayOrder = p.displayOrder;
             c.startDate = cloneDateOrNull_(p.startDate);
             c.endDate = cloneDateOrNull_(p.endDate);
             c.startDateYmd = p.startDateYmd;
@@ -1352,6 +1878,10 @@ window.app = (function() {
     closeSettings: () => setSettingsModalOpen_(false),
     setLaneWidth: (v) => {
       applyLaneWidth_(v);
+      render();
+    },
+    setAssetLaneWidth: (v) => {
+      applyAssetLaneWidth_(v);
       render();
     },
     setAutoCellHeight: (on) => {
@@ -1386,6 +1916,12 @@ window.app = (function() {
     if (els.chkPush) els.chkPush.addEventListener('change', (e) => { state.autoPush = !!(e && e.target && e.target.checked); });
     if (els.chkAutoHeight) els.chkAutoHeight.addEventListener('change', (e) => actions.setAutoCellHeight(!!(e && e.target && e.target.checked)));
     if (els.inpLaneW) els.inpLaneW.addEventListener('change', (e) => actions.setLaneWidth(e.target.value));
+    if (els.inpAssetLaneW) els.inpAssetLaneW.addEventListener('change', (e) => actions.setAssetLaneWidth(e.target.value));
+    if (els.selDispMain) els.selDispMain.addEventListener('change', (e) => actions.setTaskDisplayField('main', e.target.value));
+    if (els.selDispSub) els.selDispSub.addEventListener('change', (e) => actions.setTaskDisplayField('sub', e.target.value));
+    if (els.selDispTasklessMain) els.selDispTasklessMain.addEventListener('change', (e) => actions.setTaskDisplayField('taskless_main', e.target.value));
+    if (els.selDispTasklessSub) els.selDispTasklessSub.addEventListener('change', (e) => actions.setTaskDisplayField('taskless_sub', e.target.value));
+    if (els.btnDispAddField) els.btnDispAddField.addEventListener('click', actions.addDisplayField);
     if (els.inpStart) els.inpStart.addEventListener('change', () => {
       const d = parseDateLoose(els.inpStart.value);
       if (!d) return;
