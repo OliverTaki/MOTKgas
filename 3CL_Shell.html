@@ -198,6 +198,7 @@ var __SCRIPT_URL_EXEC__ = String(ScriptApp.getService().getUrl() || '').trim();
         href = base + '?p=schedview';
         page = page || 'SchedView';
         if (!entity) entity = 'sched';
+        if (!target) target = '_blank';
       }
       return { id: id, label: label, href: href, enabled: enabled, page: page, entity: entity, target: target };
     }
@@ -207,7 +208,7 @@ var __SCRIPT_URL_EXEC__ = String(ScriptApp.getService().getUrl() || '').trim();
       { id: 'tasks', label: 'Tasks', href: base + '?p=table&e=tasks', page: 'Tasks', entity: 'task', enabled: true },
       { id: 'members', label: 'Members', href: base + '?p=table&e=members', page: 'ProjectMembers', entity: 'member', enabled: true },
       { id: 'users', label: 'Users', href: base + '?p=table&e=users', page: 'Users', entity: 'user', enabled: true },
-      { id: 'schedule', label: 'Schedule', href: base + '?p=schedview', page: 'SchedView', entity: 'sched', enabled: true }
+      { id: 'schedule', label: 'Schedule', href: base + '?p=schedview', page: 'SchedView', entity: 'sched', enabled: true, target: '_blank' }
     ];
     try {
       var ss = SpreadsheetApp.getActiveSpreadsheet();

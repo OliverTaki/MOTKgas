@@ -254,6 +254,51 @@
     .meta { font-size: 10px; color: #8f96a3; }
     .row2 { display: flex; gap: 8px; }
     .row2 > .inp-group { flex: 1; }
+    .settings-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 2200;
+      padding: 18px;
+    }
+    .settings-modal.open { display: flex; }
+    .settings-panel {
+      width: min(760px, 96vw);
+      max-height: 86vh;
+      overflow: auto;
+      background: #10131a;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.45);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .settings-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .settings-title { font-weight: 700; letter-spacing: 0.02em; }
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(220px, 1fr));
+      gap: 10px;
+      align-items: end;
+    }
+    .settings-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 6px;
+    }
 
     @media (max-width: 1140px) {
       :root { --lane-w: 132px; --day-h: 80px; --inspector-w: 300px; }
@@ -273,44 +318,15 @@
     <div class="tag hide-sm" id="tag-tz">TZ: -</div>
     <div style="flex:1;"></div>
 
-    <div class="toolbar-group">
-      <button id="btn-view" class="btn" type="button">VIEW</button>
-      <div id="view-menu-popup" class="toolbar-pop">
-        <div class="pop-title">View</div>
-        <div class="row">
-          <label for="sv-start-date">Start</label>
-          <input id="sv-start-date" class="inp" type="text" placeholder="YYYY-MM-DD">
-        </div>
-        <div class="row">
-          <label for="sv-end-date">End</label>
-          <input id="sv-end-date" class="inp" type="text" placeholder="YYYY-MM-DD">
-        </div>
-        <div class="row">
-          <label for="sv-day-count">Days</label>
-          <input id="sv-day-count" class="inp" type="number" min="1" max="730" step="1">
-        </div>
-        <div class="row" style="justify-content:flex-end; margin-top:4px;">
-          <button id="btn-view-apply" class="btn" type="button">Apply</button>
-          <button id="btn-view-save" class="btn" type="button">Save View</button>
-        </div>
-      </div>
+    <div class="toolbar-group" style="display:flex; gap:6px; align-items:center;">
+      <span class="tag">Zoom</span>
+      <input id="sv-zoom" type="range" min="56" max="170" value="86" style="width:130px;">
+      <input id="sv-zoom-val" class="inp" type="number" min="56" max="170" step="1" value="86" style="width:58px; text-align:center;">
     </div>
-
-    <div class="toolbar-group">
-      <button id="btn-lanes" class="btn" type="button">LANE</button>
-      <div id="lane-menu-popup" class="toolbar-pop">
-        <div class="pop-title">Lane Visibility</div>
-        <div id="lane-menu-list"></div>
-        <div class="row" style="justify-content:flex-end; margin-top:4px;">
-          <button id="btn-lane-save" class="btn" type="button">Save Lane</button>
-        </div>
-      </div>
-    </div>
-
-    <button id="btn-edit" class="btn" type="button">Edit Mode</button>
-    <button id="btn-index" class="btn" type="button">Sched Index</button>
-    <button id="btn-reload" class="btn" type="button">Reload</button>
     <div id="status"></div>
+    <button id="btn-edit" class="btn" type="button">Edit Mode</button>
+    <button id="btn-settings" class="btn" type="button">Settings</button>
+    <button id="btn-index" class="btn" type="button">Sched Index</button>
   </div>
 
   <div id="main">
@@ -328,6 +344,37 @@
     <div id="inspector">
       <div id="insp-head">INSPECTOR</div>
       <div id="insp-content">Select a token.</div>
+    </div>
+  </div>
+</div>
+<div id="settings-modal" class="settings-modal" aria-hidden="true">
+  <div class="settings-panel">
+    <div class="settings-head">
+      <div class="settings-title">SchedView Settings</div>
+      <button id="btn-settings-close" class="btn" type="button">Close</button>
+    </div>
+    <div class="settings-grid">
+      <div class="inp-group">
+        <label for="sv-start-date">Start</label>
+        <input id="sv-start-date" class="inp" type="text" placeholder="YYYY-MM-DD">
+      </div>
+      <div class="inp-group">
+        <label for="sv-end-date">End</label>
+        <input id="sv-end-date" class="inp" type="text" placeholder="YYYY-MM-DD">
+      </div>
+      <div class="inp-group">
+        <label for="sv-day-count">Days</label>
+        <input id="sv-day-count" class="inp" type="number" min="1" max="730" step="1">
+      </div>
+      <div class="inp-group">
+        <label for="lane-menu-list">Lane Visibility</label>
+        <div id="lane-menu-list"></div>
+      </div>
+    </div>
+    <div class="settings-actions">
+      <button id="btn-view-apply" class="btn" type="button">Apply</button>
+      <button id="btn-lane-save" class="btn" type="button">Save Lane</button>
+      <button id="btn-view-save" class="btn" type="button">Save View</button>
     </div>
   </div>
 </div>
@@ -349,6 +396,7 @@ window.app = (function() {
     lanes: [],
     config: { originDate: null, slotMin: 30, workHours: 8 },
     dayCount: 14,
+    dayPx: 92,
     startDate: null,
     selectionTokenId: '',
     loading: false
@@ -369,12 +417,13 @@ window.app = (function() {
     tagSlot: document.getElementById('tag-slot'),
     tagWork: document.getElementById('tag-work'),
     tagTz: document.getElementById('tag-tz'),
-    viewPopup: document.getElementById('view-menu-popup'),
-    lanePopup: document.getElementById('lane-menu-popup'),
     laneMenuList: document.getElementById('lane-menu-list'),
     inpStart: document.getElementById('sv-start-date'),
     inpEnd: document.getElementById('sv-end-date'),
     inpDays: document.getElementById('sv-day-count'),
+    inpZoom: document.getElementById('sv-zoom'),
+    inpZoomVal: document.getElementById('sv-zoom-val'),
+    settingsModal: document.getElementById('settings-modal'),
     inspContent: document.getElementById('insp-content')
   };
 
@@ -435,15 +484,18 @@ window.app = (function() {
   const getTaskById = (taskId) => state.tasksById[norm(taskId)] || null;
   const tokenById = (id) => state.cards.find((c) => norm(c.id) === norm(id)) || null;
 
-  const togglePopup = (name) => {
-    const openView = (name === 'view');
-    const openLane = (name === 'lane');
-    if (els.viewPopup) els.viewPopup.classList.toggle('open', openView && !els.viewPopup.classList.contains('open'));
-    if (els.lanePopup) els.lanePopup.classList.toggle('open', openLane && !els.lanePopup.classList.contains('open'));
+  const setSettingsModalOpen_ = (open) => {
+    if (!els.settingsModal) return;
+    const on = !!open;
+    els.settingsModal.classList.toggle('open', on);
+    els.settingsModal.setAttribute('aria-hidden', on ? 'false' : 'true');
   };
-  const closePopups = () => {
-    if (els.viewPopup) els.viewPopup.classList.remove('open');
-    if (els.lanePopup) els.lanePopup.classList.remove('open');
+  const clampDayPx_ = (v) => Math.max(56, Math.min(170, asInt(v, 56, state.dayPx || 92)));
+  const applyDayPx_ = (v) => {
+    state.dayPx = clampDayPx_(v);
+    try { document.documentElement.style.setProperty('--day-h', `${state.dayPx}px`); } catch (_) {}
+    if (els.inpZoom) els.inpZoom.value = String(state.dayPx);
+    if (els.inpZoomVal) els.inpZoomVal.value = String(state.dayPx);
   };
 
   const inferKeyByParts = (obj, parts) => {
@@ -532,6 +584,7 @@ window.app = (function() {
     state.startDate = parseDateLoose(state.viewMeta.startDate) || parseDateLoose(cfg.originDate) || new Date();
     state.startDate.setHours(0, 0, 0, 0);
     state.dayCount = Math.max(1, Math.min(730, asInt(state.viewMeta.dayCount, 1, 14)));
+    applyDayPx_(state.viewMeta.liteZoomPx || state.dayPx || 92);
 
     state.taskFieldDefs = Array.isArray(payload.taskFieldDefs) ? payload.taskFieldDefs.map((d) => ({
       fid: norm(d && d.fid),
@@ -629,7 +682,12 @@ window.app = (function() {
     state.cards = tokens;
     state.lanes = lanes;
 
-    if (els.brandLink) { els.brandLink.href = state.scriptUrl; els.brandLink.target = '_top'; }
+    if (els.brandLink) {
+      const baseHref = norm(state.scriptUrl || (location.origin + location.pathname)).replace(/\?.*$/, '');
+      els.brandLink.href = `${baseHref}?p=table&e=scheds`;
+      els.brandLink.target = '_blank';
+      els.brandLink.rel = 'noopener';
+    }
     if (els.tagOrigin) els.tagOrigin.textContent = `Origin: ${toYmdSlash(state.config.originDate)}`;
     if (els.tagSlot) els.tagSlot.textContent = `Slot: ${state.config.slotMin}m`;
     if (els.tagWork) els.tagWork.textContent = `Work: ${state.config.workHours}h`;
@@ -967,7 +1025,8 @@ window.app = (function() {
         dayCount: state.dayCount,
         endDate: toYmd(addDays(state.startDate, Math.max(0, state.dayCount - 1))),
         laneVisibility: visMap,
-        viewMode: 'lite'
+        viewMode: 'lite',
+        liteZoomPx: state.dayPx
       });
       status('saving', 'Saving view...');
       google.script.run
@@ -1007,35 +1066,46 @@ window.app = (function() {
     },
     openIndex: () => {
       const base = norm(state.scriptUrl || (location.origin + location.pathname)).replace(/\?.*$/, '');
-      (window.top || window).location.href = `${base}?p=table&e=scheds`;
+      window.open(`${base}?p=table&e=scheds`, '_blank', 'noopener');
+    },
+    openSettings: () => setSettingsModalOpen_(true),
+    closeSettings: () => setSettingsModalOpen_(false),
+    setZoomFromSlider: (v) => {
+      applyDayPx_(v);
+      render();
+    },
+    setZoomFromInput: (v) => {
+      applyDayPx_(v);
+      render();
     }
   };
 
   const bind = () => {
     if (els.schedSwitch) els.schedSwitch.addEventListener('change', (e) => actions.switchSched(e.target.value));
-    const btnReload = document.getElementById('btn-reload');
-    if (btnReload) btnReload.addEventListener('click', () => actions.load());
     const btnEdit = document.getElementById('btn-edit');
     if (btnEdit) btnEdit.addEventListener('click', actions.openEdit);
     const btnIndex = document.getElementById('btn-index');
     if (btnIndex) btnIndex.addEventListener('click', actions.openIndex);
-    const btnView = document.getElementById('btn-view');
-    if (btnView) btnView.addEventListener('click', (e) => { e.stopPropagation(); togglePopup('view'); });
-    const btnLanes = document.getElementById('btn-lanes');
-    if (btnLanes) btnLanes.addEventListener('click', (e) => { e.stopPropagation(); togglePopup('lane'); });
+    const btnSettings = document.getElementById('btn-settings');
+    if (btnSettings) btnSettings.addEventListener('click', actions.openSettings);
+    const btnSettingsClose = document.getElementById('btn-settings-close');
+    if (btnSettingsClose) btnSettingsClose.addEventListener('click', actions.closeSettings);
     const btnViewApply = document.getElementById('btn-view-apply');
     if (btnViewApply) btnViewApply.addEventListener('click', actions.applyView);
     const btnViewSave = document.getElementById('btn-view-save');
     if (btnViewSave) btnViewSave.addEventListener('click', actions.saveView);
     const btnLaneSave = document.getElementById('btn-lane-save');
     if (btnLaneSave) btnLaneSave.addEventListener('click', actions.saveLane);
+    if (els.inpZoom) els.inpZoom.addEventListener('input', (e) => actions.setZoomFromSlider(e.target.value));
+    if (els.inpZoomVal) els.inpZoomVal.addEventListener('change', (e) => actions.setZoomFromInput(e.target.value));
     if (els.gridScroll && els.laneHeaderScroll) {
       els.gridScroll.addEventListener('scroll', () => { els.laneHeaderScroll.scrollLeft = els.gridScroll.scrollLeft; });
     }
-    document.addEventListener('click', (e) => {
-      const inGroup = !!(e.target && e.target.closest && e.target.closest('.toolbar-group'));
-      if (!inGroup) closePopups();
-    });
+    if (els.settingsModal) {
+      els.settingsModal.addEventListener('click', (e) => {
+        if (e.target === els.settingsModal) actions.closeSettings();
+      });
+    }
     if (els.canvas) {
       els.canvas.addEventListener('click', (e) => {
         if (e.target === els.canvas) {

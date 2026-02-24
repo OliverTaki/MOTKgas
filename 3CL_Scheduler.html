@@ -476,111 +476,15 @@
     <div id="config-info" style="display:flex; gap:4px;"></div>
 
     <div style="flex:1"></div>
-    <div class="toolbar-group">
-      <button id="btn-view" class="btn" title="View">VIEW</button>
-      <div id="view-menu-popup" class="toolbar-pop">
-        <div class="pop-title">View</div>
-        <div class="pop-grid">
-          <div class="pop-row">
-            <label for="sel-start-preset">Start</label>
-            <select id="sel-start-preset" class="inp-dark" style="width:130px;">
-              <option value="today">Today</option>
-              <option value="yesterday">Yesterday</option>
-              <option value="tomorrow">Tomorrow</option>
-              <option value="this_monday">This Monday</option>
-              <option value="next_monday">Next Monday</option>
-              <option value="custom">Custom</option>
-            </select>
-            <input id="start-date" class="inp-dark" type="text" list="start-date-suggest" placeholder="YYYY/MM/DD or today" style="flex:1;">
-            <datalist id="start-date-suggest">
-              <option value="today"></option>
-              <option value="yesterday"></option>
-              <option value="tomorrow"></option>
-              <option value="this monday"></option>
-              <option value="next monday"></option>
-              <option value="<?= Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy/MM/dd") ?>"></option>
-            </datalist>
-          </div>
-          <div class="pop-row">
-            <label for="sel-end-preset">End</label>
-            <select id="sel-end-preset" class="inp-dark" style="width:130px;">
-              <option value="today">Today</option>
-              <option value="yesterday">Yesterday</option>
-              <option value="tomorrow">Tomorrow</option>
-              <option value="this_monday">This Monday</option>
-              <option value="next_monday">Next Monday</option>
-              <option value="custom">Custom</option>
-            </select>
-            <input id="end-date" class="inp-dark" type="text" list="end-date-suggest" placeholder="YYYY/MM/DD or today" style="flex:1;">
-            <datalist id="end-date-suggest">
-              <option value="today"></option>
-              <option value="yesterday"></option>
-              <option value="tomorrow"></option>
-              <option value="this monday"></option>
-              <option value="next monday"></option>
-              <option value="<?= Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy/MM/dd") ?>"></option>
-            </datalist>
-          </div>
-          <div class="pop-row">
-            <label for="sel-view-mode">Mode</label>
-            <select id="sel-view-mode" class="inp-dark" style="flex:1;">
-              <option value="grid">Grid</option>
-              <option value="lite">Lite (day)</option>
-            </select>
-          </div>
-          <div class="pop-row">
-            <label for="sel-range">Range</label>
-            <select id="sel-range" class="inp-dark" style="flex:1;">
-              <option value="1">1 Day</option>
-              <option value="5">1 Week</option>
-              <option value="14">2 Weeks</option>
-              <option value="30">1 Month</option>
-              <option value="90">3 Months</option>
-              <option value="180">6 Months</option>
-              <option value="365">1 Year</option>
-              <option value="730">2 Years</option>
-              <option value="custom">Custom</option>
-            </select>
-          </div>
-          <div style="font-size:10px; color:#8b8f98;">Range / End: whichever you change later is applied.</div>
-          <div class="pop-row">
-            <label for="inp-zoom">Zoom</label>
-            <input id="inp-zoom" type="range" min="1" max="100" value="60" style="flex:1;">
-            <input id="inp-zoom-val" type="number" value="60" class="inp-dark" style="width:58px; text-align:center;">
-          </div>
-          <div class="pop-row" style="justify-content:flex-end;">
-            <button id="btn-view-fit" class="btn" type="button" title="Fit current Start/End in view">Fit</button>
-            <button id="btn-save-view" class="btn" type="button" title="Save current View settings">Save View</button>
-          </div>
-          <label style="font-size:11px; color:#aaa; display:flex; gap:6px; align-items:center;">
-            <input type="checkbox" id="chk-push"> Auto-Push
-          </label>
-        </div>
-      </div>
-    </div>
-    <div class="toolbar-group">
-      <button id="btn-lanes" class="btn" title="Lane Visibility">LANE</button>
-      <div id="lane-menu-popup" class="toolbar-pop">
-        <div class="pop-title">Lanes</div>
-        <div class="pop-grid" style="margin-bottom:6px;">
-          <div class="pop-row">
-            <label for="inp-lane-w">Lane W</label>
-            <input id="inp-lane-w" type="number" class="inp-dark" style="width:78px;">
-          </div>
-          <div class="pop-row">
-            <label for="inp-asset-w">Assets W</label>
-            <input id="inp-asset-w" type="number" class="inp-dark" style="width:78px;">
-          </div>
-          <div class="pop-row" style="justify-content:flex-end;">
-            <button id="btn-save-lane" class="btn" type="button" title="Save current Lane settings">Save Lane</button>
-          </div>
-        </div>
-        <div id="lane-menu-list"></div>
-      </div>
+    <div class="toolbar-group" style="gap:6px;">
+      <span class="info-tag">Zoom</span>
+      <input id="inp-zoom" type="range" min="1" max="100" value="60" style="width:130px;">
+      <input id="inp-zoom-val" type="number" value="60" class="inp-dark" style="width:58px; text-align:center;">
     </div>
     <div id="saveStatus"></div>
     <button id="btn-undo" class="btn" title="Undo last scheduler change">Undo</button>
     <button id="btn-insp" class="btn">Insp</button>
+    <button id="btn-open-view" class="btn" title="Open View mode in this tab">View</button>
     <button id="btn-settings" class="btn" title="Settings">Settings</button>
     <button id="btn-sched-index" class="btn" title="Open schedule index">Index</button>
     <button id="btn-publish" class="btn" title="Publish schedule to Tasks">Publish</button>
@@ -638,6 +542,97 @@
           <div style="display:flex; align-items:flex-end; justify-content:flex-end;">
             <button id="btn-rename-sched-save" class="btn" type="button">Save Title</button>
           </div>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <h4>View</h4>
+        <div class="settings-grid-2">
+          <div class="inp-group">
+            <label for="sel-start-preset">Start preset</label>
+            <select id="sel-start-preset" class="inp-dark">
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="tomorrow">Tomorrow</option>
+              <option value="this_monday">This Monday</option>
+              <option value="next_monday">Next Monday</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div class="inp-group">
+            <label for="start-date">Start date</label>
+            <input id="start-date" class="inp-dark" type="text" list="start-date-suggest" placeholder="YYYY/MM/DD or today">
+            <datalist id="start-date-suggest">
+              <option value="today"></option>
+              <option value="yesterday"></option>
+              <option value="tomorrow"></option>
+              <option value="this monday"></option>
+              <option value="next monday"></option>
+              <option value="<?= Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy/MM/dd") ?>"></option>
+            </datalist>
+          </div>
+          <div class="inp-group">
+            <label for="sel-end-preset">End preset</label>
+            <select id="sel-end-preset" class="inp-dark">
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="tomorrow">Tomorrow</option>
+              <option value="this_monday">This Monday</option>
+              <option value="next_monday">Next Monday</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div class="inp-group">
+            <label for="end-date">End date</label>
+            <input id="end-date" class="inp-dark" type="text" list="end-date-suggest" placeholder="YYYY/MM/DD or today">
+            <datalist id="end-date-suggest">
+              <option value="today"></option>
+              <option value="yesterday"></option>
+              <option value="tomorrow"></option>
+              <option value="this monday"></option>
+              <option value="next monday"></option>
+              <option value="<?= Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy/MM/dd") ?>"></option>
+            </datalist>
+          </div>
+          <div class="inp-group">
+            <label for="sel-range">Range</label>
+            <select id="sel-range" class="inp-dark">
+              <option value="1">1 Day</option>
+              <option value="5">1 Week</option>
+              <option value="14">2 Weeks</option>
+              <option value="30">1 Month</option>
+              <option value="90">3 Months</option>
+              <option value="180">6 Months</option>
+              <option value="365">1 Year</option>
+              <option value="730">2 Years</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div style="display:flex; align-items:flex-end; justify-content:flex-end; gap:8px;">
+            <button id="btn-view-fit" class="btn" type="button" title="Fit current Start/End in view">Fit</button>
+            <button id="btn-save-view" class="btn" type="button" title="Save current View settings">Save View</button>
+          </div>
+        </div>
+        <label style="font-size:11px; color:#aaa; display:flex; gap:6px; align-items:center; margin-top:8px;">
+          <input type="checkbox" id="chk-push"> Auto-Push
+        </label>
+      </section>
+
+      <section class="settings-section">
+        <h4>Lane</h4>
+        <div class="settings-grid-2">
+          <div class="inp-group">
+            <label for="inp-lane-w">Lane width</label>
+            <input id="inp-lane-w" type="number" class="inp-dark">
+          </div>
+          <div class="inp-group">
+            <label for="inp-asset-w">Assets width</label>
+            <input id="inp-asset-w" type="number" class="inp-dark">
+          </div>
+        </div>
+        <div id="lane-menu-list" style="margin-top:10px;"></div>
+        <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+          <button id="btn-save-lane" class="btn" type="button" title="Save current Lane settings">Save Lane</button>
         </div>
       </section>
 
@@ -936,8 +931,8 @@ window.app = (function() {
     cardList: document.getElementById('card-list-container'),
     configInfo: document.getElementById('config-info'),
     settingsModal: document.getElementById('settings-modal'),
-    viewMenuPopup: document.getElementById('view-menu-popup'),
-    laneMenuPopup: document.getElementById('lane-menu-popup')
+    viewMenuPopup: null,
+    laneMenuPopup: null
   };
 
   const setInspectorWidth_ = (w) => {
@@ -998,7 +993,7 @@ window.app = (function() {
     const main = document.getElementById('main');
     if (main) main.style.pointerEvents = blocked ? 'none' : '';
     const blockIds = [
-      'btn-view', 'btn-lanes', 'btn-undo', 'btn-insp', 'btn-settings', 'btn-publish',
+      'btn-undo', 'btn-insp', 'btn-settings', 'btn-publish', 'btn-open-view',
       'btn-auto', 'btn-new', 'btn-save-view', 'btn-save-lane', 'btn-settings-save',
       'btn-rename-sched-save', 'sched-switch', 'start-date', 'end-date', 'sel-start-preset',
       'sel-end-preset', 'sel-range', 'inp-filter', 'chk-push'
@@ -1138,23 +1133,7 @@ window.app = (function() {
       listEl.appendChild(row);
     });
   };
-  const closeToolbarMenus_ = () => {
-    if (els.viewMenuPopup) els.viewMenuPopup.classList.remove('open');
-    if (els.laneMenuPopup) els.laneMenuPopup.classList.remove('open');
-  };
-  const getToolbarMenu_ = (menuKey) => {
-    if (menuKey === 'view') return els.viewMenuPopup;
-    if (menuKey === 'lane') return els.laneMenuPopup;
-    return null;
-  };
-  const toggleToolbarMenu_ = (menuKey) => {
-    if (!menuKey) return;
-    const target = getToolbarMenu_(menuKey);
-    if (!target) return;
-    const willOpen = !target.classList.contains('open');
-    closeToolbarMenus_();
-    if (willOpen) target.classList.add('open');
-  };
+  const closeToolbarMenus_ = () => {};
   const clearInspectorTimers_ = () => {
     const edit = state.inspEdit;
     if (!edit || !edit.timers) return;
@@ -3193,7 +3172,13 @@ window.app = (function() {
       document.documentElement.style.setProperty('--asset-col-w', `${Math.round(state.assetColWidth)}px`);
       applyCardColorTheme_();
       var brandLink = document.getElementById('brand-link');
-      if (brandLink) brandLink.href = state.scriptUrl;
+      if (brandLink) {
+        var baseHref = String(state.scriptUrlServer || state.scriptUrl || '').trim();
+        if (!baseHref) baseHref = String(location.origin + location.pathname);
+        brandLink.href = String(baseHref).replace(/\?.*$/, '') + '?p=table&e=scheds';
+        brandLink.target = '_blank';
+        brandLink.rel = 'noopener';
+      }
       var schedSel = document.getElementById('sched-switch');
       if (schedSel) {
         schedSel.innerHTML = '';
@@ -3384,8 +3369,7 @@ window.app = (function() {
       if (startPresetSel) startPresetSel.value = normalizePresetKey_(state.startPreset);
       var endPresetSel = document.getElementById('sel-end-preset');
       if (endPresetSel) endPresetSel.value = normalizePresetKey_(state.endPreset);
-      var modeSel = document.getElementById('sel-view-mode');
-      if (modeSel) modeSel.value = (state.viewMode === 'lite') ? 'lite' : 'grid';
+      state.viewMode = 'grid';
       var cardMainSel = document.getElementById('sel-card-main');
       var cardSubSel = document.getElementById('sel-card-sub');
       var tasklessMainSel = document.getElementById('sel-taskless-main');
@@ -3507,7 +3491,7 @@ window.app = (function() {
         startPreset: normalizePresetKey_(state.startPreset),
         endPreset: normalizePresetKey_(state.endPreset),
         viewDriver: state.viewDriver === 'end' ? 'end' : 'range',
-        viewMode: state.viewMode === 'lite' ? 'lite' : 'grid',
+        viewMode: 'grid',
         laneVisibility: visMap,
         laneOrder: state.lanes.map(function(l) { return String(l.id || ''); }),
         laneWidth: Math.round(getLaneWidth_()),
@@ -4508,6 +4492,14 @@ window.app = (function() {
       try {
         const base = String(state.scriptUrlServer || state.scriptUrl || (location.origin + location.pathname));
         const href = String(base).replace(/\?.*$/, '') + '?p=table&e=scheds';
+        window.open(href, '_blank', 'noopener');
+      } catch (_) {}
+    },
+    openViewMode: () => {
+      try {
+        const base = String(state.scriptUrlServer || state.scriptUrl || (location.origin + location.pathname));
+        const sid = encodeURIComponent(String(state.schedId || ''));
+        const href = String(base).replace(/\?.*$/, '') + '?p=schedview&schedId=' + sid;
         (window.top || window).location.href = href;
       } catch (_) {}
     },
@@ -7143,7 +7135,6 @@ window.app = (function() {
     safeAdd('inp-zoom', 'input', (e) => actions.setZoomFromSlider(e.target.value));
     safeAdd('inp-zoom-val', 'change', (e) => actions.setZoomFromInput(e.target.value));
     safeAdd('btn-view-fit', 'click', () => actions.fitZoomToView());
-    safeAdd('sel-view-mode', 'change', (e) => actions.setViewMode(e && e.target ? e.target.value : 'grid'));
 
     const syncRangeSelect_ = () => {
       const rangeSel = document.getElementById('sel-range');
@@ -7286,16 +7277,6 @@ window.app = (function() {
       if (!insp) return;
       setInspectorClosed_(!insp.classList.contains('closed'));
     });
-    safeAdd('btn-view', 'click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      toggleToolbarMenu_('view');
-    });
-    safeAdd('btn-lanes', 'click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      toggleToolbarMenu_('lane');
-    });
     safeAdd('inp-lane-w', 'change', (e) => actions.setLaneWidth(e.target.value));
     safeAdd('inp-asset-w', 'change', (e) => actions.setAssetColWidth(e.target.value));
     safeAdd('btn-save-view', 'click', actions.saveViewSettings);
@@ -7305,6 +7286,7 @@ window.app = (function() {
       closeToolbarMenus_();
       setSettingsModalOpen_(true);
     });
+    safeAdd('btn-open-view', 'click', actions.openViewMode);
     safeAdd('btn-sched-index', 'click', actions.openSchedIndex);
     safeAdd('btn-tz-guard-reload', 'click', () => actions.load({ forceNetwork: true }));
     safeAdd('btn-publish', 'click', actions.publish);
@@ -7385,10 +7367,6 @@ window.app = (function() {
         clearDragPreviewNodes_();
         ui.renderInspector();
       }
-    });
-    document.addEventListener('click', (e) => {
-      const inToolbarPopup = !!(e.target && e.target.closest && e.target.closest('.toolbar-group'));
-      if (!inToolbarPopup) closeToolbarMenus_();
     });
     initInspectorResizer_();
     const insp = document.getElementById('inspector');
