@@ -254,72 +254,22 @@
     .meta { font-size: 10px; color: #8f96a3; }
     .row2 { display: flex; gap: 8px; }
     .row2 > .inp-group { flex: 1; }
-    .settings-modal {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.55);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 2200;
-      padding: 18px;
-    }
-    .settings-modal.open { display: flex; }
-    .settings-panel {
-      width: min(760px, 96vw);
-      max-height: 86vh;
-      overflow: auto;
-      background: #10131a;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      box-shadow: 0 20px 50px rgba(0,0,0,0.45);
-      padding: 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    .settings-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid var(--border);
-    }
-    .settings-title { font-weight: 700; letter-spacing: 0.02em; }
-    .settings-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(220px, 1fr));
-      gap: 10px;
-      align-items: end;
-    }
-    .settings-section {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px;
-      background: #0f1218;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .settings-section h4 {
-      margin: 0;
-      font-size: 11px;
-      color: #aab2bf;
-      letter-spacing: 0.02em;
-      text-transform: uppercase;
-    }
-    .settings-grid-2 {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(180px, 1fr));
-      gap: 10px;
-    }
-    .settings-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-      margin-top: 6px;
-    }
+    .settings-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 120; display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .settings-modal.hidden { display: none; }
+    .settings-panel { width: min(960px, 96vw); max-height: 92vh; overflow: auto; background: #17171a; border: 1px solid #333; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.45); }
+    .settings-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid #2c2c30; background: #121214; position: sticky; top: 0; z-index: 1; }
+    .settings-title { font-size: 13px; font-weight: 700; color: #fff; }
+    .settings-body { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; }
+    .settings-section { border: 1px solid #2d2d31; border-radius: 8px; padding: 10px; background: #1c1c20; display: flex; flex-direction: column; gap: 8px; }
+    .settings-section h4 { margin: 0; font-size: 12px; color: #ddd; letter-spacing: 0.03em; }
+    .settings-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .settings-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .settings-inline { display: flex; gap: 6px; align-items: flex-end; }
+    .settings-inline .inp-group { flex: 1 1 auto; }
+    .settings-inline .btn { height: 26px; }
+    .settings-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 12px 12px; }
+    .settings-body .settings-actions { padding: 0; }
+    .settings-panel .inp-dark { background: #000; border: 1px solid #333; color: #fff; font-size: 11px; padding: 3px 6px; border-radius: 4px; width: 100%; }
 
     @media (max-width: 1140px) {
       :root { --lane-w: 132px; --day-h: 80px; --inspector-w: 300px; }
@@ -371,89 +321,99 @@
     </div>
   </div>
 </div>
-<div id="settings-modal" class="settings-modal" aria-hidden="true">
+<div id="settings-modal" class="settings-modal hidden" aria-hidden="true">
   <div class="settings-panel">
     <div class="settings-head">
-      <div class="settings-title">SchedView Settings</div>
+      <div class="settings-title">Scheduler Settings</div>
       <button id="btn-settings-close" class="btn" type="button">Close</button>
     </div>
-    <section class="settings-section">
-      <h4>View</h4>
-      <div class="settings-grid-2">
-        <div class="inp-group">
-          <label for="sv-start-preset">Start preset</label>
-          <select id="sv-start-preset" class="inp">
-            <option value="today">Today</option>
-            <option value="yesterday">Yesterday</option>
-            <option value="tomorrow">Tomorrow</option>
-            <option value="this_monday">This Monday</option>
-            <option value="next_monday">Next Monday</option>
-            <option value="custom">Custom</option>
-          </select>
+    <div class="settings-body">
+      <section class="settings-section">
+        <h4>View</h4>
+        <div class="settings-grid-2">
+          <div class="inp-group">
+            <label for="sv-start-preset">Start preset</label>
+            <select id="sv-start-preset" class="inp-dark">
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="tomorrow">Tomorrow</option>
+              <option value="this_monday">This Monday</option>
+              <option value="next_monday">Next Monday</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div class="inp-group">
+            <label for="sv-start-date">Start date</label>
+            <input id="sv-start-date" class="inp-dark" type="text" placeholder="YYYY/MM/DD or today">
+          </div>
+          <div class="inp-group">
+            <label for="sv-end-preset">End preset</label>
+            <select id="sv-end-preset" class="inp-dark">
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="tomorrow">Tomorrow</option>
+              <option value="this_monday">This Monday</option>
+              <option value="next_monday">Next Monday</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div class="inp-group">
+            <label for="sv-end-date">End date</label>
+            <input id="sv-end-date" class="inp-dark" type="text" placeholder="YYYY/MM/DD or today">
+          </div>
+          <div class="inp-group">
+            <label for="sv-range">Range</label>
+            <select id="sv-range" class="inp-dark">
+              <option value="1">1 Day</option>
+              <option value="5">1 Week</option>
+              <option value="14">2 Weeks</option>
+              <option value="30">1 Month</option>
+              <option value="90">3 Months</option>
+              <option value="180">6 Months</option>
+              <option value="365">1 Year</option>
+              <option value="730">2 Years</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div class="inp-group">
+            <label for="sv-day-count">Days</label>
+            <input id="sv-day-count" class="inp-dark" type="number" min="1" max="730" step="1">
+          </div>
+        </div>
+        <div class="settings-actions">
+          <button id="btn-view-fit" class="btn" type="button">Fit</button>
+          <button id="btn-view-apply" class="btn" type="button">Apply</button>
+          <button id="btn-view-save" class="btn" type="button">Save View</button>
+        </div>
+        <label style="font-size:11px; color:#aaa; display:flex; gap:6px; align-items:center;">
+          <input id="sv-chk-push" type="checkbox"> Auto-Push
+        </label>
+      </section>
+
+      <section class="settings-section">
+        <h4>Lane</h4>
+        <div class="settings-grid-2">
+          <div class="inp-group">
+            <label for="sv-lane-w">Lane width</label>
+            <input id="sv-lane-w" class="inp-dark" type="number" min="40" max="560" step="1">
+          </div>
+          <div class="inp-group">
+            <label for="sv-lane-empty">Assets width</label>
+            <input id="sv-lane-empty" class="inp-dark" type="number" value="0" disabled>
+          </div>
         </div>
         <div class="inp-group">
-          <label for="sv-start-date">Start date</label>
-          <input id="sv-start-date" class="inp" type="text" placeholder="YYYY-MM-DD">
+          <label for="lane-menu-list">Lane Visibility</label>
+          <div id="lane-menu-list"></div>
         </div>
-        <div class="inp-group">
-          <label for="sv-end-preset">End preset</label>
-          <select id="sv-end-preset" class="inp">
-            <option value="today">Today</option>
-            <option value="yesterday">Yesterday</option>
-            <option value="tomorrow">Tomorrow</option>
-            <option value="this_monday">This Monday</option>
-            <option value="next_monday">Next Monday</option>
-            <option value="custom">Custom</option>
-          </select>
+        <div class="settings-actions">
+          <button id="btn-lane-save" class="btn" type="button">Save Lane</button>
         </div>
-        <div class="inp-group">
-          <label for="sv-end-date">End date</label>
-          <input id="sv-end-date" class="inp" type="text" placeholder="YYYY-MM-DD">
-        </div>
-        <div class="inp-group">
-          <label for="sv-range">Range</label>
-          <select id="sv-range" class="inp">
-            <option value="1">1 Day</option>
-            <option value="5">1 Week</option>
-            <option value="14">2 Weeks</option>
-            <option value="30">1 Month</option>
-            <option value="90">3 Months</option>
-            <option value="180">6 Months</option>
-            <option value="365">1 Year</option>
-            <option value="730">2 Years</option>
-            <option value="custom">Custom</option>
-          </select>
-        </div>
-        <div class="inp-group">
-          <label for="sv-day-count">Days</label>
-          <input id="sv-day-count" class="inp" type="number" min="1" max="730" step="1">
-        </div>
-      </div>
-      <div class="settings-actions">
-        <button id="btn-view-fit" class="btn" type="button">Fit</button>
-        <button id="btn-view-apply" class="btn" type="button">Apply</button>
-        <button id="btn-view-save" class="btn" type="button">Save View</button>
-      </div>
-      <label style="font-size:11px; color:#aaa; display:flex; gap:6px; align-items:center;">
-        <input id="sv-chk-push" type="checkbox"> Auto-Push
-      </label>
-    </section>
-    <section class="settings-section">
-      <h4>Lane</h4>
-      <div class="settings-grid-2">
-        <div class="inp-group">
-          <label for="sv-lane-w">Lane width</label>
-          <input id="sv-lane-w" class="inp" type="number" min="40" max="560" step="1">
-        </div>
-      </div>
-      <div class="inp-group">
-        <label for="lane-menu-list">Lane Visibility</label>
-        <div id="lane-menu-list"></div>
-      </div>
-      <div class="settings-actions">
-        <button id="btn-lane-save" class="btn" type="button">Save Lane</button>
-      </div>
-    </section>
+      </section>
+    </div>
+    <div class="settings-actions">
+      <button id="btn-settings-save" class="btn" type="button">Save Settings</button>
+    </div>
   </div>
 </div>
 
@@ -572,11 +532,73 @@ window.app = (function() {
   };
   const getTaskById = (taskId) => state.tasksById[norm(taskId)] || null;
   const tokenById = (id) => state.cards.find((c) => norm(c.id) === norm(id)) || null;
+  const cloneDateOrNull_ = (d) => (d instanceof Date && !isNaN(d.getTime())) ? new Date(d.getTime()) : null;
+  const applyTaskFieldLocal_ = (taskId, def, nextValue) => {
+    const tid = norm(taskId);
+    const fid = norm(def && def.fid);
+    if (!tid || !fid) return;
+    const task = getTaskById(tid);
+    if (!task) return;
+    if (!task.fields || typeof task.fields !== 'object') task.fields = {};
+    const type = lower(def && def.type);
+    const label = lower(def && def.label);
+    const normalized = normalizeTaskFieldValue(def || {}, nextValue);
+    task.fields[fid] = normalized;
+
+    if (label === 'status') {
+      task.status = normalizeStatus(normalized);
+      state.cards.forEach((c) => {
+        if (norm(c.taskId) !== tid || c.type !== 'task') return;
+        c.status = task.status;
+      });
+      return;
+    }
+    if (label === 'assigned member' || type === 'member_link') {
+      task.assignee = norm(normalized);
+      state.cards.forEach((c) => {
+        if (norm(c.taskId) !== tid || c.type !== 'task') return;
+        c.laneId = task.assignee || 'unassigned';
+      });
+      return;
+    }
+    if (label === 'start date') {
+      task.planStart = norm(normalized);
+      const sd = parseDateLoose(task.planStart);
+      state.cards.forEach((c) => {
+        if (norm(c.taskId) !== tid || c.type !== 'task') return;
+        if (sd) {
+          c.startDate = cloneDateOrNull_(sd);
+          c.startDateYmd = toYmd(sd);
+        }
+      });
+      return;
+    }
+    if (label === 'end date') {
+      task.planEnd = norm(normalized);
+      const ed = parseDateLoose(task.planEnd);
+      state.cards.forEach((c) => {
+        if (norm(c.taskId) !== tid || c.type !== 'task') return;
+        if (ed) {
+          c.endDate = cloneDateOrNull_(ed);
+          c.endDateYmd = toYmd(ed);
+        }
+      });
+      return;
+    }
+    if (label === 'task order') {
+      task.taskOrder = norm(normalized);
+      state.cards.forEach((c) => {
+        if (norm(c.taskId) !== tid || c.type !== 'task') return;
+        c.taskOrder = parseOrder(task.taskOrder);
+      });
+    }
+  };
 
   const setSettingsModalOpen_ = (open) => {
     if (!els.settingsModal) return;
     const on = !!open;
-    els.settingsModal.classList.toggle('open', on);
+    if (on) els.settingsModal.classList.remove('hidden');
+    else els.settingsModal.classList.add('hidden');
     els.settingsModal.setAttribute('aria-hidden', on ? 'false' : 'true');
   };
   const clampDayPx_ = (v) => Math.max(1, Math.min(170, asInt(v, 1, state.dayPx || 92)));
@@ -1237,27 +1259,86 @@ window.app = (function() {
         .withFailureHandler((err) => { status('error', String(err && (err.message || err) || 'View save failed')); })
         .sv_scheduler_save_meta_v2(JSON.stringify({ schedId: state.schedId, type: 'view_meta', value: meta }));
     },
+    saveSettings: () => actions.saveView(),
     saveLane: () => actions.saveView(),
     patchTaskField: (taskId, def, nextValue) => {
       const tid = norm(taskId);
       const fid = norm(def && def.fid);
       if (!tid || !fid) return;
+      const task = getTaskById(tid);
+      if (!task) return;
+      const prevTaskFields = Object.assign({}, task.fields || {});
+      const prevTaskStatus = String(task.status || '');
+      const prevTaskAssignee = String(task.assignee || '');
+      const prevTaskPlanStart = String(task.planStart || '');
+      const prevTaskPlanEnd = String(task.planEnd || '');
+      const prevTaskOrder = String(task.taskOrder || '');
+      const prevCards = state.cards
+        .filter((c) => c && c.type === 'task' && norm(c.taskId) === tid)
+        .map((c) => ({
+          id: c.id,
+          laneId: c.laneId,
+          status: c.status,
+          taskOrder: c.taskOrder,
+          startDate: cloneDateOrNull_(c.startDate),
+          endDate: cloneDateOrNull_(c.endDate),
+          startDateYmd: c.startDateYmd,
+          endDateYmd: c.endDateYmd
+        }));
       const patch = {};
       const type = lower(def && def.type);
       if (type === 'checkbox') patch[fid] = !!nextValue;
       else patch[fid] = (nextValue === null || nextValue === undefined) ? '' : String(nextValue);
+      applyTaskFieldLocal_(tid, def, patch[fid]);
+      render();
       status('saving', `Saving ${def.label || fid}...`);
       google.script.run
         .withSuccessHandler((res) => {
           const ok = !!(res && res.ok);
           if (!ok) {
             status('error', String((res && (res.error || res.note)) || 'Task save failed'));
+            task.fields = prevTaskFields;
+            task.status = prevTaskStatus;
+            task.assignee = prevTaskAssignee;
+            task.planStart = prevTaskPlanStart;
+            task.planEnd = prevTaskPlanEnd;
+            task.taskOrder = prevTaskOrder;
+            prevCards.forEach((p) => {
+              const c = tokenById(p.id);
+              if (!c) return;
+              c.laneId = p.laneId;
+              c.status = p.status;
+              c.taskOrder = p.taskOrder;
+              c.startDate = cloneDateOrNull_(p.startDate);
+              c.endDate = cloneDateOrNull_(p.endDate);
+              c.startDateYmd = p.startDateYmd;
+              c.endDateYmd = p.endDateYmd;
+            });
+            render();
             return;
           }
           status('saved', 'Task saved');
-          actions.load({ keepSelected: state.selectionTokenId });
+          renderInspector();
         })
         .withFailureHandler((err) => {
+          task.fields = prevTaskFields;
+          task.status = prevTaskStatus;
+          task.assignee = prevTaskAssignee;
+          task.planStart = prevTaskPlanStart;
+          task.planEnd = prevTaskPlanEnd;
+          task.taskOrder = prevTaskOrder;
+          prevCards.forEach((p) => {
+            const c = tokenById(p.id);
+            if (!c) return;
+            c.laneId = p.laneId;
+            c.status = p.status;
+            c.taskOrder = p.taskOrder;
+            c.startDate = cloneDateOrNull_(p.startDate);
+            c.endDate = cloneDateOrNull_(p.endDate);
+            c.startDateYmd = p.startDateYmd;
+            c.endDateYmd = p.endDateYmd;
+          });
+          render();
           status('error', String(err && (err.message || err) || 'Task save failed'));
         })
         .sv_setRecord_v2('task', tid, patch, { actor: 'schedview_inspector' });
@@ -1328,6 +1409,8 @@ window.app = (function() {
     if (btnViewSave) btnViewSave.addEventListener('click', actions.saveView);
     const btnLaneSave = document.getElementById('btn-lane-save');
     if (btnLaneSave) btnLaneSave.addEventListener('click', actions.saveLane);
+    const btnSettingsSave = document.getElementById('btn-settings-save');
+    if (btnSettingsSave) btnSettingsSave.addEventListener('click', actions.saveSettings);
     if (els.inpZoom) els.inpZoom.addEventListener('input', (e) => actions.setZoomFromSlider(e.target.value));
     if (els.inpZoomVal) els.inpZoomVal.addEventListener('change', (e) => actions.setZoomFromInput(e.target.value));
     if (els.gridScroll && els.laneHeaderScroll) {
