@@ -4145,9 +4145,12 @@ window.applyData = applyData;
                     });
                   } catch (_) { }
 
-                  var finalValue = (respObj && Object.prototype.hasOwnProperty.call(respObj, 'readbackValue'))
-                    ? respObj.readbackValue
-                    : _extractFieldValue_(respObj, fid, norm.value);
+                  var preferClientFinal = /(^|_)link$/i.test(String(fieldType || '')) || /link/i.test(String(fieldType || ''));
+                  var finalValue = preferClientFinal
+                    ? norm.value
+                    : ((respObj && Object.prototype.hasOwnProperty.call(respObj, 'readbackValue'))
+                      ? respObj.readbackValue
+                      : _extractFieldValue_(respObj, fid, norm.value));
                   var safeFinal = _sanitizeValueForMeta_(meta, finalValue, { rowId: rowId, fid: fid, where: "inlineEditReturn" });
                   _setRowValueByIdFid_(rowId, fid, safeFinal);
                   var finalCount = setCellDomAll_(rowId, fid, meta, safeFinal);

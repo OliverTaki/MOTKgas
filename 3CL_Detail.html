@@ -409,11 +409,12 @@
        * onFinalConfirm(confirmedVal, res)
        * onRollback(rollbackVal, err)
        */
-      function dv2_queueFieldWrite(entity, id, fid, desiredVal, onFinalConfirm, onRollback) {
+      function dv2_queueFieldWrite(entity, id, fid, desiredVal, onFinalConfirm, onRollback, opts) {
         var slot = _dwGetSlot(entity, id, fid);
+        var options = (opts && typeof opts === 'object') ? opts : {};
 
         // Always coalesce to the latest desired value
-        slot.pending = { value: desiredVal, onFinalConfirm: onFinalConfirm, onRollback: onRollback };
+        slot.pending = { value: desiredVal, onFinalConfirm: onFinalConfirm, onRollback: onRollback, opts: options };
 
         if (slot.inFlight) return;
 
@@ -436,7 +437,8 @@
 
               var confirmedVal = job.value;
               try {
-                if (res && res.ok && res.fields && Object.prototype.hasOwnProperty.call(res.fields, fid)) {
+                var preferClientValue = !!(job.opts && job.opts.preferClientValue);
+                if (!preferClientValue && res && res.ok && res.fields && Object.prototype.hasOwnProperty.call(res.fields, fid)) {
                   confirmedVal = res.fields[fid];
                 }
               } catch (_e) {}
@@ -2264,7 +2266,8 @@ function exportLayoutFromDOM() {
                     renderAllDetailCellsForFid(fid, meta, v, linkEnt);
                   } catch (_e) {}
                   try { if (typeof showStatus === 'function') showStatus('Update Failed'); } catch (_e) {}
-                }
+                },
+                { preferClientValue: /link/i.test(String(meta && meta.type || '')) }
               );
             });
             return;
@@ -2373,7 +2376,8 @@ function exportLayoutFromDOM() {
                 try { if (STATE && STATE.row) STATE.row[fid] = v; } catch (_e) {}
                 try { renderAllDetailCellsForFid(fid, meta, v, null); } catch (_e) {}
                 try { if (typeof showStatus === 'function') showStatus('Update Failed'); } catch (_e) {}
-              }
+              },
+              { preferClientValue: /link/i.test(String(meta && meta.type || '')) }
             );
           }
           input.addEventListener("blur", save);
