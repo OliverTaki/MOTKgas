@@ -3925,95 +3925,108 @@ function _dc_formatEntityIdsList_(ids, prefix) {
   return clean.join(' ');
 }
 
-function _dc_syncTaskShotLinksOnRecordWrite_(entityNorm, id, beforeRecord, afterRecord) {
-  var ent = String(entityNorm || '').trim().toLowerCase();
-  if (ent !== 'task' && ent !== 'shot') return;
-  var fidTaskShot = '';
-  var fidShotTask = '';
-  try { fidTaskShot = schemaGetFidByFieldName('task', 'Shot Link'); } catch (_) { fidTaskShot = ''; }
-  try { fidShotTask = schemaGetFidByFieldName('shot', 'Task Link'); } catch (_) { fidShotTask = ''; }
-  if (!fidTaskShot || !fidShotTask) return;
+function _dc_linkSyncPairs_() {
+  var pairs = [];
+  var add = function(leftEntity, leftLinkField, leftPrefix, rightEntity, rightLinkField, rightPrefix) {
+    var leftLinkFid = '';
+    var rightLinkFid = '';
+    var leftIdFid = '';
+    var rightIdFid = '';
+    try { leftLinkFid = schemaGetFidByFieldName(leftEntity, leftLinkField); } catch (_) { leftLinkFid = ''; }
+    try { rightLinkFid = schemaGetFidByFieldName(rightEntity, rightLinkField); } catch (_) { rightLinkFid = ''; }
+    try { leftIdFid = schemaGetIdFid(leftEntity); } catch (_) { leftIdFid = ''; }
+    try { rightIdFid = schemaGetIdFid(rightEntity); } catch (_) { rightIdFid = ''; }
+    if (!leftLinkFid || !rightLinkFid || !leftIdFid || !rightIdFid) return;
+    pairs.push({
+      leftEntity: String(leftEntity || '').toLowerCase(),
+      leftLinkFid: String(leftLinkFid || '').trim(),
+      leftIdFid: String(leftIdFid || '').trim(),
+      leftPrefix: String(leftPrefix || '').toLowerCase(),
+      rightEntity: String(rightEntity || '').toLowerCase(),
+      rightLinkFid: String(rightLinkFid || '').trim(),
+      rightIdFid: String(rightIdFid || '').trim(),
+      rightPrefix: String(rightPrefix || '').toLowerCase()
+    });
+  };
+  add('task', 'Shot Link', 'tk', 'shot', 'Task Link', 'sh');
+  add('task', 'Asset Link', 'tk', 'asset', 'Task Link', 'as');
+  add('shot', 'Asset Link', 'sh', 'asset', 'Shot Link', 'as');
+  return pairs;
+}
+
+function _dc_syncPairFromSourceRecord_(pair, sourceSide, sourceId, beforeRecord, afterRecord) {
+  var srcIsLeft = (sourceSide === 'left');
+  var sourceLinkFid = srcIsLeft ? pair.leftLinkFid : pair.rightLinkFid;
+  var targetEntity = srcIsLeft ? pair.rightEntity : pair.leftEntity;
+  var targetLinkFid = srcIsLeft ? pair.rightLinkFid : pair.leftLinkFid;
+  var sourcePrefix = srcIsLeft ? pair.leftPrefix : pair.rightPrefix;
+  var targetPrefix = srcIsLeft ? pair.rightPrefix : pair.leftPrefix;
+  var sourceIdNorm = String(sourceId || '').trim().toLowerCase();
+  if (!sourceIdNorm || !sourceLinkFid || !targetEntity || !targetLinkFid) return;
 
   var recBefore = (beforeRecord && typeof beforeRecord === 'object') ? beforeRecord : {};
   var recAfter = (afterRecord && typeof afterRecord === 'object') ? afterRecord : {};
+  var beforeTargetIds = _dc_parseEntityIdsList_(recBefore[sourceLinkFid], targetPrefix);
+  var afterTargetIds = _dc_parseEntityIdsList_(recAfter[sourceLinkFid], targetPrefix);
+  var targetSetAfter = {};
+  for (var ai = 0; ai < afterTargetIds.length; ai++) {
+    var aid = String(afterTargetIds[ai] || '').trim().toLowerCase();
+    if (aid) targetSetAfter[aid] = true;
+  }
+  var union = {};
+  var allTargetIds = [];
+  for (var bi = 0; bi < beforeTargetIds.length; bi++) {
+    var bid = String(beforeTargetIds[bi] || '').trim();
+    if (!bid) continue;
+    var bkey = bid.toLowerCase();
+    if (!union[bkey]) { union[bkey] = true; allTargetIds.push(bid); }
+  }
+  for (var ci = 0; ci < afterTargetIds.length; ci++) {
+    var cid = String(afterTargetIds[ci] || '').trim();
+    if (!cid) continue;
+    var ckey = cid.toLowerCase();
+    if (!union[ckey]) { union[ckey] = true; allTargetIds.push(cid); }
+  }
+  if (!allTargetIds.length) return;
 
-  if (ent === 'task') {
-    var taskId = String(id || '').trim();
-    if (!taskId) return;
-    var beforeShotIds = _dc_parseEntityIdsList_(recBefore[fidTaskShot], 'sh');
-    var afterShotIds = _dc_parseEntityIdsList_(recAfter[fidTaskShot], 'sh');
-    var shotSetAfter = {};
-    for (var asi = 0; asi < afterShotIds.length; asi++) shotSetAfter[String(afterShotIds[asi] || '').toLowerCase()] = true;
-    var union = {};
-    var allShotIds = [];
-    for (var bsi = 0; bsi < beforeShotIds.length; bsi++) {
-      var bs = String(beforeShotIds[bsi] || '').trim();
-      if (!bs) continue;
-      var bsk = bs.toLowerCase();
-      if (!union[bsk]) { union[bsk] = true; allShotIds.push(bs); }
+  for (var i = 0; i < allTargetIds.length; i++) {
+    var targetId = String(allTargetIds[i] || '').trim();
+    if (!targetId) continue;
+    var targetRec = sv_getRecord(targetEntity, targetId) || {};
+    var srcIdsInTarget = _dc_parseEntityIdsList_(targetRec[targetLinkFid], sourcePrefix);
+    var srcSet = {};
+    for (var si = 0; si < srcIdsInTarget.length; si++) {
+      var sid = String(srcIdsInTarget[si] || '').trim().toLowerCase();
+      if (sid) srcSet[sid] = true;
     }
-    for (var csi = 0; csi < afterShotIds.length; csi++) {
-      var cs = String(afterShotIds[csi] || '').trim();
-      if (!cs) continue;
-      var csk = cs.toLowerCase();
-      if (!union[csk]) { union[csk] = true; allShotIds.push(cs); }
+    var shouldContain = !!targetSetAfter[targetId.toLowerCase()];
+    var hasNow = !!srcSet[sourceIdNorm];
+    if (shouldContain === hasNow) continue;
+    var nextSrcIds = srcIdsInTarget.slice();
+    if (shouldContain) nextSrcIds.push(sourceIdNorm);
+    else {
+      nextSrcIds = nextSrcIds.filter(function (one) {
+        return String(one || '').trim().toLowerCase() !== sourceIdNorm;
+      });
     }
-    for (var i = 0; i < allShotIds.length; i++) {
-      var shotId = String(allShotIds[i] || '').trim();
-      if (!shotId) continue;
-      var shotRec = sv_getRecord('shot', shotId) || {};
-      var taskIds = _dc_parseEntityIdsList_(shotRec[fidShotTask], 'tk');
-      var taskSeen = {};
-      for (var ti = 0; ti < taskIds.length; ti++) taskSeen[String(taskIds[ti] || '').toLowerCase()] = true;
-      var shouldContain = !!shotSetAfter[shotId.toLowerCase()];
-      var existsNow = !!taskSeen[taskId.toLowerCase()];
-      if (shouldContain === existsNow) continue;
-      var nextTaskIds = taskIds.slice();
-      if (shouldContain) nextTaskIds.push(taskId);
-      else nextTaskIds = nextTaskIds.filter(function (one) { return String(one || '').toLowerCase() !== taskId.toLowerCase(); });
-      var patchShot = {};
-      patchShot[fidShotTask] = _dc_formatEntityIdsList_(nextTaskIds, 'tk');
-      try { dp_updateEntityRecord('shot', shotId, patchShot, { __skipUndoLog: true, __skipLock: true }); } catch (_) {}
-    }
-    return;
+    var patch = {};
+    patch[targetLinkFid] = _dc_formatEntityIdsList_(nextSrcIds, sourcePrefix);
+    try {
+      dp_updateEntityRecord(targetEntity, targetId, patch, { __skipUndoLog: true, __skipLock: true });
+    } catch (_) {}
   }
+}
 
-  var shotIdSelf = String(id || '').trim();
-  if (!shotIdSelf) return;
-  var beforeTaskIds = _dc_parseEntityIdsList_(recBefore[fidShotTask], 'tk');
-  var afterTaskIds = _dc_parseEntityIdsList_(recAfter[fidShotTask], 'tk');
-  var taskSetAfter = {};
-  for (var ati = 0; ati < afterTaskIds.length; ati++) taskSetAfter[String(afterTaskIds[ati] || '').toLowerCase()] = true;
-  var unionTask = {};
-  var allTaskIds = [];
-  for (var bti = 0; bti < beforeTaskIds.length; bti++) {
-    var bt = String(beforeTaskIds[bti] || '').trim();
-    if (!bt) continue;
-    var btk = bt.toLowerCase();
-    if (!unionTask[btk]) { unionTask[btk] = true; allTaskIds.push(bt); }
-  }
-  for (var cti = 0; cti < afterTaskIds.length; cti++) {
-    var ct = String(afterTaskIds[cti] || '').trim();
-    if (!ct) continue;
-    var ctk = ct.toLowerCase();
-    if (!unionTask[ctk]) { unionTask[ctk] = true; allTaskIds.push(ct); }
-  }
-  for (var j = 0; j < allTaskIds.length; j++) {
-    var taskId2 = String(allTaskIds[j] || '').trim();
-    if (!taskId2) continue;
-    var taskRec = sv_getRecord('task', taskId2) || {};
-    var shotIds = _dc_parseEntityIdsList_(taskRec[fidTaskShot], 'sh');
-    var shotSeen = {};
-    for (var si = 0; si < shotIds.length; si++) shotSeen[String(shotIds[si] || '').toLowerCase()] = true;
-    var shouldContainShot = !!taskSetAfter[taskId2.toLowerCase()];
-    var existsShotNow = !!shotSeen[shotIdSelf.toLowerCase()];
-    if (shouldContainShot === existsShotNow) continue;
-    var nextShotIds = shotIds.slice();
-    if (shouldContainShot) nextShotIds.push(shotIdSelf);
-    else nextShotIds = nextShotIds.filter(function (one) { return String(one || '').toLowerCase() !== shotIdSelf.toLowerCase(); });
-    var patchTask = {};
-    patchTask[fidTaskShot] = _dc_formatEntityIdsList_(nextShotIds, 'sh');
-    try { dp_updateEntityRecord('task', taskId2, patchTask, { __skipUndoLog: true, __skipLock: true }); } catch (_) {}
+function _dc_syncTaskShotLinksOnRecordWrite_(entityNorm, id, beforeRecord, afterRecord) {
+  var ent = String(entityNorm || '').trim().toLowerCase();
+  if (ent !== 'task' && ent !== 'shot' && ent !== 'asset') return;
+  var sourceId = String(id || '').trim();
+  if (!sourceId) return;
+  var pairs = _dc_linkSyncPairs_();
+  for (var i = 0; i < pairs.length; i++) {
+    var pair = pairs[i];
+    if (ent === pair.leftEntity) _dc_syncPairFromSourceRecord_(pair, 'left', sourceId, beforeRecord, afterRecord);
+    else if (ent === pair.rightEntity) _dc_syncPairFromSourceRecord_(pair, 'right', sourceId, beforeRecord, afterRecord);
   }
 }
 
