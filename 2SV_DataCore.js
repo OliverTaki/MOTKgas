@@ -3862,6 +3862,161 @@ function _dc_firstEntityId_(value, prefix) {
   return hit && hit.length ? String(hit[0] || '').trim() : '';
 }
 
+function _dc_parseEntityIdsList_(value, prefix) {
+  var pfx = String(prefix || '').trim().toLowerCase();
+  if (value == null || value === '') return [];
+  var raw = String(value || '').trim();
+  if (!raw) return [];
+  var out = [];
+  try {
+    if (typeof parseEntityIds_ === 'function') {
+      var parsed = parseEntityIds_(raw, pfx);
+      if (Array.isArray(parsed) && parsed.length) {
+        for (var pi = 0; pi < parsed.length; pi++) {
+          var pv = String(parsed[pi] || '').trim();
+          if (pv) out.push(pv);
+        }
+      }
+    }
+  } catch (_) {}
+  if (!out.length) {
+    var re = pfx ? new RegExp(pfx + '_[a-z0-9]+', 'ig') : /[a-z]+_[a-z0-9]+/ig;
+    var hit = raw.match(re) || [];
+    for (var hi = 0; hi < hit.length; hi++) {
+      var hv = String(hit[hi] || '').trim();
+      if (hv) out.push(hv);
+    }
+  }
+  var seen = {};
+  var uniq = [];
+  for (var i = 0; i < out.length; i++) {
+    var id = String(out[i] || '').trim();
+    if (!id) continue;
+    var key = id.toLowerCase();
+    if (seen[key]) continue;
+    seen[key] = true;
+    uniq.push(id);
+  }
+  return uniq;
+}
+
+function _dc_formatEntityIdsList_(ids, prefix) {
+  var pfx = String(prefix || '').trim().toLowerCase();
+  var arr = Array.isArray(ids) ? ids.slice() : [];
+  var seen = {};
+  var clean = [];
+  for (var i = 0; i < arr.length; i++) {
+    var id = String(arr[i] || '').trim();
+    if (!id) continue;
+    if (pfx && id.toLowerCase().indexOf(pfx + '_') !== 0) continue;
+    var key = id.toLowerCase();
+    if (seen[key]) continue;
+    seen[key] = true;
+    clean.push(id);
+  }
+  clean.sort(function (a, b) {
+    var am = String(a || '').match(/_(\d+)$/);
+    var bm = String(b || '').match(/_(\d+)$/);
+    var an = am ? Number(am[1]) : Number.MAX_SAFE_INTEGER;
+    var bn = bm ? Number(bm[1]) : Number.MAX_SAFE_INTEGER;
+    if (isFinite(an) && isFinite(bn) && an !== bn) return an - bn;
+    return String(a || '').localeCompare(String(b || ''));
+  });
+  return clean.join(' ');
+}
+
+function _dc_syncTaskShotLinksOnRecordWrite_(entityNorm, id, beforeRecord, afterRecord) {
+  var ent = String(entityNorm || '').trim().toLowerCase();
+  if (ent !== 'task' && ent !== 'shot') return;
+  var fidTaskShot = '';
+  var fidShotTask = '';
+  try { fidTaskShot = schemaGetFidByFieldName('task', 'Shot Link'); } catch (_) { fidTaskShot = ''; }
+  try { fidShotTask = schemaGetFidByFieldName('shot', 'Task Link'); } catch (_) { fidShotTask = ''; }
+  if (!fidTaskShot || !fidShotTask) return;
+
+  var recBefore = (beforeRecord && typeof beforeRecord === 'object') ? beforeRecord : {};
+  var recAfter = (afterRecord && typeof afterRecord === 'object') ? afterRecord : {};
+
+  if (ent === 'task') {
+    var taskId = String(id || '').trim();
+    if (!taskId) return;
+    var beforeShotIds = _dc_parseEntityIdsList_(recBefore[fidTaskShot], 'sh');
+    var afterShotIds = _dc_parseEntityIdsList_(recAfter[fidTaskShot], 'sh');
+    var shotSetAfter = {};
+    for (var asi = 0; asi < afterShotIds.length; asi++) shotSetAfter[String(afterShotIds[asi] || '').toLowerCase()] = true;
+    var union = {};
+    var allShotIds = [];
+    for (var bsi = 0; bsi < beforeShotIds.length; bsi++) {
+      var bs = String(beforeShotIds[bsi] || '').trim();
+      if (!bs) continue;
+      var bsk = bs.toLowerCase();
+      if (!union[bsk]) { union[bsk] = true; allShotIds.push(bs); }
+    }
+    for (var csi = 0; csi < afterShotIds.length; csi++) {
+      var cs = String(afterShotIds[csi] || '').trim();
+      if (!cs) continue;
+      var csk = cs.toLowerCase();
+      if (!union[csk]) { union[csk] = true; allShotIds.push(cs); }
+    }
+    for (var i = 0; i < allShotIds.length; i++) {
+      var shotId = String(allShotIds[i] || '').trim();
+      if (!shotId) continue;
+      var shotRec = sv_getRecord('shot', shotId) || {};
+      var taskIds = _dc_parseEntityIdsList_(shotRec[fidShotTask], 'tk');
+      var taskSeen = {};
+      for (var ti = 0; ti < taskIds.length; ti++) taskSeen[String(taskIds[ti] || '').toLowerCase()] = true;
+      var shouldContain = !!shotSetAfter[shotId.toLowerCase()];
+      var existsNow = !!taskSeen[taskId.toLowerCase()];
+      if (shouldContain === existsNow) continue;
+      var nextTaskIds = taskIds.slice();
+      if (shouldContain) nextTaskIds.push(taskId);
+      else nextTaskIds = nextTaskIds.filter(function (one) { return String(one || '').toLowerCase() !== taskId.toLowerCase(); });
+      var patchShot = {};
+      patchShot[fidShotTask] = _dc_formatEntityIdsList_(nextTaskIds, 'tk');
+      try { dp_updateEntityRecord('shot', shotId, patchShot, { __skipUndoLog: true, __skipLock: true }); } catch (_) {}
+    }
+    return;
+  }
+
+  var shotIdSelf = String(id || '').trim();
+  if (!shotIdSelf) return;
+  var beforeTaskIds = _dc_parseEntityIdsList_(recBefore[fidShotTask], 'tk');
+  var afterTaskIds = _dc_parseEntityIdsList_(recAfter[fidShotTask], 'tk');
+  var taskSetAfter = {};
+  for (var ati = 0; ati < afterTaskIds.length; ati++) taskSetAfter[String(afterTaskIds[ati] || '').toLowerCase()] = true;
+  var unionTask = {};
+  var allTaskIds = [];
+  for (var bti = 0; bti < beforeTaskIds.length; bti++) {
+    var bt = String(beforeTaskIds[bti] || '').trim();
+    if (!bt) continue;
+    var btk = bt.toLowerCase();
+    if (!unionTask[btk]) { unionTask[btk] = true; allTaskIds.push(bt); }
+  }
+  for (var cti = 0; cti < afterTaskIds.length; cti++) {
+    var ct = String(afterTaskIds[cti] || '').trim();
+    if (!ct) continue;
+    var ctk = ct.toLowerCase();
+    if (!unionTask[ctk]) { unionTask[ctk] = true; allTaskIds.push(ct); }
+  }
+  for (var j = 0; j < allTaskIds.length; j++) {
+    var taskId2 = String(allTaskIds[j] || '').trim();
+    if (!taskId2) continue;
+    var taskRec = sv_getRecord('task', taskId2) || {};
+    var shotIds = _dc_parseEntityIdsList_(taskRec[fidTaskShot], 'sh');
+    var shotSeen = {};
+    for (var si = 0; si < shotIds.length; si++) shotSeen[String(shotIds[si] || '').toLowerCase()] = true;
+    var shouldContainShot = !!taskSetAfter[taskId2.toLowerCase()];
+    var existsShotNow = !!shotSeen[shotIdSelf.toLowerCase()];
+    if (shouldContainShot === existsShotNow) continue;
+    var nextShotIds = shotIds.slice();
+    if (shouldContainShot) nextShotIds.push(shotIdSelf);
+    else nextShotIds = nextShotIds.filter(function (one) { return String(one || '').toLowerCase() !== shotIdSelf.toLowerCase(); });
+    var patchTask = {};
+    patchTask[fidTaskShot] = _dc_formatEntityIdsList_(nextShotIds, 'sh');
+    try { dp_updateEntityRecord('task', taskId2, patchTask, { __skipUndoLog: true, __skipLock: true }); } catch (_) {}
+  }
+}
+
 function _dc_getProjectMeta_() {
   try {
     if (typeof _sv_getMeta_ === 'function') {
@@ -4563,6 +4718,7 @@ function sv_setRecord_v2(entity, id, patch, options) {
     }
     try { delete opts.__allowNonEditableFieldIds; } catch (_) {}
     var skipUndoLog = !!opts.__skipUndoLog;
+    var skipLinkSync = !!opts.__skipLinkSync;
     var actorHint = opts.actor;
     var undoLogDiag = {
       scope: 'record',
@@ -4713,10 +4869,19 @@ function sv_setRecord_v2(entity, id, patch, options) {
         undoLogDiag.error = String(undoErr && (undoErr.message || undoErr) || 'undo_log_append_failed');
       }
     }
+    var afterRecordForSync = null;
+    if (res && res.ok && !skipLinkSync) {
+      try {
+        afterRecordForSync = sv_getRecord(entity, id);
+        _dc_syncTaskShotLinksOnRecordWrite_(entNorm, id, beforeRecord, afterRecordForSync);
+      } catch (linkSyncErr) {
+        console.warn('[sv_setRecord_v2] task/shot link sync skipped: ' + String(linkSyncErr && (linkSyncErr.message || linkSyncErr) || 'unknown'));
+      }
+    }
     if (res && res.ok && entNorm === 'task') {
       try {
-        var afterRecord = sv_getRecord(entity, id);
-        _dc_syncShotStatusFromTask_(id, afterRecord);
+        if (!afterRecordForSync) afterRecordForSync = sv_getRecord(entity, id);
+        _dc_syncShotStatusFromTask_(id, afterRecordForSync);
       } catch (syncErr) {
         console.warn('[sv_setRecord_v2] task->shot status sync skipped: ' + String(syncErr && (syncErr.message || syncErr) || 'unknown'));
       }
