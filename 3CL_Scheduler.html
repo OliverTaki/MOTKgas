@@ -486,7 +486,6 @@
     <button id="btn-insp" class="btn">Insp</button>
     <button id="btn-open-view" class="btn" title="Open View mode in this tab">View</button>
     <button id="btn-settings" class="btn" title="Settings">Settings</button>
-    <button id="btn-sched-index" class="btn" title="Open schedule index">Index</button>
     <button id="btn-publish" class="btn" title="Publish schedule to Tasks">Publish</button>
   </div>
 
@@ -7287,7 +7286,6 @@ window.app = (function() {
       setSettingsModalOpen_(true);
     });
     safeAdd('btn-open-view', 'click', actions.openViewMode);
-    safeAdd('btn-sched-index', 'click', actions.openSchedIndex);
     safeAdd('btn-tz-guard-reload', 'click', () => actions.load({ forceNetwork: true }));
     safeAdd('btn-publish', 'click', actions.publish);
     safeAdd('btn-settings-close', 'click', () => setSettingsModalOpen_(false));

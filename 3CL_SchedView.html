@@ -293,6 +293,27 @@
       gap: 10px;
       align-items: end;
     }
+    .settings-section {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      background: #0f1218;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .settings-section h4 {
+      margin: 0;
+      font-size: 11px;
+      color: #aab2bf;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .settings-grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(180px, 1fr));
+      gap: 10px;
+    }
     .settings-actions {
       display: flex;
       justify-content: flex-end;
@@ -320,13 +341,12 @@
 
     <div class="toolbar-group" style="display:flex; gap:6px; align-items:center;">
       <span class="tag">Zoom</span>
-      <input id="sv-zoom" type="range" min="56" max="170" value="86" style="width:130px;">
-      <input id="sv-zoom-val" class="inp" type="number" min="56" max="170" step="1" value="86" style="width:58px; text-align:center;">
+      <input id="sv-zoom" type="range" min="1" max="170" value="86" style="width:130px;">
+      <input id="sv-zoom-val" class="inp" type="number" min="1" max="170" step="1" value="86" style="width:58px; text-align:center;">
     </div>
     <div id="status"></div>
     <button id="btn-edit" class="btn" type="button">Edit Mode</button>
     <button id="btn-settings" class="btn" type="button">Settings</button>
-    <button id="btn-index" class="btn" type="button">Sched Index</button>
   </div>
 
   <div id="main">
@@ -353,29 +373,83 @@
       <div class="settings-title">SchedView Settings</div>
       <button id="btn-settings-close" class="btn" type="button">Close</button>
     </div>
-    <div class="settings-grid">
-      <div class="inp-group">
-        <label for="sv-start-date">Start</label>
-        <input id="sv-start-date" class="inp" type="text" placeholder="YYYY-MM-DD">
+    <section class="settings-section">
+      <h4>View</h4>
+      <div class="settings-grid-2">
+        <div class="inp-group">
+          <label for="sv-start-preset">Start preset</label>
+          <select id="sv-start-preset" class="inp">
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="tomorrow">Tomorrow</option>
+            <option value="this_monday">This Monday</option>
+            <option value="next_monday">Next Monday</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div class="inp-group">
+          <label for="sv-start-date">Start date</label>
+          <input id="sv-start-date" class="inp" type="text" placeholder="YYYY-MM-DD">
+        </div>
+        <div class="inp-group">
+          <label for="sv-end-preset">End preset</label>
+          <select id="sv-end-preset" class="inp">
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="tomorrow">Tomorrow</option>
+            <option value="this_monday">This Monday</option>
+            <option value="next_monday">Next Monday</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div class="inp-group">
+          <label for="sv-end-date">End date</label>
+          <input id="sv-end-date" class="inp" type="text" placeholder="YYYY-MM-DD">
+        </div>
+        <div class="inp-group">
+          <label for="sv-range">Range</label>
+          <select id="sv-range" class="inp">
+            <option value="1">1 Day</option>
+            <option value="5">1 Week</option>
+            <option value="14">2 Weeks</option>
+            <option value="30">1 Month</option>
+            <option value="90">3 Months</option>
+            <option value="180">6 Months</option>
+            <option value="365">1 Year</option>
+            <option value="730">2 Years</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div class="inp-group">
+          <label for="sv-day-count">Days</label>
+          <input id="sv-day-count" class="inp" type="number" min="1" max="730" step="1">
+        </div>
       </div>
-      <div class="inp-group">
-        <label for="sv-end-date">End</label>
-        <input id="sv-end-date" class="inp" type="text" placeholder="YYYY-MM-DD">
+      <div class="settings-actions">
+        <button id="btn-view-fit" class="btn" type="button">Fit</button>
+        <button id="btn-view-apply" class="btn" type="button">Apply</button>
+        <button id="btn-view-save" class="btn" type="button">Save View</button>
       </div>
-      <div class="inp-group">
-        <label for="sv-day-count">Days</label>
-        <input id="sv-day-count" class="inp" type="number" min="1" max="730" step="1">
+      <label style="font-size:11px; color:#aaa; display:flex; gap:6px; align-items:center;">
+        <input id="sv-chk-push" type="checkbox"> Auto-Push
+      </label>
+    </section>
+    <section class="settings-section">
+      <h4>Lane</h4>
+      <div class="settings-grid-2">
+        <div class="inp-group">
+          <label for="sv-lane-w">Lane width</label>
+          <input id="sv-lane-w" class="inp" type="number" min="40" max="560" step="1">
+        </div>
       </div>
       <div class="inp-group">
         <label for="lane-menu-list">Lane Visibility</label>
         <div id="lane-menu-list"></div>
       </div>
-    </div>
-    <div class="settings-actions">
-      <button id="btn-view-apply" class="btn" type="button">Apply</button>
-      <button id="btn-lane-save" class="btn" type="button">Save Lane</button>
-      <button id="btn-view-save" class="btn" type="button">Save View</button>
-    </div>
+      <div class="settings-actions">
+        <button id="btn-lane-save" class="btn" type="button">Save Lane</button>
+      </div>
+    </section>
   </div>
 </div>
 
@@ -397,6 +471,10 @@ window.app = (function() {
     config: { originDate: null, slotMin: 30, workHours: 8 },
     dayCount: 14,
     dayPx: 92,
+    laneWidth: 150,
+    startPreset: 'custom',
+    endPreset: 'custom',
+    autoPush: true,
     startDate: null,
     selectionTokenId: '',
     loading: false
@@ -421,6 +499,11 @@ window.app = (function() {
     inpStart: document.getElementById('sv-start-date'),
     inpEnd: document.getElementById('sv-end-date'),
     inpDays: document.getElementById('sv-day-count'),
+    inpStartPreset: document.getElementById('sv-start-preset'),
+    inpEndPreset: document.getElementById('sv-end-preset'),
+    inpRange: document.getElementById('sv-range'),
+    chkPush: document.getElementById('sv-chk-push'),
+    inpLaneW: document.getElementById('sv-lane-w'),
     inpZoom: document.getElementById('sv-zoom'),
     inpZoomVal: document.getElementById('sv-zoom-val'),
     settingsModal: document.getElementById('settings-modal'),
@@ -490,12 +573,41 @@ window.app = (function() {
     els.settingsModal.classList.toggle('open', on);
     els.settingsModal.setAttribute('aria-hidden', on ? 'false' : 'true');
   };
-  const clampDayPx_ = (v) => Math.max(56, Math.min(170, asInt(v, 56, state.dayPx || 92)));
+  const clampDayPx_ = (v) => Math.max(1, Math.min(170, asInt(v, 1, state.dayPx || 92)));
   const applyDayPx_ = (v) => {
     state.dayPx = clampDayPx_(v);
     try { document.documentElement.style.setProperty('--day-h', `${state.dayPx}px`); } catch (_) {}
     if (els.inpZoom) els.inpZoom.value = String(state.dayPx);
     if (els.inpZoomVal) els.inpZoomVal.value = String(state.dayPx);
+  };
+  const clampLaneWidth_ = (v) => Math.max(40, Math.min(560, asInt(v, 40, state.laneWidth || 150)));
+  const applyLaneWidth_ = (v) => {
+    state.laneWidth = clampLaneWidth_(v);
+    try { document.documentElement.style.setProperty('--lane-w', `${state.laneWidth}px`); } catch (_) {}
+    if (els.inpLaneW) els.inpLaneW.value = String(state.laneWidth);
+  };
+  const getRangeOptions_ = () => [1, 5, 14, 30, 90, 180, 365, 730];
+  const normalizePresetKey_ = (raw) => {
+    const k = lower(raw).replace(/\s+/g, '_');
+    if (k === 'thismonday') return 'this_monday';
+    if (k === 'nextmonday') return 'next_monday';
+    if (k === 'today' || k === 'yesterday' || k === 'tomorrow' || k === 'this_monday' || k === 'next_monday') return k;
+    return 'custom';
+  };
+  const resolveDatePreset_ = (preset) => {
+    const p = normalizePresetKey_(preset);
+    const now = new Date();
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    if (p === 'today') return d;
+    if (p === 'yesterday') return addDays(d, -1);
+    if (p === 'tomorrow') return addDays(d, 1);
+    if (p === 'this_monday' || p === 'next_monday') {
+      const wd = d.getDay();
+      const offsetThis = (wd === 0 ? -6 : 1 - wd);
+      const m = addDays(d, offsetThis);
+      return p === 'next_monday' ? addDays(m, 7) : m;
+    }
+    return null;
   };
 
   const inferKeyByParts = (obj, parts) => {
@@ -584,6 +696,10 @@ window.app = (function() {
     state.startDate = parseDateLoose(state.viewMeta.startDate) || parseDateLoose(cfg.originDate) || new Date();
     state.startDate.setHours(0, 0, 0, 0);
     state.dayCount = Math.max(1, Math.min(730, asInt(state.viewMeta.dayCount, 1, 14)));
+    state.startPreset = normalizePresetKey_(state.viewMeta.startPreset || 'custom');
+    state.endPreset = normalizePresetKey_(state.viewMeta.endPreset || 'custom');
+    state.autoPush = state.viewMeta.autoPush !== false;
+    applyLaneWidth_(state.viewMeta.laneWidth || state.laneWidth || 150);
     applyDayPx_(state.viewMeta.liteZoomPx || state.dayPx || 92);
 
     state.taskFieldDefs = Array.isArray(payload.taskFieldDefs) ? payload.taskFieldDefs.map((d) => ({
@@ -760,6 +876,14 @@ window.app = (function() {
     const end = addDays(state.startDate, Math.max(0, state.dayCount - 1));
     if (els.inpEnd) els.inpEnd.value = toYmd(end);
     if (els.inpDays) els.inpDays.value = String(state.dayCount);
+    if (els.inpStartPreset) els.inpStartPreset.value = normalizePresetKey_(state.startPreset);
+    if (els.inpEndPreset) els.inpEndPreset.value = normalizePresetKey_(state.endPreset);
+    if (els.inpRange) {
+      const opts = getRangeOptions_().map((n) => String(n));
+      els.inpRange.value = opts.indexOf(String(state.dayCount)) >= 0 ? String(state.dayCount) : 'custom';
+    }
+    if (els.chkPush) els.chkPush.checked = !!state.autoPush;
+    if (els.inpLaneW) els.inpLaneW.value = String(state.laneWidth || 150);
   };
 
   const renderInspector = () => {
@@ -1008,6 +1132,47 @@ window.app = (function() {
         .withFailureHandler((err) => status('error', String(err && (err.message || err) || 'Switch failed')))
         .sv_scheduler_switch_active(next);
     },
+    setStartPreset: (preset) => {
+      const key = normalizePresetKey_(preset);
+      state.startPreset = key;
+      if (key === 'custom') return;
+      const d = resolveDatePreset_(key);
+      if (!d) return;
+      state.startDate = d;
+      render();
+    },
+    setEndPreset: (preset) => {
+      const key = normalizePresetKey_(preset);
+      state.endPreset = key;
+      if (key === 'custom') return;
+      const d = resolveDatePreset_(key);
+      if (!d) return;
+      const diff = dayDiff(d, state.startDate) + 1;
+      state.dayCount = Math.max(1, Math.min(730, diff));
+      render();
+    },
+    setDuration: (daysRaw) => {
+      const d = asInt(daysRaw, 1, state.dayCount);
+      state.dayCount = Math.max(1, Math.min(730, d));
+      render();
+    },
+    fitViewToCards: () => {
+      const rows = Array.isArray(state.cards) ? state.cards : [];
+      if (!rows.length) return;
+      let minStart = null;
+      let maxEnd = null;
+      rows.forEach((c) => {
+        const s = parseDateLoose(c.startDate);
+        const e = parseDateLoose(c.endDate || c.startDate);
+        if (!s || !e) return;
+        if (!minStart || s.getTime() < minStart.getTime()) minStart = s;
+        if (!maxEnd || e.getTime() > maxEnd.getTime()) maxEnd = e;
+      });
+      if (!minStart || !maxEnd) return;
+      state.startDate = minStart;
+      state.dayCount = Math.max(1, dayDiff(maxEnd, minStart) + 1);
+      render();
+    },
     applyView: () => {
       const s = parseDateLoose(els.inpStart && els.inpStart.value);
       const e = parseDateLoose(els.inpEnd && els.inpEnd.value);
@@ -1015,6 +1180,8 @@ window.app = (function() {
       if (s) state.startDate = s;
       if (e && s) state.dayCount = Math.max(1, dayDiff(e, s) + 1);
       else state.dayCount = Math.max(1, Math.min(730, d));
+      state.startPreset = 'custom';
+      state.endPreset = 'custom';
       render();
     },
     saveView: () => {
@@ -1024,7 +1191,11 @@ window.app = (function() {
         startDate: toYmd(state.startDate),
         dayCount: state.dayCount,
         endDate: toYmd(addDays(state.startDate, Math.max(0, state.dayCount - 1))),
+        startPreset: normalizePresetKey_(state.startPreset),
+        endPreset: normalizePresetKey_(state.endPreset),
+        autoPush: !!state.autoPush,
         laneVisibility: visMap,
+        laneWidth: state.laneWidth,
         viewMode: 'lite',
         liteZoomPx: state.dayPx
       });
@@ -1064,12 +1235,12 @@ window.app = (function() {
       const sid = encodeURIComponent(norm(state.schedId || ''));
       (window.top || window).location.href = `${base}?p=schedule&schedId=${sid}`;
     },
-    openIndex: () => {
-      const base = norm(state.scriptUrl || (location.origin + location.pathname)).replace(/\?.*$/, '');
-      window.open(`${base}?p=table&e=scheds`, '_blank', 'noopener');
-    },
     openSettings: () => setSettingsModalOpen_(true),
     closeSettings: () => setSettingsModalOpen_(false),
+    setLaneWidth: (v) => {
+      applyLaneWidth_(v);
+      render();
+    },
     setZoomFromSlider: (v) => {
       applyDayPx_(v);
       render();
@@ -1084,14 +1255,23 @@ window.app = (function() {
     if (els.schedSwitch) els.schedSwitch.addEventListener('change', (e) => actions.switchSched(e.target.value));
     const btnEdit = document.getElementById('btn-edit');
     if (btnEdit) btnEdit.addEventListener('click', actions.openEdit);
-    const btnIndex = document.getElementById('btn-index');
-    if (btnIndex) btnIndex.addEventListener('click', actions.openIndex);
     const btnSettings = document.getElementById('btn-settings');
     if (btnSettings) btnSettings.addEventListener('click', actions.openSettings);
     const btnSettingsClose = document.getElementById('btn-settings-close');
     if (btnSettingsClose) btnSettingsClose.addEventListener('click', actions.closeSettings);
+    if (els.inpStartPreset) els.inpStartPreset.addEventListener('change', (e) => actions.setStartPreset(e.target.value));
+    if (els.inpEndPreset) els.inpEndPreset.addEventListener('change', (e) => actions.setEndPreset(e.target.value));
+    if (els.inpRange) els.inpRange.addEventListener('change', (e) => {
+      const val = norm(e && e.target ? e.target.value : '');
+      if (!val || val === 'custom') return;
+      actions.setDuration(val);
+    });
+    if (els.chkPush) els.chkPush.addEventListener('change', (e) => { state.autoPush = !!(e && e.target && e.target.checked); });
+    if (els.inpLaneW) els.inpLaneW.addEventListener('change', (e) => actions.setLaneWidth(e.target.value));
     const btnViewApply = document.getElementById('btn-view-apply');
     if (btnViewApply) btnViewApply.addEventListener('click', actions.applyView);
+    const btnViewFit = document.getElementById('btn-view-fit');
+    if (btnViewFit) btnViewFit.addEventListener('click', actions.fitViewToCards);
     const btnViewSave = document.getElementById('btn-view-save');
     if (btnViewSave) btnViewSave.addEventListener('click', actions.saveView);
     const btnLaneSave = document.getElementById('btn-lane-save');
