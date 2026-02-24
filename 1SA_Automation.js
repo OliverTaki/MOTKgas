@@ -63,6 +63,11 @@ function onEdit(e) {
   } catch (err) {
     try { Logger.log("[MOTK][onEdit][DateNormalize] %s", String(err && err.message ? err.message : err)); } catch (_) { }
   }
+  try {
+    _autoSyncTaskShotLinksOnEdit_(e);
+  } catch (err2) {
+    try { Logger.log("[MOTK][onEdit][LinkSync] %s", String(err2 && err2.message ? err2.message : err2)); } catch (_) { }
+  }
 }
 
 function onChange(e) {
@@ -664,4 +669,135 @@ function job_refreshProxyIndexCache_v1(entity) {
   var res = sv_refreshProxyIndexCache_v1({ entity: entity });
   try { Logger.log("[MOTK][ProxyIndex][Refresh] %s", JSON.stringify(res && res.diag ? res.diag : res)); } catch (_) { }
   return res;
+}
+
+/* ===== TAKE432: Bidirectional shot<->task link sync on manual sheet edit ===== */
+function _autoFindColByFid_(sheet, fid) {
+  if (!sheet || !fid) return -1;
+  var lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return -1;
+  var row = sheet.getRange(1, 1, 1, lastCol).getValues()[0] || [];
+  for (var i = 0; i < row.length; i++) {
+    if (String(row[i] || "").trim() === String(fid)) return i + 1;
+  }
+  return -1;
+}
+
+function _autoParseIds_(raw, prefix) {
+  var s = String(raw == null ? "" : raw);
+  var re = new RegExp("\\b" + String(prefix || "") + "_[0-9]+\\b", "gi");
+  var m = s.match(re) || [];
+  var set = {};
+  for (var i = 0; i < m.length; i++) set[String(m[i]).toLowerCase()] = true;
+  return Object.keys(set);
+}
+
+function _autoFormatIds_(arr) {
+  var ids = Array.isArray(arr) ? arr.slice() : [];
+  ids = ids.filter(function (v) { return !!String(v || "").trim(); });
+  ids.sort(function (a, b) {
+    var pa = String(a).split("_");
+    var pb = String(b).split("_");
+    var na = Number(pa[1] || 0);
+    var nb = Number(pb[1] || 0);
+    if (isFinite(na) && isFinite(nb) && na !== nb) return na - nb;
+    return String(a).localeCompare(String(b));
+  });
+  return ids.join(" ");
+}
+
+function _autoSyncTaskRowToShots_(taskSheet, shotSheet, taskRow) {
+  var cTaskId = _autoFindColByFid_(taskSheet, "fi_0025");
+  var cTaskShotLink = _autoFindColByFid_(taskSheet, "fi_0031");
+  var cShotId = _autoFindColByFid_(shotSheet, "fi_0001");
+  var cShotTaskLink = _autoFindColByFid_(shotSheet, "fi_0062");
+  if (cTaskId < 1 || cTaskShotLink < 1 || cShotId < 1 || cShotTaskLink < 1) return;
+
+  var taskId = String(taskSheet.getRange(taskRow, cTaskId).getValue() || "").trim().toLowerCase();
+  if (!/^tk_\d+$/i.test(taskId)) return;
+  var wantedShotIds = _autoParseIds_(taskSheet.getRange(taskRow, cTaskShotLink).getValue(), "sh");
+  var wantedMap = {};
+  for (var i = 0; i < wantedShotIds.length; i++) wantedMap[wantedShotIds[i]] = true;
+
+  var lastRow = shotSheet.getLastRow();
+  var rowCount = Math.max(0, lastRow - 2);
+  if (!rowCount) return;
+  var shotIds = shotSheet.getRange(3, cShotId, rowCount, 1).getValues();
+  var taskLinkVals = shotSheet.getRange(3, cShotTaskLink, rowCount, 1).getValues();
+  var changed = false;
+  for (var r = 0; r < rowCount; r++) {
+    var sid = String(shotIds[r][0] || "").trim().toLowerCase();
+    if (!/^sh_\d+$/i.test(sid)) continue;
+    var cur = _autoParseIds_(taskLinkVals[r][0], "tk");
+    var curMap = {};
+    for (var j = 0; j < cur.length; j++) curMap[cur[j]] = true;
+    var shouldHave = !!wantedMap[sid];
+    var has = !!curMap[taskId];
+    if (shouldHave === has) continue;
+    if (shouldHave) curMap[taskId] = true;
+    else delete curMap[taskId];
+    taskLinkVals[r][0] = _autoFormatIds_(Object.keys(curMap));
+    changed = true;
+  }
+  if (changed) shotSheet.getRange(3, cShotTaskLink, rowCount, 1).setValues(taskLinkVals);
+}
+
+function _autoSyncShotRowToTasks_(shotSheet, taskSheet, shotRow) {
+  var cShotId = _autoFindColByFid_(shotSheet, "fi_0001");
+  var cShotTaskLink = _autoFindColByFid_(shotSheet, "fi_0062");
+  var cTaskId = _autoFindColByFid_(taskSheet, "fi_0025");
+  var cTaskShotLink = _autoFindColByFid_(taskSheet, "fi_0031");
+  if (cShotId < 1 || cShotTaskLink < 1 || cTaskId < 1 || cTaskShotLink < 1) return;
+
+  var shotId = String(shotSheet.getRange(shotRow, cShotId).getValue() || "").trim().toLowerCase();
+  if (!/^sh_\d+$/i.test(shotId)) return;
+  var wantedTaskIds = _autoParseIds_(shotSheet.getRange(shotRow, cShotTaskLink).getValue(), "tk");
+  var wantedMap = {};
+  for (var i = 0; i < wantedTaskIds.length; i++) wantedMap[wantedTaskIds[i]] = true;
+
+  var lastRow = taskSheet.getLastRow();
+  var rowCount = Math.max(0, lastRow - 2);
+  if (!rowCount) return;
+  var taskIds = taskSheet.getRange(3, cTaskId, rowCount, 1).getValues();
+  var shotLinkVals = taskSheet.getRange(3, cTaskShotLink, rowCount, 1).getValues();
+  var changed = false;
+  for (var r = 0; r < rowCount; r++) {
+    var tid = String(taskIds[r][0] || "").trim().toLowerCase();
+    if (!/^tk_\d+$/i.test(tid)) continue;
+    var cur = _autoParseIds_(shotLinkVals[r][0], "sh");
+    var curMap = {};
+    for (var j = 0; j < cur.length; j++) curMap[cur[j]] = true;
+    var shouldHave = !!wantedMap[tid];
+    var has = !!curMap[shotId];
+    if (shouldHave === has) continue;
+    if (shouldHave) curMap[shotId] = true;
+    else delete curMap[shotId];
+    shotLinkVals[r][0] = _autoFormatIds_(Object.keys(curMap));
+    changed = true;
+  }
+  if (changed) taskSheet.getRange(3, cTaskShotLink, rowCount, 1).setValues(shotLinkVals);
+}
+
+function _autoSyncTaskShotLinksOnEdit_(e) {
+  if (!e || !e.range || !e.range.getSheet) return;
+  if (e.range.getRow() <= 2) return;
+  if (e.range.getNumColumns() !== 1) return;
+  var sheet = e.range.getSheet();
+  var sheetName = String(sheet.getName() || "").toLowerCase();
+  var col = e.range.getColumn();
+  var fid = String(sheet.getRange(1, col).getValue() || "").trim();
+  if (!fid) return;
+
+  var ss = sheet.getParent();
+  var taskSheet = ss.getSheetByName("Tasks");
+  var shotSheet = ss.getSheetByName("Shots");
+  if (!taskSheet || !shotSheet) return;
+
+  var startRow = e.range.getRow();
+  var rows = Math.max(1, e.range.getNumRows());
+  if (sheetName === "tasks" && fid === "fi_0031") {
+    for (var i = 0; i < rows; i++) _autoSyncTaskRowToShots_(taskSheet, shotSheet, startRow + i);
+  } else if (sheetName === "shots" && fid === "fi_0062") {
+    for (var j = 0; j < rows; j++) _autoSyncShotRowToTasks_(shotSheet, taskSheet, startRow + j);
+  }
 }

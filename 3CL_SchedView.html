@@ -343,6 +343,10 @@
       <span class="tag">Zoom</span>
       <input id="sv-zoom" type="range" min="1" max="170" value="86" style="width:130px;">
       <input id="sv-zoom-val" class="inp" type="number" min="1" max="170" step="1" value="86" style="width:58px; text-align:center;">
+      <label style="display:inline-flex; align-items:center; gap:4px; font-size:11px; color:#cbd5e1; margin-left:6px;">
+        <input id="sv-auto-height" type="checkbox">
+        Auto height
+      </label>
     </div>
     <div id="status"></div>
     <button id="btn-edit" class="btn" type="button">Edit Mode</button>
@@ -475,6 +479,7 @@ window.app = (function() {
     startPreset: 'custom',
     endPreset: 'custom',
     autoPush: true,
+    autoCellHeight: false,
     startDate: null,
     selectionTokenId: '',
     loading: false
@@ -506,6 +511,7 @@ window.app = (function() {
     inpLaneW: document.getElementById('sv-lane-w'),
     inpZoom: document.getElementById('sv-zoom'),
     inpZoomVal: document.getElementById('sv-zoom-val'),
+    chkAutoHeight: document.getElementById('sv-auto-height'),
     settingsModal: document.getElementById('settings-modal'),
     inspContent: document.getElementById('insp-content')
   };
@@ -699,6 +705,7 @@ window.app = (function() {
     state.startPreset = normalizePresetKey_(state.viewMeta.startPreset || 'custom');
     state.endPreset = normalizePresetKey_(state.viewMeta.endPreset || 'custom');
     state.autoPush = state.viewMeta.autoPush !== false;
+    state.autoCellHeight = state.viewMeta.autoCellHeight === true;
     applyLaneWidth_(state.viewMeta.laneWidth || state.laneWidth || 150);
     applyDayPx_(state.viewMeta.liteZoomPx || state.dayPx || 92);
 
@@ -884,6 +891,7 @@ window.app = (function() {
     }
     if (els.chkPush) els.chkPush.checked = !!state.autoPush;
     if (els.inpLaneW) els.inpLaneW.value = String(state.laneWidth || 150);
+    if (els.chkAutoHeight) els.chkAutoHeight.checked = !!state.autoCellHeight;
   };
 
   const renderInspector = () => {
@@ -1004,25 +1012,9 @@ window.app = (function() {
         els.laneHeaders.appendChild(d);
       });
     }
-    if (els.dateAxis) {
-      const today = toYmd(new Date());
-      els.dateAxis.innerHTML = '';
-      dayVals.forEach((d) => {
-        const n = document.createElement('div');
-        n.className = 'date-cell' + (toYmd(d) === today ? ' today' : '');
-        n.innerHTML = `<div class="main">${d.getMonth() + 1}/${d.getDate()}</div><div class="sub">(${weekday(d)})</div>`;
-        els.dateAxis.appendChild(n);
-      });
-    }
 
-    const laneW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--lane-w')) || 150;
-    const dayH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--day-h')) || 92;
-    if (els.canvas) {
-      els.canvas.style.width = (lanes.length * laneW) + 'px';
-      els.canvas.style.height = (dayVals.length * dayH) + 'px';
-      els.canvas.innerHTML = '';
-    }
-
+    const laneW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--lane-w')) || state.laneWidth || 150;
+    const dayHBase = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--day-h')) || state.dayPx || 92;
     const bucket = {};
     const keyOf = (laneId, dayIdx) => `${laneId}__${dayIdx}`;
     state.cards.forEach((c) => {
@@ -1039,19 +1031,56 @@ window.app = (function() {
       }
     });
 
+    const dayHeights = [];
+    const dayOffsets = [];
+    let cumulativeTop = 0;
+    for (let di = 0; di < dayVals.length; di++) {
+      let h = dayHBase;
+      if (state.autoCellHeight) {
+        let maxCnt = 0;
+        for (let li = 0; li < lanes.length; li++) {
+          const k = keyOf(norm(lanes[li].id), di);
+          const cnt = (bucket[k] || []).length;
+          if (cnt > maxCnt) maxCnt = cnt;
+        }
+        const needed = maxCnt > 0 ? (10 + (maxCnt * 21)) : dayHBase;
+        h = Math.max(dayHBase, needed);
+      }
+      dayHeights[di] = h;
+      dayOffsets[di] = cumulativeTop;
+      cumulativeTop += h;
+    }
+
+    if (els.dateAxis) {
+      const today = toYmd(new Date());
+      els.dateAxis.innerHTML = '';
+      dayVals.forEach((d, di) => {
+        const n = document.createElement('div');
+        n.className = 'date-cell' + (toYmd(d) === today ? ' today' : '');
+        n.style.height = `${Math.max(1, dayHeights[di] || dayHBase)}px`;
+        n.innerHTML = `<div class="main">${d.getMonth() + 1}/${d.getDate()}</div><div class="sub">(${weekday(d)})</div>`;
+        els.dateAxis.appendChild(n);
+      });
+    }
+    if (els.canvas) {
+      els.canvas.style.width = (lanes.length * laneW) + 'px';
+      els.canvas.style.height = `${Math.max(1, cumulativeTop)}px`;
+      els.canvas.innerHTML = '';
+    }
+
     for (let li = 0; li < lanes.length; li++) {
       const lane = lanes[li];
       for (let di = 0; di < dayVals.length; di++) {
         const cell = document.createElement('div');
         cell.className = 'cell';
         cell.style.left = (li * laneW) + 'px';
-        cell.style.top = (di * dayH) + 'px';
+        cell.style.top = `${Math.max(0, dayOffsets[di] || 0)}px`;
         cell.style.width = laneW + 'px';
-        cell.style.height = dayH + 'px';
+        cell.style.height = `${Math.max(1, dayHeights[di] || dayHBase)}px`;
 
         const items = (bucket[keyOf(norm(lane.id), di)] || []).slice().sort(sortInCell);
-        const maxTokens = 5;
-        const overflow = Math.max(0, items.length - maxTokens);
+        const maxTokens = state.autoCellHeight ? items.length : 5;
+        const overflow = state.autoCellHeight ? 0 : Math.max(0, items.length - maxTokens);
         const shown = overflow > 0 ? (maxTokens - 1) : items.length;
         for (let i = 0; i < shown; i++) {
           const c = items[i];
@@ -1082,7 +1111,7 @@ window.app = (function() {
           });
           cell.appendChild(token);
         }
-        if (overflow > 0) {
+        if (overflow > 0 && !state.autoCellHeight) {
           const more = document.createElement('div');
           more.className = 'token more';
           more.textContent = `+${overflow} more`;
@@ -1154,6 +1183,7 @@ window.app = (function() {
     setDuration: (daysRaw) => {
       const d = asInt(daysRaw, 1, state.dayCount);
       state.dayCount = Math.max(1, Math.min(730, d));
+      state.endPreset = 'custom';
       render();
     },
     fitViewToCards: () => {
@@ -1177,8 +1207,9 @@ window.app = (function() {
       const s = parseDateLoose(els.inpStart && els.inpStart.value);
       const e = parseDateLoose(els.inpEnd && els.inpEnd.value);
       const d = asInt(els.inpDays && els.inpDays.value, 1, state.dayCount);
+      const startBase = s || state.startDate;
       if (s) state.startDate = s;
-      if (e && s) state.dayCount = Math.max(1, dayDiff(e, s) + 1);
+      if (e && startBase) state.dayCount = Math.max(1, dayDiff(e, startBase) + 1);
       else state.dayCount = Math.max(1, Math.min(730, d));
       state.startPreset = 'custom';
       state.endPreset = 'custom';
@@ -1194,6 +1225,7 @@ window.app = (function() {
         startPreset: normalizePresetKey_(state.startPreset),
         endPreset: normalizePresetKey_(state.endPreset),
         autoPush: !!state.autoPush,
+        autoCellHeight: !!state.autoCellHeight,
         laneVisibility: visMap,
         laneWidth: state.laneWidth,
         viewMode: 'lite',
@@ -1241,6 +1273,10 @@ window.app = (function() {
       applyLaneWidth_(v);
       render();
     },
+    setAutoCellHeight: (on) => {
+      state.autoCellHeight = !!on;
+      render();
+    },
     setZoomFromSlider: (v) => {
       applyDayPx_(v);
       render();
@@ -1267,7 +1303,23 @@ window.app = (function() {
       actions.setDuration(val);
     });
     if (els.chkPush) els.chkPush.addEventListener('change', (e) => { state.autoPush = !!(e && e.target && e.target.checked); });
+    if (els.chkAutoHeight) els.chkAutoHeight.addEventListener('change', (e) => actions.setAutoCellHeight(!!(e && e.target && e.target.checked)));
     if (els.inpLaneW) els.inpLaneW.addEventListener('change', (e) => actions.setLaneWidth(e.target.value));
+    if (els.inpStart) els.inpStart.addEventListener('change', () => {
+      const d = parseDateLoose(els.inpStart.value);
+      if (!d) return;
+      state.startDate = d;
+      state.startPreset = 'custom';
+      render();
+    });
+    if (els.inpEnd) els.inpEnd.addEventListener('change', () => {
+      const d = parseDateLoose(els.inpEnd.value);
+      if (!d) return;
+      const diff = dayDiff(d, state.startDate) + 1;
+      state.dayCount = Math.max(1, Math.min(730, diff));
+      state.endPreset = 'custom';
+      render();
+    });
     const btnViewApply = document.getElementById('btn-view-apply');
     if (btnViewApply) btnViewApply.addEventListener('click', actions.applyView);
     const btnViewFit = document.getElementById('btn-view-fit');
