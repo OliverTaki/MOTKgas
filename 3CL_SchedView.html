@@ -233,16 +233,6 @@
       flex-shrink: 0;
     }
     .tk-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
-    .tk-sub {
-      max-width: 48%;
-      color: #cbd5e1;
-      font-size: 9px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      flex: 0 1 auto;
-      opacity: 0.92;
-    }
     .tk-arrow { font-size: 10px; color: #c7d2fe; flex-shrink: 0; }
     .token.more { background: rgba(17, 24, 39, 0.55); color: #cbd5e1; justify-content: center; cursor: default; }
     #empty { display: none; padding: 16px; color: #9ca3af; font-size: 12px; }
@@ -455,16 +445,8 @@
             <select id="sv-disp-main" class="inp-dark"></select>
           </div>
           <div class="inp-group">
-            <label for="sv-disp-sub">Sub (right)</label>
-            <select id="sv-disp-sub" class="inp-dark"></select>
-          </div>
-          <div class="inp-group">
             <label for="sv-disp-taskless-main">Taskless Main</label>
             <select id="sv-disp-taskless-main" class="inp-dark"></select>
-          </div>
-          <div class="inp-group">
-            <label for="sv-disp-taskless-sub">Taskless Sub</label>
-            <select id="sv-disp-taskless-sub" class="inp-dark"></select>
           </div>
         </div>
         <div class="settings-inline">
@@ -476,9 +458,7 @@
             <label for="sv-disp-add-target">Target</label>
             <select id="sv-disp-add-target" class="inp-dark">
               <option value="main">Main</option>
-              <option value="sub">Sub</option>
               <option value="taskless_main">Taskless Main</option>
-              <option value="taskless_sub">Taskless Sub</option>
             </select>
           </div>
           <button id="btn-disp-add-field" class="btn" type="button">+ Add</button>
@@ -1604,7 +1584,6 @@ window.app = (function() {
           token.innerHTML =
             `<span class="tk-order">${esc(String(display.orderText || '-'))}</span>` +
             `<span class="tk-main">${esc(display.mainText || '')}</span>` +
-            (display.subText ? `<span class="tk-sub">${esc(display.subText)}</span>` : '') +
             (arrow ? `<span class="tk-arrow">${arrow}</span>` : '');
           token.title = (
             isAsset ? `Asset ${norm(c.assetName || c.assetId)}` :
