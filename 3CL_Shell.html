@@ -114,6 +114,14 @@
       };
     })();
   </script>
+  <script>
+    (function () {
+      try {
+        var t = String(localStorage.getItem('motk_ui_theme') || '').trim().toLowerCase();
+        if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+      } catch (_) { }
+    })();
+  </script>
   <title>MOTKsheets G-Viewer</title>
   <?!= include('3CL_CommonStyles'); ?>
 </head>
@@ -128,8 +136,46 @@ var __SCRIPT_URL__ = (function () {
   return su;
 })();
 var __SCRIPT_URL_EXEC__ = String(ScriptApp.getService().getUrl() || '').trim();
+var __UI_THEME__ = (function () {
+  function normTheme(v) {
+    var s = String(v == null ? '' : v).trim().toLowerCase();
+    if (s === 'dark' || s === 'light') return s;
+    if (s === 'system' || s === 'auto') return 'system';
+    return '';
+  }
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sh = ss ? ss.getSheetByName('project_meta') : null;
+    if (sh && typeof _sv_readProjectMeta_ === 'function') {
+      var meta = _sv_readProjectMeta_(sh) || {};
+      var raw = meta['ui_theme'];
+      if (raw === undefined || raw === null || raw === '') raw = meta['ui.theme'];
+      if (raw === undefined || raw === null || raw === '') raw = meta['uiTheme'];
+      var t = normTheme(raw);
+      if (t) return t;
+    }
+  } catch (_) { }
+  return 'system';
+})();
 ?>
-<body data-nav-page="<?= page ?>" data-nav-entity="<?= entity ?>">
+<body data-nav-page="<?= page ?>" data-nav-entity="<?= entity ?>" data-ui-theme="<?= __UI_THEME__ ?>">
+  <script>
+    (function () {
+      function normalizeTheme(v) {
+        var s = String(v || '').trim().toLowerCase();
+        if (s === 'dark' || s === 'light') return s;
+        return 'system';
+      }
+      var theme = normalizeTheme(document.body.getAttribute('data-ui-theme'));
+      if (theme === 'dark' || theme === 'light') {
+        document.documentElement.setAttribute('data-theme', theme);
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+      }
+      try { localStorage.setItem('motk_ui_theme', theme); } catch (_) { }
+      window.__MOTK_UI_THEME__ = theme;
+    })();
+  </script>
   <!-- ===== 1.gnav ===== -->
   <nav id="gNav" class="gnavi" aria-label="Global Navigation">
     <span class="logo">MOTK</span>
@@ -144,7 +190,7 @@ var __SCRIPT_URL_EXEC__ = String(ScriptApp.getService().getUrl() || '').trim();
   <!-- ===== 1.End ===== -->
 
   <!-- ===== 2.pnav ===== -->
-  <? var __MOTK_SHELL_CFG__ = { quietConsole: false }; ?>
+  <? var __MOTK_SHELL_CFG__ = { quietConsole: false, uiTheme: __UI_THEME__ }; ?>
   <? var __PNAVI_ITEMS__ = (function () {
     var base = String(__SCRIPT_URL__ || '').trim();
     function parseMetaBool(v) {

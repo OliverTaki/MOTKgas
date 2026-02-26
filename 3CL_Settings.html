@@ -5,6 +5,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>MOTK Settings</title>
+  <script>
+    (function () {
+      try {
+        var t = String(localStorage.getItem('motk_ui_theme') || '').trim().toLowerCase();
+        if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+      } catch (_) {}
+    })();
+  </script>
   <?!= include('3CL_CommonStyles'); ?>
   <style>
     html, body { height: 100%; }
@@ -124,6 +132,22 @@
     </div>
 
     <div class="card">
+      <h2>Theme</h2>
+      <div class="row">
+        <select id="themeSelect">
+          <option value="system">System (Auto)</option>
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+        <button id="btnThemeSave" class="primary">Save Theme</button>
+        <span class="muted" id="themeHint"></span>
+      </div>
+      <div class="muted" style="margin-top:6px;">
+        Stored in project_meta as <code>ui_theme</code>. Applies on next page load.
+      </div>
+    </div>
+
+    <div class="card">
       <h2>PNAVI Config</h2>
       <div class="muted">Stored at project_meta key: pnavi.config.json</div>
       <div style="margin-top:10px;">
@@ -194,6 +218,8 @@
   const errorEl = $('error');
   const pnaviTextEl = $('pnaviConfig');
   const pnaviHintEl = $('pnaviMetaHint');
+  const themeSelectEl = $('themeSelect');
+  const themeHintEl = $('themeHint');
 
   let rowsState = [];    // array of row objects
   let draftState = {};   // rowId -> draft
@@ -202,6 +228,9 @@
   const newRowState = { meta_key: '', meta_value: '', meta_type: 'text', note: '' };
   const PNAVI_META_KEY = 'pnavi.config.json';
   const PNAVI_NOTE_DEFAULT = 'pnavi config';
+  const THEME_META_KEYS = ['ui_theme', 'ui.theme', 'uiTheme'];
+  const THEME_META_KEY_PRIMARY = 'ui_theme';
+  const THEME_NOTE_DEFAULT = 'ui theme (system|dark|light)';
   const PNAVI_DEFAULT = {
     items: [
       { id: 'shots', label: 'Shots', href: '?p=table&e=shots', page: 'Shots', entity: 'shot', enabled: true },
@@ -240,6 +269,42 @@
 
   function getPnaviRow_() {
     return rowsState.find((r) => String(r.meta_key || '').trim() === PNAVI_META_KEY);
+  }
+
+  function normalizeThemeValue_(raw) {
+    const v = String(raw == null ? '' : raw).trim().toLowerCase();
+    if (v === 'dark' || v === 'light') return v;
+    if (v === 'system' || v === 'auto') return 'system';
+    return 'system';
+  }
+
+  function applyThemeToDocument_(themeRaw) {
+    const theme = normalizeThemeValue_(themeRaw);
+    if (theme === 'dark' || theme === 'light') {
+      document.documentElement.setAttribute('data-theme', theme);
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+    try { localStorage.setItem('motk_ui_theme', theme); } catch (_) {}
+  }
+
+  function getThemeRow_() {
+    for (const key of THEME_META_KEYS) {
+      const found = rowsState.find((r) => String(r.meta_key || '').trim() === key);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function refreshThemeEditor_() {
+    if (!themeSelectEl) return;
+    const row = getThemeRow_();
+    const value = normalizeThemeValue_(row ? row.meta_value : 'system');
+    themeSelectEl.value = value;
+    if (themeHintEl) {
+      themeHintEl.textContent = row ? `source: ${row.meta_key} (row ${row.row})` : 'not set in project_meta';
+    }
+    applyThemeToDocument_(value);
   }
 
   function pnaviDefaultText_() {
@@ -564,6 +629,7 @@
       setDraftFromRows();
       renderMetaTable();
       refreshPnaviEditor_();
+      refreshThemeEditor_();
       setStatus('ready');
       log('loaded settings');
     } catch (e) {
@@ -654,6 +720,48 @@
     pnaviTextEl.value = pnaviDefaultText_();
     setStatus('pnavi default loaded');
     setError('');
+  });
+
+  if (themeSelectEl) {
+    themeSelectEl.addEventListener('change', () => {
+      applyThemeToDocument_(themeSelectEl.value);
+    });
+  }
+
+  $('btnThemeSave').addEventListener('click', async () => {
+    const theme = normalizeThemeValue_(themeSelectEl ? themeSelectEl.value : 'system');
+    $('btnThemeSave').disabled = true;
+    try {
+      setStatus('saving theme...');
+      setError('');
+      const row = getThemeRow_();
+      if (row) {
+        const payload = {
+          meta_key: THEME_META_KEY_PRIMARY,
+          meta_value: theme,
+          meta_type: String(row.meta_type || 'text').trim() || 'text',
+          note: String(row.note || THEME_NOTE_DEFAULT)
+        };
+        await callGas('SA_settings_updateMetaRow', [row.row, payload]);
+      } else {
+        const payload = {
+          meta_key: THEME_META_KEY_PRIMARY,
+          meta_value: theme,
+          meta_type: 'text',
+          note: THEME_NOTE_DEFAULT
+        };
+        await callGas('SA_settings_createMetaRow', [payload]);
+      }
+      await reloadAll();
+      setStatus('theme saved');
+      log(`theme saved: ${theme}`);
+    } catch (e) {
+      setStatus('error');
+      setError(String(e));
+      log(`ERROR theme save: ${e}`);
+    } finally {
+      $('btnThemeSave').disabled = false;
+    }
   });
 
   $('btnHydrate').addEventListener('click', async () => {
