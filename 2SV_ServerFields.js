@@ -13,6 +13,7 @@ function sv_getOriginalsFolderUrl(arg) {
     try { Logger.log("[MOTK][Originals] mode=missing reason=missing-id entity=%s", ent); } catch (_) { }
     return { url: "", mode: "missing", reason: "missing-id" };
   }
+  // Try existing Drive scan first
   if (arg && arg.allowFallback === true) {
     var folderId = lookupOriginalsFolderId(ent, id);
     if (folderId) {
@@ -21,8 +22,59 @@ function sv_getOriginalsFolderUrl(arg) {
       return { url: url, mode: "fallback", reason: "drive-scan" };
     }
   }
+  // Folder not found — auto-create using DriveBuilder.
+  // ensureEntityFolder() creates the folder (and renames it if the code
+  // has since been set), so the first click on "open originals" is enough
+  // to provision the folder without any extra manual step.
+  try {
+    var code = _getEntityCodeForFolder_(ent, id);
+    var folder = ensureEntityFolder(null, ent, id, code || '');
+    if (folder) {
+      var autoUrl = 'https://drive.google.com/drive/folders/' + folder.getId();
+      try { Logger.log('[MOTK][Originals] mode=auto-created entity=%s id=%s code=%s', ent, id, code); } catch (_) {}
+      return { url: autoUrl, mode: 'auto-created', reason: 'auto-created-on-access' };
+    }
+  } catch (autoErr) {
+    try { Logger.log('[MOTK][Originals] auto-create failed entity=%s id=%s err=%s', ent, id, String(autoErr && autoErr.message || autoErr)); } catch (_) {}
+  }
   try { Logger.log("[MOTK][Originals] mode=missing reason=not-found entity=%s id=%s", ent, id); } catch (_) { }
   return { url: "", mode: "missing", reason: "not-found" };
+}
+
+/**
+ * Look up the display code (ShotCode / name) for an entity from its sheet.
+ * Returns empty string if not found — ensureEntityFolder handles empty codes safely.
+ */
+function _getEntityCodeForFolder_(entity, id) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheetName = (typeof resolveEntitySheetName_ === 'function')
+      ? resolveEntitySheetName_(entity)
+      : ({ shot: 'Shots', asset: 'Assets', task: 'Tasks' }[entity] || entity);
+    var sh = ss.getSheetByName(sheetName);
+    if (!sh) return '';
+    var lastRow = sh.getLastRow();
+    var lastCol = sh.getLastColumn();
+    if (lastRow < 3 || lastCol < 1) return '';
+    var header = sh.getRange(1, 1, 1, lastCol).getValues()[0] || [];
+    // Find ID column
+    var idFid = '';
+    try { idFid = schemaGetIdFid(entity); } catch (_) {}
+    var idCol = header.indexOf(idFid);
+    if (idCol < 0) return '';
+    // Find code column (ShotCode preferred, then first non-ID display field)
+    var codeFid = '';
+    try { codeFid = schemaGetFidByFieldName(entity, 'ShotCode') || schemaGetFidByFieldName(entity, 'Code') || ''; } catch (_) {}
+    var codeCol = codeFid ? header.indexOf(codeFid) : -1;
+    if (codeCol < 0) return '';
+    var data = sh.getRange(3, 1, lastRow - 2, lastCol).getValues();
+    for (var r = 0; r < data.length; r++) {
+      if (String(data[r][idCol] || '').trim() === id) {
+        return String(data[r][codeCol] || '').trim();
+      }
+    }
+  } catch (_) {}
+  return '';
 }
 
 /** 既存互換の別名（どれか一つあればOK） */

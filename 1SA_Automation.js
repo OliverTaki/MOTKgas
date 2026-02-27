@@ -239,7 +239,17 @@ function handleDataEdit(e) {
         .getRange(r, 2, 1, sh.getLastColumn() - 1)
         .getValues()[0];
       if (hasMeaningfulRowContent_(rowData)) {
-        idCell.setValue(genId(sh, k));
+        const newId = genId(sh, k);
+        idCell.setValue(newId);
+        // Auto-create Drive originals folder for shots and assets.
+        // Called with empty code; DriveBuilder renames when code is set later.
+        // Wrapped in try/catch so a Drive error never blocks ID assignment.
+        if (k === 'shots' || k === 'assets') {
+          try {
+            const entityType = k === 'shots' ? 'shot' : 'asset';
+            ensureEntityFolder(null, entityType, newId, '');
+          } catch (_) {}
+        }
       }
     }
   }
