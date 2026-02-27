@@ -189,6 +189,18 @@
     </div>
 
     <div class="card">
+      <h2>Drive Folders — Full Sync</h2>
+      <div class="row">
+        <button id="btnDriveSyncAll" class="primary">Sync All Folders</button>
+      </div>
+      <div class="muted" style="margin-top:6px;">
+        Creates missing folders for all shots / assets / tasks, and moves any Drive folders
+        whose IDs no longer exist in the sheet to <strong>05deleted</strong> (recoverable).
+        Run this after adding shots from a template or after bulk-deleting rows.
+      </div>
+    </div>
+
+    <div class="card">
       <h2>Drive Folders (Diff / Fix)</h2>
       <div class="row">
         <select id="driveEntity">
@@ -201,7 +213,7 @@
         <button id="btnDriveFix" class="primary">Fix Missing</button>
       </div>
       <div class="muted" style="margin-top:6px;">
-        Requires DriveBuilder.gs functions diffEntityFolders / fixMissingEntityFolders.
+        Per-entity diff and targeted fix. Requires DriveBuilder.gs functions.
       </div>
     </div>
 
@@ -799,6 +811,32 @@
       log(`ERROR task recalculate: ${e}`);
     } finally {
       $('btnTaskRecalc').disabled = false;
+    }
+  });
+
+  $('btnDriveSyncAll').addEventListener('click', async () => {
+    $('btnDriveSyncAll').disabled = true;
+    try {
+      setStatus('Syncing all Drive folders…');
+      log('Starting full Drive sync (create missing + soft-delete orphans)…');
+      const out = await callGas('SA_settings_driveSyncAll', []);
+      setStatus('Sync complete');
+      const r = out.result || {};
+      ['shot', 'asset', 'task'].forEach(ent => {
+        if (r[ent] && r[ent].error) {
+          log(`${ent}: ERROR — ${r[ent].error}`);
+        } else if (r[ent]) {
+          const c = r[ent].created || {};
+          const d = r[ent].softDeleted || [];
+          log(`${ent}: created ${c.created || 0}, renamed ${c.renamed || 0}, soft-deleted ${d.length} → [${d.join(', ')}]`);
+        }
+      });
+    } catch (e) {
+      setStatus('error');
+      setError(String(e));
+      log('ERROR sync all: ' + e);
+    } finally {
+      $('btnDriveSyncAll').disabled = false;
     }
   });
 

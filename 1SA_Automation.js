@@ -75,9 +75,24 @@ function onChange(e) {
     syncHeaders();
   }
   const sh = e.source.getActiveSheet();
-  if (sh.getName().toLowerCase() === "shots") {
+  const sheetKey = sh.getName().toLowerCase();
+
+  if (sheetKey === "shots") {
     Utilities.sleep(200);
     recalcCodes(sh);
+  }
+
+  // When rows are deleted from Shots or Assets, soft-delete any Drive folders
+  // whose IDs no longer exist in the sheet (moved to 05deleted, recoverable).
+  if (e.changeType === "DELETE_ROW") {
+    if (sheetKey === "shots" || sheetKey === "assets") {
+      const entityType = sheetKey === "shots" ? "shot" : "asset";
+      try {
+        softDeleteOrphanedFolders(entityType);
+      } catch (_) {
+        // Drive errors must never block the sheet operation
+      }
+    }
   }
 }
 

@@ -281,6 +281,63 @@ function syncAllEntitiesSafe(limitPerEntity) {
   return results;
 }
 
+/**
+ * Soft-delete orphaned Drive folders for a given entity.
+ * "Orphaned" = folder exists in Drive but its ID prefix is no longer in the sheet.
+ * Orphans are moved to 05deleted (recoverable) rather than permanently trashed.
+ * Returns array of folder names that were moved.
+ */
+function softDeleteOrphanedFolders(entity) {
+  var ss = getHostSpreadsheet_();
+  var dh = ss.getSheetByName('DataHub');
+  var idLabel = inferCoreFieldLabel_(dh, entity, 'id');
+  var sheetIds = idLabel ? getCoreArray_(dh, entity, idLabel) : [];
+  var idSet = {};
+  sheetIds.forEach(function(id) { if (id) idSet[String(id).trim()] = true; });
+
+  var meta = getProjectMeta();
+  var roots = getOrCreateProjectRoots(meta);
+  var originalsRoot = DriveApp.getFolderById(roots.originalsId);
+  var rootName = ENTITY_ROOTS[entity];
+  if (!rootName) throw new Error('softDeleteOrphanedFolders: unknown entity → ' + entity);
+
+  var entityRoot = getOrCreateSub_(originalsRoot, rootName);
+  var delRoot   = getOrCreateSub_(originalsRoot, '05deleted');
+
+  var moved = [];
+  var it = entityRoot.getFolders();
+  while (it.hasNext() && timeLeft_() > 5000) {
+    var f = it.next();
+    var idPart = f.getName().split('__')[0];
+    if (!idPart) continue;
+    if (!idSet[idPart]) {
+      f.moveTo(delRoot);
+      moved.push(f.getName());
+    }
+  }
+  return moved;
+}
+
+/**
+ * Full two-way sync for all entities:
+ *   1. Create missing folders (sheet IDs not yet in Drive)
+ *   2. Soft-delete orphaned folders (Drive folders with no matching sheet ID)
+ * Safe to call at any time; orphans go to 05deleted and can be recovered.
+ */
+function syncAndCleanAll(limitPerEntity) {
+  var results = {};
+  ['shot', 'asset', 'task'].forEach(function(ent) {
+    try {
+      var created = syncEntityFoldersSafe(ent, limitPerEntity);
+      var softDeleted = softDeleteOrphanedFolders(ent);
+      results[ent] = { created: created, softDeleted: softDeleted };
+    } catch (e) {
+      results[ent] = { error: String(e && e.message ? e.message : e) };
+    }
+  });
+  return results;
+}
+
 function TEST_DriveBuilder_ensureEntityFolder() {
   const entities = ['shot', 'asset', 'task', undefined, '', 'shots', 'Shot'];
   entities.forEach(e => {

@@ -142,6 +142,21 @@ function SA_settings_driveFixMissing(entity, limit) {
   return { ok: true, entity: e, result: out };
 }
 
+/**
+ * Full two-way Drive sync (create missing + soft-delete orphans) for all entities.
+ * Calls syncAndCleanAll() from DriveBuilder.
+ * Orphaned folders are moved to 05deleted — not permanently deleted.
+ */
+function SA_settings_driveSyncAll(limitPerEntity) {
+  _settings_requireAccess_();
+  if (typeof syncAndCleanAll !== 'function') throw new Error('syncAndCleanAll() not found (1SA_DriveBuilder.js)');
+  var lim = (limitPerEntity !== undefined && limitPerEntity !== null && limitPerEntity !== '')
+    ? Number(limitPerEntity) : undefined;
+  if (lim !== undefined && (!isFinite(lim) || lim < 1)) throw new Error('limit must be a positive number');
+  var result = lim !== undefined ? syncAndCleanAll(lim) : syncAndCleanAll();
+  return { ok: true, result: result };
+}
+
 function SA_settings_recalculateTaskEst(includeCompleted) {
   _settings_requireAccess_();
   if (typeof sv_task_recalculate_v1 !== 'function') throw new Error('sv_task_recalculate_v1() not found');
