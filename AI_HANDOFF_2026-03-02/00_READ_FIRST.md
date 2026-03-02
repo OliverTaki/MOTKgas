@@ -11,6 +11,7 @@ Read order:
 6. `04_FOUNDATIONAL_MENTAL_MODEL.md`
 7. `06_NEXT_SESSION_START_CHECKLIST.md`
 8. `07_NEW_MACHINE_GIT_AND_CLASP_RECOVERY.md`
+9. `08_ONE_SHOT_VALIDATION_COMMANDS.md`
 
 Current source of truth:
 - Local physical workspace: `src/`
